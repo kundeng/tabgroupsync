@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Tab Group Sync</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Tab Group Sync</h1>
+    
+    <div class="settings">
+      <h2>Settings</h2>
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="autoSync">
+          Auto-sync tab groups
+        </label>
+      </div>
+      
+      <div class="setting-item">
+        <button id="selectFolder">Select Parent Folder</button>
+        <p id="currentFolder">No folder selected</p>
+      </div>
+    </div>
+
+    <div class="groups">
+      <h2>Current Tab Groups</h2>
+      <div id="groupList"></div>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
