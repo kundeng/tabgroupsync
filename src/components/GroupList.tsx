@@ -10,12 +10,16 @@ import {
   IconButton,
   Tooltip,
   CircularProgress,
+  Button,
+  Divider,
 } from '@mui/material';
 import {
   Sync as SyncIcon,
   Error as ErrorIcon,
   Info as InfoIcon,
+  Refresh as RefreshIcon,
 } from '@mui/icons-material';
+import SnapshotList from './SnapshotList';
 import { StorageManager } from '../lib/storage/storageManager';
 import { SyncEngine } from '../lib/sync/syncEngine';
 import { GroupFolderMapping } from '../lib/types/storage';
@@ -27,32 +31,30 @@ interface GroupListProps {
 
 interface TabGroupWithMapping extends chrome.tabGroups.TabGroup {
   mapping?: GroupFolderMapping;
+  syncEnabled?: boolean;
 }
 
 export default function GroupList({ storage, syncEngine }: GroupListProps) {
   const [groups, setGroups] = React.useState<TabGroupWithMapping[]>([]);
-  const [mappings, setMappings] = React.useState<Record<number, GroupFolderMapping>>({});
+  const [syncing, setSyncing] = React.useState<Record<number, boolean>>({});
 
-  // Load groups and their mappings
+  // Load groups and their sync states
   React.useEffect(() => {
     const loadGroups = async () => {
       // Get all tab groups
       chrome.tabGroups.query({}, async (groups) => {
-        const mappings = await storage.getAllMappings();
-        setMappings(mappings);
-        
-        // Combine groups with their mappings
-        const groupsWithMappings = groups.map(group => ({
+        // Get sync state for each group
+        const groupsWithState = await Promise.all(groups.map(async (group) => ({
           ...group,
-          mapping: mappings[group.id]
-        }));
-        
-        setGroups(groupsWithMappings);
+          syncEnabled: await syncEngine.getGroupSyncEnabled(group.id.toString()),
+        })));
+
+        setGroups(groupsWithState);
       });
     };
 
     loadGroups();
-    
+
     // Set up listeners for group changes
     const handleGroupChange = () => loadGroups();
     chrome.tabGroups.onCreated.addListener(handleGroupChange);
@@ -64,40 +66,29 @@ export default function GroupList({ storage, syncEngine }: GroupListProps) {
       chrome.tabGroups.onUpdated.removeListener(handleGroupChange);
       chrome.tabGroups.onRemoved.removeListener(handleGroupChange);
     };
-  }, [storage]);
+  }, [storage, syncEngine]);
 
   const handleSyncToggle = async (groupId: number) => {
-    await syncEngine.toggleSync(groupId);
-    const newMappings = await storage.getAllMappings();
-    setMappings(newMappings);
+    const newState = !groups.find(g => g.id === groupId)?.syncEnabled;
+    await syncEngine.setGroupSyncEnabled(groupId.toString(), newState);
+    
+    // Refresh groups to update UI
+    chrome.tabGroups.query({}, async (groups) => {
+      const groupsWithState = await Promise.all(groups.map(async (group) => ({
+        ...group,
+        syncEnabled: await syncEngine.getGroupSyncEnabled(group.id.toString()),
+      })));
+      setGroups(groupsWithState);
+    });
   };
 
-  const getSyncStatus = (group: TabGroupWithMapping) => {
-    if (!group.mapping) return null;
-    
-    if (group.mapping.status.inProgress) {
-      return (
-        <CircularProgress size={20} />
-      );
+  const handleFullResync = async (group: chrome.tabGroups.TabGroup) => {
+    setSyncing(prev => ({ ...prev, [group.id]: true }));
+    try {
+      await syncEngine.fullResyncGroup(group);
+    } finally {
+      setSyncing(prev => ({ ...prev, [group.id]: false }));
     }
-
-    if (group.mapping.status.error) {
-      return (
-        <Tooltip title={group.mapping.status.error}>
-          <ErrorIcon color="error" />
-        </Tooltip>
-      );
-    }
-
-    if (group.mapping.syncEnabled) {
-      return (
-        <Tooltip title={`Last synced: ${new Date(group.mapping.status.lastSynced).toLocaleString()}`}>
-          <SyncIcon color="primary" />
-        </Tooltip>
-      );
-    }
-
-    return null;
   };
 
   return (
@@ -105,7 +96,7 @@ export default function GroupList({ storage, syncEngine }: GroupListProps) {
       <Typography variant="subtitle1" sx={{ mb: 1 }}>
         Tab Groups
       </Typography>
-      
+
       <List>
         {groups.map((group) => (
           <ListItem
@@ -120,21 +111,41 @@ export default function GroupList({ storage, syncEngine }: GroupListProps) {
             <ListItemText
               primary={group.title || 'Unnamed Group'}
               secondary={
-                group.mapping?.status.error ? (
-                  <Typography variant="caption" color="error">
-                    {group.mapping.status.error}
-                  </Typography>
-                ) : null
+                <Typography variant="caption" color="text.secondary">
+                  {group.syncEnabled ? 'Backing up to bookmarks' : 'Sync paused'}
+                </Typography>
               }
             />
-            <ListItemSecondaryAction sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              {getSyncStatus(group)}
-              <Switch
-                edge="end"
-                checked={group.mapping?.syncEnabled ?? false}
-                onChange={() => handleSyncToggle(group.id)}
-              />
-            </ListItemSecondaryAction>
+            <>
+              <ListItemSecondaryAction sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <SnapshotList
+                  storage={storage}
+                  groupId={group.id.toString()}
+                  groupName={group.title || 'Unnamed Group'}
+                />
+                <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+                <Tooltip title="Full resync (replaces all bookmarks)">
+                  <IconButton
+                    edge="end"
+                    onClick={() => handleFullResync(group)}
+                    disabled={!group.syncEnabled || syncing[group.id]}
+                  >
+                    {syncing[group.id] ? (
+                      <CircularProgress size={20} />
+                    ) : (
+                      <RefreshIcon />
+                    )}
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title={group.syncEnabled ? 'Pause backup' : 'Resume backup'}>
+                  <Switch
+                    edge="end"
+                    checked={group.syncEnabled ?? false}
+                    onChange={() => handleSyncToggle(group.id)}
+                  />
+                </Tooltip>
+              </ListItemSecondaryAction>
+            </>
           </ListItem>
         ))}
       </List>
@@ -143,10 +154,17 @@ export default function GroupList({ storage, syncEngine }: GroupListProps) {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
           <InfoIcon fontSize="small" />
           <Typography variant="body2">
-            No tab groups found
+            No tab groups found. Create a tab group to start backing up.
           </Typography>
         </Box>
       )}
+
+      <Box sx={{ mt: 2, color: 'text.secondary' }}>
+        <Typography variant="caption" component="div" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <InfoIcon fontSize="small" />
+          Changes to tab groups are automatically backed up to bookmarks. Bookmarks are never deleted when tabs are closed.
+        </Typography>
+      </Box>
     </Box>
   );
 }

@@ -4,8 +4,8 @@ import { findBookmarksByTitle, getBookmark, getBookmarkChildren } from './bookma
 
 export class BookmarkManager {
   private storage: StorageManager;
-  private groupFolderMap: Map<number, string> = new Map(); // Maps group IDs to folder IDs
-  private folderGroupMap: Map<string, number> = new Map(); // Maps folder IDs to group IDs
+  private groupFolderMap = new Map<string, string>(); // Maps group IDs (as strings) to folder IDs
+  private groupSyncState = new Map<string, boolean>(); // Tracks sync state per group
 
   constructor(storage: StorageManager) {
     this.storage = storage;
@@ -31,52 +31,38 @@ export class BookmarkManager {
     return createBookmark(parent.id, name);
   }
 
+  // Set sync state for a group
+  setSyncState(groupId: string, enabled: boolean): void {
+    this.groupSyncState.set(groupId, enabled);
+  }
+
+  // Get sync state for a group
+  getSyncState(groupId: string): boolean {
+    return this.groupSyncState.get(groupId) ?? false;
+  }
+
   async syncGroupToFolder(
-    groupId: number,
+    groupId: string,
     tabs: chrome.tabs.Tab[],
     folderName: string
   ): Promise<void> {
-    if (!(await this.shouldSync())) return;
+    // Check both global and group-specific sync settings
+    if (!(await this.shouldSync()) || !this.getSyncState(groupId)) return;
 
     const folder = await this.getOrCreateSubFolder(folderName);
     await this.updateFolderTabs(folder.id, tabs);
 
-    // Update mappings
+    // Update mapping
     this.groupFolderMap.set(groupId, folder.id);
-    this.folderGroupMap.set(folder.id, groupId);
-  }
-
-  async handleBookmarkCreated(
-    id: string,
-    bookmark: chrome.bookmarks.BookmarkTreeNode
-  ): Promise<void> {
-    if (!(await this.shouldSync())) return;
-
-    const parentFolder = await this.getParentFolder();
-    if (!parentFolder) return;
-
-    // Only handle bookmarks created in subfolders of our parent folder
-    if (!bookmark.parentId) return;
-    const parent = await getBookmark(bookmark.parentId);
-    if (!parent || parent.parentId !== parentFolder.id) return;
-
-    // If this is a new folder under our parent, it might represent a new tab group
-    if (!bookmark.url) {
-      await this.createTabGroupFromFolder(bookmark.id);
-    }
   }
 
   async handleBookmarkRemoved(
     id: string,
     removeInfo: { parentId: string; index: number; node: chrome.bookmarks.BookmarkTreeNode }
   ): Promise<void> {
-    if (!(await this.shouldSync())) return;
-
-    // If a folder was removed and it was mapped to a group, remove the mapping
-    if (this.folderGroupMap.has(id)) {
-      const groupId = this.folderGroupMap.get(id)!;
-      this.folderGroupMap.delete(id);
-      this.groupFolderMap.delete(groupId);
+    // We only need to update our mappings if a folder is removed
+    if (this.groupFolderMap.has(id)) {
+      this.groupFolderMap.delete(id);
     }
   }
 
@@ -95,42 +81,36 @@ export class BookmarkManager {
     await this.updateFolderTabs(settings.folderId, tabs);
   }
 
-  async createTabGroupFromFolder(folderId: string): Promise<void> {
-    const folder = await getBookmark(folderId);
-    if (!folder) throw new Error('Folder not found');
-    const bookmarks = await getBookmarkChildren(folder.id);
-    if (bookmarks.length === 0) return;
+  // Manual full resync that replaces all bookmarks
+  async fullResync(
+    groupId: string,
+    tabs: chrome.tabs.Tab[],
+    folderName: string
+  ): Promise<void> {
+    if (!(await this.shouldSync())) return;
 
-    // Create a new window with the bookmarked tabs
-    const window = await chrome.windows.create({ focused: false });
-    const tabs: chrome.tabs.Tab[] = [];
+    const folder = await this.getOrCreateSubFolder(folderName);
+    const children = await getBookmarkChildren(folder.id);
+    
+    // Remove all existing bookmarks for a clean slate
+    await Promise.all(children.map((child) => removeBookmark(child.id)));
 
-    // Create tabs for each bookmark
-    for (const bookmark of bookmarks) {
-      if (bookmark.url) {
-        const tab = await chrome.tabs.create({
-          url: bookmark.url,
-          windowId: window.id,
-          active: false
-        });
-        tabs.push(tab);
-      }
-    }
+    // Add all current tabs
+    const validTabs = tabs
+      .map(tab => ({
+        title: tab.title || '',
+        url: tab.url || tab.pendingUrl
+      }))
+      .filter((tab): tab is { title: string; url: string } =>
+        typeof tab.url === 'string'
+      );
 
-    // Create a new tab group for these tabs
-    if (tabs.length > 0) {
-      const groupId = await chrome.tabs.group({
-        tabIds: tabs.map(tab => tab.id!),
-        createProperties: { windowId: window.id }
-      });
+    await Promise.all(
+      validTabs.map(tab => createBookmark(folder.id, tab.title, tab.url))
+    );
 
-      // Update the group title
-      await chrome.tabGroups.update(groupId, { title: folder.title });
-
-      // Store the mapping
-      this.groupFolderMap.set(groupId, folder.id);
-      this.folderGroupMap.set(folder.id, groupId);
-    }
+    // Update mapping
+    this.groupFolderMap.set(groupId, folder.id);
   }
 
   private async getOrCreateSubFolder(
@@ -145,22 +125,25 @@ export class BookmarkManager {
     return existing || createBookmark(parent.id, name);
   }
 
+  // Only adds new bookmarks, never removes existing ones
   private async updateFolderTabs(
     folderId: string,
     tabs: chrome.tabs.Tab[]
   ): Promise<void> {
     const children = await getBookmarkChildren(folderId);
-    await Promise.all(children.map((child) => removeBookmark(child.id)));
-    // Only create bookmarks for tabs with valid URLs
+    const existingUrls = new Set(children.map(child => child.url));
+
+    // Only create bookmarks for new tabs with valid URLs
     const validTabs = tabs
       .map(tab => ({
         title: tab.title || '',
         url: tab.url || tab.pendingUrl
       }))
-      .filter((tab): tab is { title: string; url: string } => 
-        typeof tab.url === 'string'
+      .filter((tab): tab is { title: string; url: string } =>
+        typeof tab.url === 'string' && !existingUrls.has(tab.url)
       );
 
+    // Add only new bookmarks, never remove existing ones
     await Promise.all(
       validTabs.map(tab => createBookmark(folderId, tab.title, tab.url))
     );

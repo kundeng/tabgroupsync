@@ -1,15 +1,26 @@
 import { StorageManager } from '../storage/storageManager';
 import { BookmarkManager } from '../bookmarkManager';
 import { TabGroupManager } from '../tabGroupManager';
+import { getTabsInGroup } from '../utils/tabUtils';
 import { SyncError, ErrorType, withErrorHandling } from '../utils/errors';
+import { Logger, LogLevel, withRetry, OperationTracker } from '../utils/logger';
 import { GroupFolderMapping, TabGroupId, BookmarkFolderId } from '../types/storage';
 
 export class SyncEngine {
+  private logger = Logger.getInstance();
+  private tracker = OperationTracker.getInstance();
+
   constructor(
     private storage: StorageManager,
     private bookmarkManager: BookmarkManager,
     private tabGroupManager: TabGroupManager
-  ) {}
+  ) {
+    this.logger.info('SyncEngine:init', { timestamp: Date.now() });
+  }
+
+  private toNumberId(id: TabGroupId): number {
+    return parseInt(id, 10);
+  }
 
   // Main sync methods
   async syncAll(): Promise<void> {
@@ -34,9 +45,13 @@ export class SyncEngine {
   }
 
   async syncGroupToFolder(groupId: TabGroupId): Promise<void> {
+    const opId = this.tracker.startOperation('syncGroupToFolder', { groupId });
+    
     return withErrorHandling(async () => {
       const mapping = await this.storage.getMapping(groupId);
       if (!mapping || !mapping.syncEnabled) return;
+
+      const numericId = this.toNumberId(groupId);
 
       // Update sync status
       await this.storage.updateMapping(groupId, {
@@ -44,13 +59,24 @@ export class SyncEngine {
       });
 
       try {
-        const group = await this.tabGroupManager.getGroup(groupId);
+        const group = await withRetry('getGroup', 
+          () => this.tabGroupManager.getGroup(numericId),
+          { maxAttempts: 3, delayMs: 500 }
+        );
+        
         if (!group) {
           throw new SyncError(`Tab group ${groupId} not found`);
         }
 
-        const tabs = await this.tabGroupManager.getGroupTabs(groupId);
-        await this.bookmarkManager.syncGroupToFolder(groupId, tabs, group.title || 'Unnamed Group');
+        const tabs = await withRetry<chrome.tabs.Tab[]>('getGroupTabs',
+          () => getTabsInGroup(numericId),
+          { maxAttempts: 3, delayMs: 500 }
+        );
+
+        await withRetry('syncToFolder',
+          () => this.bookmarkManager.syncGroupToFolder(groupId, tabs, group.title || 'Unnamed Group'),
+          { maxAttempts: 3, delayMs: 1000 }
+        );
 
         // Update sync status on success
         await this.storage.updateMapping(groupId, {
@@ -66,6 +92,10 @@ export class SyncEngine {
           success: true
         });
       } catch (error) {
+        this.logger.error('syncGroupToFolder:failed', {
+          groupId,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }, error instanceof Error ? error : undefined);
         // Update sync status on failure
         await this.storage.updateMapping(groupId, {
           status: {
@@ -86,41 +116,12 @@ export class SyncEngine {
         });
 
         throw error;
+      } finally {
+        this.tracker.endOperation(opId);
       }
     }, ErrorType.SYNC);
   }
 
-  async syncFolderToGroup(folderId: BookmarkFolderId): Promise<void> {
-    return withErrorHandling(async () => {
-      const mapping = await this.storage.getFolderMapping(folderId);
-      if (!mapping || !mapping.syncEnabled) return;
-
-      try {
-        await this.bookmarkManager.createTabGroupFromFolder(folderId);
-
-        // Add success entry to history
-        await this.storage.addHistoryEntry({
-          timestamp: Date.now(),
-          type: 'folder-to-group',
-          groupId: mapping.groupId,
-          folderId,
-          success: true
-        });
-      } catch (error) {
-        // Add failure entry to history
-        await this.storage.addHistoryEntry({
-          timestamp: Date.now(),
-          type: 'folder-to-group',
-          groupId: mapping.groupId,
-          folderId,
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
-
-        throw error;
-      }
-    }, ErrorType.SYNC);
-  }
 
   async syncUngroupedTabs(): Promise<void> {
     return withErrorHandling(async () => {
@@ -199,6 +200,51 @@ export class SyncEngine {
 
       await this.storage.addMapping(mapping);
       await this.syncGroupToFolder(groupId);
+    }, ErrorType.SYNC);
+  }
+
+  // Public methods for tab group sync management
+  async getGroupSyncEnabled(groupId: TabGroupId): Promise<boolean> {
+    return this.tabGroupManager.getSyncEnabled(this.toNumberId(groupId));
+  }
+
+  async setGroupSyncEnabled(groupId: TabGroupId, enabled: boolean): Promise<void> {
+    this.tabGroupManager.setSyncEnabled(this.toNumberId(groupId), enabled);
+    if (enabled) {
+      const numericId = this.toNumberId(groupId);
+      const group = await this.tabGroupManager.getGroup(numericId);
+      if (group) {
+        await this.syncGroupToFolder(groupId);
+      }
+    }
+  }
+
+  async fullResyncGroup(group: chrome.tabGroups.TabGroup): Promise<void> {
+    const opId = this.tracker.startOperation('fullResyncGroup', { 
+      groupId: group.id,
+      title: group.title 
+    });
+
+    return withErrorHandling(async () => {
+      try {
+        await withRetry('fullResync',
+          () => this.tabGroupManager.fullResync(group),
+          { maxAttempts: 3, delayMs: 1000 }
+        );
+        this.logger.info('fullResyncGroup:success', { 
+          groupId: group.id,
+          title: group.title
+        });
+      } catch (error) {
+        this.logger.error('fullResyncGroup:failed', {
+          groupId: group.id,
+          title: group.title,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }, error instanceof Error ? error : undefined);
+        throw error;
+      } finally {
+        this.tracker.endOperation(opId);
+      }
     }, ErrorType.SYNC);
   }
 

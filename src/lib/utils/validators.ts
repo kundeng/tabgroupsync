@@ -5,7 +5,8 @@ import {
   SyncHistoryEntry,
   GlobalSettings,
   UngroupedTabsSettings,
-  SyncStatus
+  SyncStatus,
+  TabGroupId
 } from '../types/storage';
 
 // Validation helper functions
@@ -67,7 +68,7 @@ export function validateGroupFolderMapping(mapping: unknown): GroupFolderMapping
   } = mapping as GroupFolderMapping;
 
   return {
-    groupId: validateNumber(groupId, 'groupId'),
+    groupId: validateString(groupId, 'groupId'),
     folderId: validateString(folderId, 'folderId'),
     name: validateString(name, 'name'),
     color: validateOptional(color, v => validateString(v, 'color')),
@@ -97,7 +98,7 @@ export function validateSyncHistoryEntry(entry: unknown): SyncHistoryEntry {
   return {
     timestamp: validateNumber(timestamp, 'timestamp'),
     type,
-    groupId: validateOptional(groupId, v => validateNumber(v, 'groupId')),
+    groupId: validateOptional(groupId, v => validateString(v, 'groupId')),
     folderId: validateString(folderId, 'folderId'),
     success: validateBoolean(success, 'success'),
     error: validateOptional(error, v => validateString(v, 'error'))
@@ -168,13 +169,13 @@ export function validateStorageState(state: unknown): StorageState {
   const validatedSettings = validateGlobalSettings(settings);
 
   // Validate mappings
-  const validatedMappings: Record<number, GroupFolderMapping> = {};
+  const validatedMappings: Record<TabGroupId, GroupFolderMapping> = {};
   if (typeof mappings !== 'object') {
     throw new ValidationError('Invalid mappings object');
   }
   
   Object.entries(mappings).forEach(([key, value]) => {
-    validatedMappings[Number(key)] = validateGroupFolderMapping(value);
+    validatedMappings[key] = validateGroupFolderMapping(value);
   });
 
   // Validate ungrouped tabs settings

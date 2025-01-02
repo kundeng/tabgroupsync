@@ -1,5 +1,6 @@
 // Unique identifiers
-export type TabGroupId = number;
+// All IDs are stored as strings for consistency
+export type TabGroupId = string;
 export type BookmarkFolderId = string;
 export type WindowId = number;
 
