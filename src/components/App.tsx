@@ -1,5 +1,5 @@
 import React from 'react';
-import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
+import { ThemeProvider, createTheme, CssBaseline, Box } from '@mui/material';
 import { TreeView } from '@mui/lab';
 import { ExpandMore, ChevronRight } from '@mui/icons-material';
 import { StorageManager } from '../lib/storage/storageManager';
@@ -33,6 +33,21 @@ const theme = createTheme({
         },
       },
     },
+    MuiListItem: {
+      styleOverrides: {
+        root: {
+          paddingTop: 8,
+          paddingBottom: 8,
+        },
+      },
+    },
+    MuiIconButton: {
+      styleOverrides: {
+        root: {
+          padding: 6,
+        },
+      },
+    },
   },
 });
 
@@ -60,12 +75,47 @@ export default function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <div style={{ width: '400px', padding: '16px' }}>
-        <Header />
-        <Settings storage={storage} syncEngine={syncEngine} />
-        <GroupList storage={storage} syncEngine={syncEngine} />
-        <SyncStatus storage={storage} />
-      </div>
+      <Box 
+        sx={{
+          width: '480px',
+          height: '100vh',
+          maxHeight: '600px',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden'
+        }}
+      >
+        <Box sx={{ px: 3, pt: 2, pb: 1 }}>
+          <Header />
+          <Settings storage={storage} syncEngine={syncEngine} />
+        </Box>
+        <Box 
+          sx={{ 
+            flex: 1,
+            overflowY: 'auto',
+            px: 3,
+            pb: 2,
+            '&::-webkit-scrollbar': {
+              width: '8px',
+            },
+            '&::-webkit-scrollbar-track': {
+              background: 'transparent',
+            },
+            '&::-webkit-scrollbar-thumb': {
+              background: '#bbb',
+              borderRadius: '4px',
+              '&:hover': {
+                background: '#999',
+              },
+            },
+          }}
+        >
+          <GroupList storage={storage} syncEngine={syncEngine} />
+        </Box>
+        <Box sx={{ px: 3, py: 1, borderTop: 1, borderColor: 'divider' }}>
+          <SyncStatus storage={storage} />
+        </Box>
+      </Box>
     </ThemeProvider>
   );
 }

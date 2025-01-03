@@ -6,7 +6,10 @@ import {
   GlobalSettings,
   UngroupedTabsSettings,
   SyncStatus,
-  TabGroupId
+  TabGroupId,
+  GroupSyncSettings,
+  CleanupSettings,
+  GroupState
 } from '../types/storage';
 
 // Validation helper functions
@@ -105,6 +108,26 @@ export function validateSyncHistoryEntry(entry: unknown): SyncHistoryEntry {
   };
 }
 
+export function validateCleanupSettings(settings: unknown): CleanupSettings {
+  if (!settings || typeof settings !== 'object') {
+    throw new ValidationError('Invalid cleanup settings object');
+  }
+
+  const {
+    enabled,
+    inactiveThreshold,
+    autoArchive,
+    deleteThreshold
+  } = settings as CleanupSettings;
+
+  return {
+    enabled: validateBoolean(enabled, 'enabled'),
+    inactiveThreshold: validateNumber(inactiveThreshold, 'inactiveThreshold'),
+    autoArchive: validateBoolean(autoArchive, 'autoArchive'),
+    deleteThreshold: validateNumber(deleteThreshold, 'deleteThreshold')
+  };
+}
+
 export function validateGlobalSettings(settings: unknown): GlobalSettings {
   if (!settings || typeof settings !== 'object') {
     throw new ValidationError('Invalid global settings object');
@@ -115,7 +138,8 @@ export function validateGlobalSettings(settings: unknown): GlobalSettings {
     parentFolderId,
     syncInterval,
     keepRemoved,
-    syncUngrouped
+    syncUngrouped,
+    cleanup
   } = settings as GlobalSettings;
 
   return {
@@ -123,7 +147,8 @@ export function validateGlobalSettings(settings: unknown): GlobalSettings {
     parentFolderId: validateOptional(parentFolderId, v => validateString(v, 'parentFolderId')),
     syncInterval: validateOptional(syncInterval, v => validateNumber(v, 'syncInterval')),
     keepRemoved: validateBoolean(keepRemoved, 'keepRemoved'),
-    syncUngrouped: validateBoolean(syncUngrouped, 'syncUngrouped')
+    syncUngrouped: validateBoolean(syncUngrouped, 'syncUngrouped'),
+    cleanup: validateCleanupSettings(cleanup)
   };
 }
 
@@ -149,6 +174,54 @@ export function validateUngroupedTabsSettings(settings: unknown): UngroupedTabsS
   };
 }
 
+export function validateGroupSyncSettings(settings: unknown): GroupSyncSettings {
+  if (!settings || typeof settings !== 'object') {
+    throw new ValidationError('Invalid group sync settings object');
+  }
+
+  const {
+    enabled,
+    folderId,
+    lastSynced
+  } = settings as GroupSyncSettings;
+
+  return {
+    enabled: validateBoolean(enabled, 'enabled'),
+    folderId: validateOptional(folderId, v => validateString(v, 'folderId')),
+    lastSynced: validateOptional(lastSynced, v => validateNumber(v, 'lastSynced'))
+  };
+}
+
+export function validateGroupState(state: unknown): GroupState {
+  if (!state || typeof state !== 'object') {
+    throw new ValidationError('Invalid group state object');
+  }
+
+  const {
+    id,
+    name,
+    color,
+    windowId,
+    lastSeen,
+    folderId,
+    syncEnabled,
+    status,
+    archived
+  } = state as GroupState;
+
+  return {
+    id: validateString(id, 'id'),
+    name: validateString(name, 'name'),
+    color: validateOptional(color, v => validateString(v, 'color')),
+    windowId: validateOptional(windowId, v => validateNumber(v, 'windowId')),
+    lastSeen: validateNumber(lastSeen, 'lastSeen'),
+    folderId: validateOptional(folderId, v => validateString(v, 'folderId')),
+    syncEnabled: validateBoolean(syncEnabled, 'syncEnabled'),
+    status: validateSyncStatus(status),
+    archived: validateBoolean(archived, 'archived')
+  };
+}
+
 export function validateStorageState(state: unknown): StorageState {
   if (!state || typeof state !== 'object') {
     throw new ValidationError('Invalid storage state object');
@@ -157,6 +230,8 @@ export function validateStorageState(state: unknown): StorageState {
   const {
     version,
     settings,
+    groups,
+    groupSettings,
     mappings,
     ungroupedTabs,
     syncHistory
@@ -167,6 +242,26 @@ export function validateStorageState(state: unknown): StorageState {
 
   // Validate settings
   const validatedSettings = validateGlobalSettings(settings);
+
+  // Validate groups
+  const validatedGroups: Record<TabGroupId, GroupState> = {};
+  if (typeof groups !== 'object') {
+    throw new ValidationError('Invalid groups object');
+  }
+  
+  Object.entries(groups || {}).forEach(([key, value]) => {
+    validatedGroups[key] = validateGroupState(value);
+  });
+
+  // Validate group settings
+  const validatedGroupSettings: Record<TabGroupId, GroupSyncSettings> = {};
+  if (typeof groupSettings !== 'object') {
+    throw new ValidationError('Invalid group settings object');
+  }
+  
+  Object.entries(groupSettings || {}).forEach(([key, value]) => {
+    validatedGroupSettings[key] = validateGroupSyncSettings(value);
+  });
 
   // Validate mappings
   const validatedMappings: Record<TabGroupId, GroupFolderMapping> = {};
@@ -192,6 +287,8 @@ export function validateStorageState(state: unknown): StorageState {
   return {
     version: validatedVersion,
     settings: validatedSettings,
+    groups: validatedGroups,
+    groupSettings: validatedGroupSettings,
     mappings: validatedMappings,
     ungroupedTabs: validatedUngroupedTabs,
     syncHistory: validatedSyncHistory

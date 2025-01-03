@@ -7,7 +7,9 @@ import {
   SyncHistoryEntry,
   TabGroupId,
   BookmarkFolderId,
-  GlobalSettings
+  GlobalSettings,
+  GroupSyncSettings,
+  GroupState
 } from '../types/storage';
 import { validateStorageState, validateGroupFolderMapping, validateSyncHistoryEntry } from '../utils/validators';
 import { StorageError, withErrorHandling, ErrorType } from '../utils/errors';
@@ -27,13 +29,28 @@ export class StorageManager {
         chrome.storage.sync.get('state', resolve);
       });
 
-      if (result.state) {
-        try {
+      try {
+        if (result.state) {
           const validatedState = validateStorageState(result.state);
           this.state = this.migrateStateIfNeeded(validatedState);
-        } catch (error) {
-          throw new StorageError('Failed to validate stored state', error);
+        } else {
+          // Initialize with default state
+          this.state = DEFAULT_STATE;
+          await this.saveState();
+          this.notify({
+            type: 'settings-changed',
+            data: this.state
+          });
         }
+      } catch (error) {
+        // If validation fails, reset to default state
+        this.state = DEFAULT_STATE;
+        await this.saveState();
+        this.notify({
+          type: 'settings-changed',
+          data: this.state
+        });
+        throw new StorageError('Failed to validate stored state, reset to default', error);
       }
     }, ErrorType.STORAGE);
   }
@@ -67,10 +84,52 @@ export class StorageManager {
     this.observers.forEach(callback => callback(event));
   }
 
+  // State Management
+  async getState(): Promise<StorageState> {
+    await this.loadState();
+    return this.state;
+  }
+
   // Settings Management
   async getSettings(): Promise<GlobalSettings> {
     await this.loadState();
     return this.state.settings;
+  }
+
+  // Group Management
+  async updateGroup(groupId: TabGroupId, updates: Partial<GroupState>): Promise<void> {
+    await this.loadState();
+    if (!this.state.groups[groupId]) {
+      throw new StorageError(`Group ${groupId} not found`);
+    }
+
+    this.state.groups[groupId] = {
+      ...this.state.groups[groupId],
+      ...updates
+    };
+
+    await this.saveState();
+    this.notify({
+      type: updates.archived ? 'group-archived' : 'group-restored',
+      data: { groups: this.state.groups }
+    });
+  }
+
+  async removeGroup(groupId: TabGroupId): Promise<void> {
+    await this.loadState();
+    if (!this.state.groups[groupId]) {
+      throw new StorageError(`Group ${groupId} not found`);
+    }
+
+    delete this.state.groups[groupId];
+    delete this.state.groupSettings[groupId];
+    delete this.state.mappings[groupId];
+
+    await this.saveState();
+    this.notify({
+      type: 'group-deleted',
+      data: { groups: this.state.groups }
+    });
   }
 
   async updateSettings(settings: Partial<GlobalSettings>): Promise<void> {
@@ -82,6 +141,35 @@ export class StorageManager {
     });
   }
 
+  // Group Sync Settings Management
+  async getGroupSyncSettings(groupId: TabGroupId): Promise<GroupSyncSettings> {
+    await this.loadState();
+    return (
+      this.state.groupSettings[groupId] || {
+        enabled: true, // Default to enabled for new groups
+        lastSynced: 0
+      }
+    );
+  }
+
+  async updateGroupSyncSettings(groupId: TabGroupId, settings: Partial<GroupSyncSettings>): Promise<void> {
+    const current = await this.getGroupSyncSettings(groupId);
+    this.state.groupSettings[groupId] = {
+      ...current,
+      ...settings
+    };
+    await this.saveState();
+    this.notify({
+      type: 'sync-status-changed',
+      data: { groupSettings: this.state.groupSettings }
+    });
+  }
+
+  async getAllGroupSyncSettings(): Promise<Record<TabGroupId, GroupSyncSettings>> {
+    await this.loadState();
+    return this.state.groupSettings;
+  }
+
   // Group-Folder Mapping Management
   async getMapping(groupId: TabGroupId): Promise<GroupFolderMapping | undefined> {
     await this.loadState();
@@ -91,6 +179,12 @@ export class StorageManager {
   async getAllMappings(): Promise<Record<TabGroupId, GroupFolderMapping>> {
     await this.loadState();
     return this.state.mappings;
+  }
+
+  async isSyncEnabled(groupId: TabGroupId): Promise<boolean> {
+    const settings = await this.getGroupSyncSettings(groupId);
+    const globalSettings = await this.getSettings();
+    return globalSettings.autoSync && settings.enabled;
   }
 
   async addMapping(mapping: GroupFolderMapping): Promise<void> {

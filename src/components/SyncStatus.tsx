@@ -8,6 +8,7 @@ import {
   ListItemIcon,
   Collapse,
   IconButton,
+  Paper,
 } from '@mui/material';
 import {
   ExpandLess,
@@ -48,18 +49,18 @@ export default function SyncStatus({ storage }: SyncStatusProps) {
 
   const getEntryIcon = (entry: SyncHistoryEntry) => {
     if (!entry.success) {
-      return <ErrorIcon color="error" />;
+      return <ErrorIcon color="error" fontSize="small" />;
     }
 
     switch (entry.type) {
       case 'group-to-folder':
-        return <FolderIcon color="primary" />;
+        return <FolderIcon color="primary" fontSize="small" />;
       case 'folder-to-group':
-        return <TabIcon color="primary" />;
+        return <TabIcon color="primary" fontSize="small" />;
       case 'ungrouped':
-        return <TabIcon color="action" />;
+        return <TabIcon color="action" fontSize="small" />;
       default:
-        return <SuccessIcon color="success" />;
+        return <SuccessIcon color="success" fontSize="small" />;
     }
   };
 
@@ -100,35 +101,86 @@ export default function SyncStatus({ storage }: SyncStatusProps) {
   if (history.length === 0) return null;
 
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box>
       <Box
         sx={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           cursor: 'pointer',
+          minHeight: '32px'
         }}
         onClick={() => setExpanded(!expanded)}
       >
-        <Typography variant="subtitle1">
-          Sync History
+        <Typography 
+          variant="body2" 
+          color="text.secondary"
+          sx={{ 
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.5,
+            fontWeight: 500
+          }}
+        >
+          {getEntryIcon(history[0])}
+          {getEntryText(history[0]).primary}
         </Typography>
-        <IconButton size="small">
-          {expanded ? <ExpandLess /> : <ExpandMore />}
+        <IconButton size="small" sx={{ padding: '4px' }}>
+          {expanded ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
         </IconButton>
       </Box>
 
       <Collapse in={expanded}>
-        <List dense>
-          {history.slice(0, 5).map((entry, index) => (
-            <ListItem key={index}>
-              <ListItemIcon sx={{ minWidth: 36 }}>
-                {getEntryIcon(entry)}
-              </ListItemIcon>
-              <ListItemText {...getEntryText(entry)} />
-            </ListItem>
-          ))}
-        </List>
+        <Paper 
+          variant="outlined" 
+          sx={{ 
+            mt: 1, 
+            maxHeight: '200px',
+            overflow: 'auto',
+            '&::-webkit-scrollbar': {
+              width: '8px',
+            },
+            '&::-webkit-scrollbar-track': {
+              background: 'transparent',
+            },
+            '&::-webkit-scrollbar-thumb': {
+              background: '#bbb',
+              borderRadius: '4px',
+              '&:hover': {
+                background: '#999',
+              },
+            },
+          }}
+        >
+          <List dense sx={{ py: 0 }}>
+            {history.slice(0, 10).map((entry, index) => (
+              <ListItem 
+                key={index}
+                sx={{
+                  py: 0.5,
+                  '&:hover': {
+                    bgcolor: 'action.hover'
+                  }
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 32 }}>
+                  {getEntryIcon(entry)}
+                </ListItemIcon>
+                <ListItemText 
+                  {...getEntryText(entry)}
+                  primaryTypographyProps={{
+                    variant: 'body2',
+                    sx: { fontWeight: 500 }
+                  }}
+                  secondaryTypographyProps={{
+                    variant: 'caption',
+                    sx: { fontSize: '0.8rem' }
+                  }}
+                />
+              </ListItem>
+            ))}
+          </List>
+        </Paper>
       </Collapse>
     </Box>
   );

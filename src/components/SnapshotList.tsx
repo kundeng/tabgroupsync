@@ -87,15 +87,33 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
 
   return (
     <>
-      <Box sx={{ display: 'flex', gap: 1 }}>
+      <Box sx={{ display: 'flex', gap: 0.5 }}>
         <Tooltip title="Create snapshot">
-          <IconButton onClick={handleCreateSnapshot} size="small">
-            <CameraIcon />
+          <IconButton 
+            onClick={handleCreateSnapshot} 
+            size="small"
+            sx={{ 
+              padding: '6px',
+              '& .MuiSvgIcon-root': {
+                fontSize: '1.2rem'
+              }
+            }}
+          >
+            <CameraIcon fontSize="small" />
           </IconButton>
         </Tooltip>
         <Tooltip title="View snapshot history">
-          <IconButton onClick={() => setShowHistory(true)} size="small">
-            <HistoryIcon />
+          <IconButton 
+            onClick={() => setShowHistory(true)} 
+            size="small"
+            sx={{ 
+              padding: '6px',
+              '& .MuiSvgIcon-root': {
+                fontSize: '1.2rem'
+              }
+            }}
+          >
+            <HistoryIcon fontSize="small" />
           </IconButton>
         </Tooltip>
       </Box>
@@ -105,37 +123,54 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
         onClose={() => setShowHistory(false)}
         maxWidth="sm"
         fullWidth
+        PaperProps={{
+          sx: {
+            maxHeight: '80vh'
+          }
+        }}
       >
-        <DialogTitle>
+        <DialogTitle sx={{ pb: 1 }}>
           Snapshots - {groupName}
         </DialogTitle>
-        <DialogContent>
+        <DialogContent sx={{ pt: '8px !important' }}>
           {error && (
-            <Typography color="error" sx={{ mb: 2 }}>
+            <Typography color="error" variant="body2" sx={{ mb: 2 }}>
               {error}
             </Typography>
           )}
           
           {loading ? (
-            <Typography color="text.secondary">
+            <Typography color="text.secondary" variant="body2">
               Loading snapshots...
             </Typography>
           ) : snapshots.length === 0 ? (
-            <Typography color="text.secondary">
+            <Typography color="text.secondary" variant="body2">
               No snapshots found
             </Typography>
           ) : (
-            <List>
+            <List sx={{ py: 0 }}>
               {snapshots.map((snapshot) => (
                 <ListItem
                   key={snapshot.id}
+                  sx={{
+                    py: 1,
+                    '&:hover': {
+                      bgcolor: 'action.hover'
+                    }
+                  }}
                   secondaryAction={
                     <Tooltip title="Delete snapshot">
                       <IconButton
-                        edge="end"
                         onClick={() => handleDeleteSnapshot(snapshot.id)}
+                        size="small"
+                        sx={{ 
+                          padding: '6px',
+                          '& .MuiSvgIcon-root': {
+                            fontSize: '1.2rem'
+                          }
+                        }}
                       >
-                        <DeleteIcon />
+                        <DeleteIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
                   }
@@ -143,6 +178,14 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
                   <ListItemText
                     primary={new Date(snapshot.timestamp).toLocaleString()}
                     secondary={snapshot.description}
+                    primaryTypographyProps={{
+                      variant: 'body2',
+                      sx: { fontWeight: 500 }
+                    }}
+                    secondaryTypographyProps={{
+                      variant: 'caption',
+                      sx: { fontSize: '0.8rem' }
+                    }}
                   />
                 </ListItem>
               ))}
@@ -150,7 +193,9 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowHistory(false)}>Close</Button>
+          <Button onClick={() => setShowHistory(false)} size="small">
+            Close
+          </Button>
         </DialogActions>
       </Dialog>
     </>

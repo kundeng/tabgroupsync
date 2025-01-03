@@ -9,9 +9,6 @@
     "bookmarks",
     "storage"
   ],
-  "optional_permissions": [
-    "permissions"
-  ],
   "action": {
     "default_popup": "popup.html"
   },

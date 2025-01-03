@@ -1,305 +1,224 @@
 import React from 'react';
 import {
   Box,
-  Typography,
-  FormControlLabel,
-  Switch,
-  Button,
+  IconButton,
+  Tooltip,
   Dialog,
   DialogTitle,
   DialogContent,
-  IconButton,
-  Alert,
+  DialogActions,
+  Button,
+  FormControlLabel,
+  Switch,
+  Typography,
   CircularProgress,
 } from '@mui/material';
-import { ExpandMore, ChevronRight, Close as CloseIcon, Folder as FolderIcon } from '@mui/icons-material';
+import FolderPicker from './FolderPicker';
+import { Settings as SettingsIcon } from '@mui/icons-material';
 import { StorageManager } from '../lib/storage/storageManager';
 import { SyncEngine } from '../lib/sync/syncEngine';
-import { GlobalSettings } from '../lib/types/storage';
+import { BookmarkManager } from '../lib/bookmarkManager';
+import { Logger } from '../lib/utils/logger';
 
 interface SettingsProps {
   storage: StorageManager;
   syncEngine: SyncEngine;
 }
 
-interface BookmarkNode extends chrome.bookmarks.BookmarkTreeNode {
-  children?: BookmarkNode[];
-}
-
-const findNode = (nodes: BookmarkNode[], nodeId: string): BookmarkNode | null => {
-  for (const node of nodes) {
-    if (node.id === nodeId) return node;
-    if (node.children) {
-      const found = findNode(node.children, nodeId);
-      if (found) return found;
-    }
-  }
-  return null;
-};
-
 export default function Settings({ storage, syncEngine }: SettingsProps) {
-  const [settings, setSettings] = React.useState<GlobalSettings | null>(null);
-  const [folderPickerOpen, setFolderPickerOpen] = React.useState(false);
-  const [bookmarkTree, setBookmarkTree] = React.useState<BookmarkNode[]>([]);
-  const [currentFolder, setCurrentFolder] = React.useState<string>('');
-  const [error, setError] = React.useState<string>('');
-  const [loading, setLoading] = React.useState(false);
-  const [expandedNodes, setExpandedNodes] = React.useState<Set<string>>(new Set(['0', '1']));
+  const [open, setOpen] = React.useState(false);
+  const [autoSync, setAutoSync] = React.useState(false);
+  const [parentFolder, setParentFolder] = React.useState<chrome.bookmarks.BookmarkTreeNode | null>(null);
+  const [isSelectingFolder, setIsSelectingFolder] = React.useState(false);
+  const [showFolderPicker, setShowFolderPicker] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const logger = Logger.getInstance();
+  const bookmarkManager = React.useMemo(() => new BookmarkManager(storage), [storage]);
 
-  // Load settings
   React.useEffect(() => {
     const loadSettings = async () => {
-      const settings = await storage.getSettings();
-      setSettings(settings);
-      if (settings.parentFolderId) {
-        chrome.bookmarks.get(settings.parentFolderId, ([folder]) => {
-          if (folder) {
-            setCurrentFolder(folder.title);
-          }
+      try {
+        const settings = await storage.getSettings();
+        setAutoSync(settings.autoSync);
+        
+        if (settings.parentFolderId) {
+          const folder = await bookmarkManager.getParentFolder();
+          setParentFolder(folder);
+        }
+      } catch (error) {
+        logger.error('settings:load:failed', {
+          error: error instanceof Error ? error.message : 'Unknown error'
         });
+        // Keep default false state on error
       }
     };
     loadSettings();
-  }, [storage]);
 
-  const checkBookmarkPermissions = React.useCallback((): Promise<boolean> => {
-    return new Promise((resolve) => {
-      chrome.permissions.contains(
-        { permissions: ['bookmarks'] },
-        (hasPermission) => {
-          resolve(hasPermission);
-        }
-      );
+    // Subscribe to settings changes
+    const unsubscribe = storage.subscribe((event) => {
+      if (event.type === 'settings-changed' && event.data.settings) {
+        setAutoSync(event.data.settings.autoSync);
+      }
     });
-  }, []);
 
-  const loadBookmarkTree = React.useCallback(async () => {
-    setLoading(true);
-    setError('');
-    console.log('Loading bookmark tree...');
-
-    const hasPermission = await checkBookmarkPermissions();
-    if (!hasPermission) {
-      setLoading(false);
-      setError('Bookmark access required. Click "Fix Permissions" to enable access.');
-      return;
-    }
-
-    try {
-      chrome.bookmarks.getTree((tree) => {
-        setLoading(false);
-        console.log('Bookmark tree loaded:', tree);
-        if (chrome.runtime.lastError) {
-          console.error('Chrome runtime error:', chrome.runtime.lastError);
-          setError('Failed to access bookmarks. Click "Fix Permissions" to enable access.');
-          return;
-        }
-        if (!tree || tree.length === 0) {
-          console.error('No bookmark tree data received');
-          setError('Failed to load bookmarks. Click "Retry" to try again.');
-          return;
-        }
-        setBookmarkTree(tree);
-        setError('');
-      });
-    } catch (err) {
-      setLoading(false);
-      console.error('Bookmark access error:', err);
-      setError('Bookmark access required. Click "Fix Permissions" to enable access.');
-    }
-  }, []);
-
-  // Load bookmark tree when folder picker opens
-  React.useEffect(() => {
-    if (folderPickerOpen) {
-      loadBookmarkTree();
-    }
-  }, [folderPickerOpen, loadBookmarkTree]);
+    return unsubscribe;
+  }, [storage, logger, bookmarkManager]);
 
   const handleAutoSyncChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const newSettings = { ...settings!, autoSync: event.target.checked };
-    await storage.updateSettings(newSettings);
-    setSettings(newSettings);
-    if (newSettings.autoSync) {
-      await syncEngine.syncAll();
+    const enabled = event.target.checked;
+    try {
+      await storage.updateSettings({ autoSync: enabled });
+      setAutoSync(enabled);
+      logger.info('settings:autoSync:updated', { enabled });
+    } catch (error) {
+      logger.error('settings:autoSync:updateFailed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   };
 
-  const handleFolderSelect = async (folderId: string, title: string) => {
-    await storage.updateSettings({ parentFolderId: folderId });
-    setCurrentFolder(title);
-    setFolderPickerOpen(false);
-    const newSettings = await storage.getSettings();
-    setSettings(newSettings);
-    if (newSettings.autoSync) {
-      await syncEngine.syncAll();
+  const handleFolderSelect = async (selectedFolder: chrome.bookmarks.BookmarkTreeNode) => {
+    setIsSelectingFolder(true);
+    setError(null);
+    try {
+            const folder = await bookmarkManager.setParentFolder(selectedFolder);
+      await storage.updateSettings({ parentFolderId: folder.id });
+      setParentFolder(folder);
+            logger.info('settings:parentFolder:selected', { folderId: folder.id });
+      setShowFolderPicker(false);
+    } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to set parent folder';
+      if (!message.includes('cancelled')) {
+        setError(message);
+            logger.error('settings:parentFolder:selectFailed', { error: message });
+      }
+    } finally {
+      setIsSelectingFolder(false);
     }
   };
-
-  const renderTree = (node: BookmarkNode) => {
-    console.log('Rendering node:', node);
-    // Skip non-folder items
-    if (node.url) {
-      console.log('Skipping URL node:', node.title);
-      return null;
-    }
-
-    return (
-      <Box key={node.id}>
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            p: 0.5,
-            cursor: 'pointer',
-            '&:hover': {
-              bgcolor: 'action.hover',
-            },
-          }}
-        >
-          {node.children && node.children.length > 0 && (
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation();
-                setExpandedNodes(prev => {
-                  const next = new Set(prev);
-                  if (next.has(node.id)) {
-                    next.delete(node.id);
-                  } else {
-                    next.add(node.id);
-                  }
-                  return next;
-                });
-              }}
-              sx={{ p: 0.5, mr: 0.5 }}
-            >
-              {expandedNodes.has(node.id) ? <ExpandMore fontSize="small" /> : <ChevronRight fontSize="small" />}
-            </IconButton>
-          )}
-          <Box
-            onClick={() => handleFolderSelect(node.id, node.title)}
-            sx={{ display: 'flex', alignItems: 'center', flex: 1 }}
-          >
-            <FolderIcon color="action" fontSize="small" sx={{ mr: 1 }} />
-            <Typography variant="body2">{node.title || 'Unnamed Folder'}</Typography>
-          </Box>
-        </Box>
-        {node.children && node.children.length > 0 && expandedNodes.has(node.id) && (
-          <Box sx={{ pl: 3 }}>
-            {node.children.map((child) => renderTree(child))}
-          </Box>
-        )}
-      </Box>
-    );
-  };
-
-  if (!settings) return null;
 
   return (
-    <Box sx={{ mb: 3 }}>
-      <Typography variant="subtitle1" sx={{ mb: 1 }}>
-        Settings
-      </Typography>
-      
-      <FormControlLabel
-        control={
-          <Switch
-            checked={settings.autoSync}
-            onChange={handleAutoSyncChange}
-            color="primary"
-          />
-        }
-        label="Auto-sync tab groups"
-      />
-
-      <Box sx={{ mt: 2 }}>
-        <Button
-          variant="outlined"
-          onClick={() => setFolderPickerOpen(true)}
-          fullWidth
-          sx={{ mb: 1 }}
-        >
-          Select Parent Folder
-        </Button>
-        <Typography variant="body2" color="text.secondary">
-          {currentFolder ? `Current: ${currentFolder}` : 'No folder selected'}
-        </Typography>
+    <>
+      <Box sx={{ position: 'absolute', top: 12, right: 24 }}>
+        <Tooltip title="Settings">
+          <IconButton 
+            onClick={() => setOpen(true)}
+            size="small"
+            sx={{ 
+              padding: '6px',
+              '& .MuiSvgIcon-root': {
+                fontSize: '1.2rem'
+              }
+            }}
+          >
+            <SettingsIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
       </Box>
 
       <Dialog
-        open={folderPickerOpen}
-        onClose={() => setFolderPickerOpen(false)}
+        open={open}
+        onClose={() => setOpen(false)}
         maxWidth="sm"
         fullWidth
         PaperProps={{
           sx: {
-            minHeight: '400px',
-            maxHeight: '600px'
+            maxHeight: '80vh'
           }
         }}
       >
-        <DialogTitle sx={{ m: 0, p: 2, pb: 1 }}>
-          Select Parent Folder
-          <IconButton
-            onClick={() => setFolderPickerOpen(false)}
-            sx={{
-              position: 'absolute',
-              right: 8,
-              top: 8,
-              color: 'text.secondary'
-            }}
-          >
-            <CloseIcon />
-          </IconButton>
+        <DialogTitle sx={{ pb: 1 }}>
+          Settings
         </DialogTitle>
-        <DialogContent sx={{ p: 2 }}>
-          {loading ? (
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, py: 4 }}>
-              <CircularProgress size={24} />
-              <Typography color="text.secondary">Loading bookmarks...</Typography>
-            </Box>
-          ) : error ? (
-            <Box>
-              <Alert 
-                severity="error" 
-                sx={{ mb: 2 }}
-                action={
-                  error.includes('permissions') ? (
-                    <Button 
-                      color="inherit" 
-                      size="small"
-                      onClick={() => chrome.runtime.openOptionsPage()}
-                    >
-                      Fix Permissions
-                    </Button>
-                  ) : (
-                    <Button 
-                      color="inherit" 
-                      size="small"
-                      onClick={loadBookmarkTree}
-                    >
-                      Retry
-                    </Button>
-                  )
-                }
+        <DialogContent sx={{ pt: '8px !important' }}>
+          <Box sx={{ position: 'relative' }}>
+            {error && (
+              <Typography 
+                color="error" 
+                variant="caption" 
+                sx={{ 
+                  display: 'block', 
+                  mb: 2,
+                  mt: -1
+                }}
               >
                 {error}
-              </Alert>
+              </Typography>
+            )}
+            <Box sx={{ mb: 2 }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={autoSync}
+                    onChange={handleAutoSyncChange}
+                    size="small"
+                  />
+                }
+                label={
+                  <Typography variant="body2">
+                    Automatically sync tab groups to bookmarks
+                  </Typography>
+                }
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, ml: 4 }}>
+                When enabled, changes to tab groups will be automatically backed up to bookmarks
+              </Typography>
             </Box>
-          ) : (
-            <Box sx={{ 
-              minHeight: 240,
-              flexGrow: 1,
-              maxWidth: '100%',
-              overflowY: 'auto',
-              pl: 2
-            }}>
-              {bookmarkTree.map(renderTree)}
+
+            <Box sx={{ mb: 2 }}>
+              {parentFolder ? (
+                <Box>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    Parent Folder: {parentFolder.title}
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    disabled={isSelectingFolder}
+                    onClick={() => setShowFolderPicker(true)}
+                  >
+                    {isSelectingFolder ? (
+                      <CircularProgress size={16} sx={{ mx: 1 }} />
+                    ) : (
+                      'Change Parent Folder'
+                    )}
+                  </Button>
+                </Box>
+              ) : (
+                <Box>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="primary"
+                    disabled={isSelectingFolder}
+                    onClick={() => setShowFolderPicker(true)}
+                  >
+                    {isSelectingFolder ? (
+                      <CircularProgress size={16} sx={{ mx: 1 }} />
+                    ) : (
+                      'Select Parent Folder'
+                    )}
+                  </Button>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                    Choose where to store your tab group bookmarks
+                  </Typography>
+                </Box>
+              )}
             </Box>
-          )}
+          </Box>
         </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpen(false)} size="small">
+            Close
+          </Button>
+        </DialogActions>
       </Dialog>
-    </Box>
+
+      <FolderPicker
+        open={showFolderPicker}
+        onClose={() => setShowFolderPicker(false)}
+        onSelect={handleFolderSelect}
+      />
+    </>
   );
 }

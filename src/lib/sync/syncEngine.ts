@@ -4,7 +4,7 @@ import { TabGroupManager } from '../tabGroupManager';
 import { getTabsInGroup } from '../utils/tabUtils';
 import { SyncError, ErrorType, withErrorHandling } from '../utils/errors';
 import { Logger, LogLevel, withRetry, OperationTracker } from '../utils/logger';
-import { GroupFolderMapping, TabGroupId, BookmarkFolderId } from '../types/storage';
+import { GroupFolderMapping, TabGroupId, BookmarkFolderId, GroupState } from '../types/storage';
 
 export class SyncEngine {
   private logger = Logger.getInstance();
@@ -48,6 +48,32 @@ export class SyncEngine {
     const opId = this.tracker.startOperation('syncGroupToFolder', { groupId });
     
     return withErrorHandling(async () => {
+      // Get or create group state
+      const state = await this.storage.getState();
+      if (!state.groups[groupId]) {
+        // Initialize new group
+        const numericId = this.toNumberId(groupId);
+        const group = await this.tabGroupManager.getGroup(numericId);
+        if (!group) {
+          throw new SyncError(`Tab group ${groupId} not found`);
+        }
+
+        const newState: GroupState = {
+          id: groupId,
+          name: group.title || 'Unnamed Group',
+          color: group.color,
+          windowId: group.windowId,
+          lastSeen: Date.now(),
+          syncEnabled: true,
+          archived: false,
+          status: {
+            lastSynced: 0,
+            inProgress: false
+          }
+        };
+        await this.storage.updateGroup(groupId, newState);
+      }
+
       const mapping = await this.storage.getMapping(groupId);
       if (!mapping || !mapping.syncEnabled) return;
 
@@ -121,7 +147,6 @@ export class SyncEngine {
       }
     }, ErrorType.SYNC);
   }
-
 
   async syncUngroupedTabs(): Promise<void> {
     return withErrorHandling(async () => {
@@ -205,11 +230,38 @@ export class SyncEngine {
 
   // Public methods for tab group sync management
   async getGroupSyncEnabled(groupId: TabGroupId): Promise<boolean> {
-    return this.tabGroupManager.getSyncEnabled(this.toNumberId(groupId));
+    const state = await this.storage.getState();
+    return state.groups[groupId]?.syncEnabled ?? true;
   }
 
   async setGroupSyncEnabled(groupId: TabGroupId, enabled: boolean): Promise<void> {
-    this.tabGroupManager.setSyncEnabled(this.toNumberId(groupId), enabled);
+    const state = await this.storage.getState();
+    if (!state.groups[groupId]) {
+      // Initialize new group
+      const numericId = this.toNumberId(groupId);
+      const group = await this.tabGroupManager.getGroup(numericId);
+      if (!group) {
+        throw new SyncError(`Tab group ${groupId} not found`);
+      }
+
+      const newState: GroupState = {
+        id: groupId,
+        name: group.title || 'Unnamed Group',
+        color: group.color,
+        windowId: group.windowId,
+        lastSeen: Date.now(),
+        syncEnabled: enabled,
+        archived: false,
+        status: {
+          lastSynced: 0,
+          inProgress: false
+        }
+      };
+      await this.storage.updateGroup(groupId, newState);
+    } else {
+      await this.storage.updateGroup(groupId, { syncEnabled: enabled });
+    }
+
     if (enabled) {
       const numericId = this.toNumberId(groupId);
       const group = await this.tabGroupManager.getGroup(numericId);
