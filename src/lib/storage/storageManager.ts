@@ -79,7 +79,7 @@ export class StorageManager {
           Object.entries(this.persistedState.syncPreferences).forEach(([name, pref]) => {
             this.runtimeState.mappings[name] = {
               name,
-              folderId: '',  // Will be populated when folder is available
+              folderId: '',  // Will be populated when folder is created
               syncEnabled: pref.syncEnabled,
               status: {
                 lastSynced: pref.lastSynced ?? 0,
@@ -87,18 +87,6 @@ export class StorageManager {
               }
             };
           });
-
-          // Associate with folders if available
-          const tabGroupsFolder = await this.getTabGroupsFolder();
-          if (tabGroupsFolder) {
-            const folders = await chrome.bookmarks.getChildren(tabGroupsFolder.id);
-            Object.entries(this.runtimeState.mappings).forEach(([name, mapping]) => {
-              const folder = folders.find(f => f.title === name);
-              if (folder) {
-                mapping.folderId = folder.id;
-              }
-            });
-          }
         } else {
           this.persistedState = DEFAULT_STATE;
           await this.saveState();

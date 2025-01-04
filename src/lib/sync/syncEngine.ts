@@ -301,11 +301,8 @@ export class SyncEngine {
     const settings = await this.storage.getSettings();
     const name = group.title || 'Unnamed Group';
 
-    // Check existing preferences first
-    const existingPrefs = await this.storage.getGroupSyncSettings(name);
-    
-    // If autoSync is enabled and no existing preferences, enable sync
-    if (settings.autoSync && settings.containerFolderId && !existingPrefs.enabled) {
+    // If autoSync is enabled, enable sync for this group
+    if (settings.autoSync && settings.containerFolderId) {
       // Create or update mapping
       await this.storage.updateMapping(name, {
         name,
