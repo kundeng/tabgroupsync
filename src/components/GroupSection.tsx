@@ -135,43 +135,20 @@ export default function GroupSection({
                       {group.name}
                     </Typography>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                        {group.syncEnabled ? 'Backing up to bookmarks' : 'Backup paused'}
+                      <Typography variant="caption" sx={{ 
+                        fontSize: '0.8rem',
+                        color: group.status.error ? 'error.main' : 'text.secondary'
+                      }}>
+                        {!group.syncEnabled ? 'Backup paused' : (
+                          group.status.inProgress ? 'Syncing...' : (
+                            group.status.error ? `Backup paused - ${group.status.error}` : (
+                              group.status.lastSynced ? 
+                                new Date(group.status.lastSynced).toLocaleTimeString() :
+                                'Not synced yet'
+                            )
+                          )
+                        )}
                       </Typography>
-                      
-                      {/* Sync Status */}
-                      {group.syncEnabled && (
-                        <>
-                          <Typography variant="caption" sx={{ 
-                            fontSize: '0.8rem',
-                            color: group.status.error ? 'error.main' : 'text.secondary'
-                          }}>
-                            {group.status.inProgress ? 'Syncing...' : (
-                              group.status.error ? `Last sync failed: ${group.status.error}` : (
-                                group.status.lastSynced ? 
-                                  `Last synced ${new Date(group.status.lastSynced).toLocaleTimeString()}` :
-                                  'Not synced yet'
-                              )
-                            )}
-                          </Typography>
-                          <Typography variant="caption" sx={{ 
-                            fontSize: '0.8rem',
-                            color: group.folder ? 'success.main' : 'warning.main'
-                          }}>
-                            {group.folder ? 
-                              `Folder: ${group.folder.title}` : 
-                              'Creating folder...'
-                            }
-                          </Typography>
-                        </>
-                      )}
-
-                      {/* Inactive Status */}
-                      {group.inactiveFor !== undefined && (
-                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                          {getInactiveText(group.inactiveFor)}
-                        </Typography>
-                      )}
 
                       {/* Operation Errors */}
                       {errors[group.id] && (
