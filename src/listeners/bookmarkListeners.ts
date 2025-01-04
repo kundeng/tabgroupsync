@@ -1,4 +1,4 @@
-import { BookmarkManager } from '../lib/bookmarkManager';
+import { BookmarkManager } from '../lib/bookmarks/bookmarkManager';
 import { Logger } from '../lib/utils/logger';
 
 export function initializeBookmarkListeners(bookmarkManager: BookmarkManager): void {

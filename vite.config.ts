@@ -4,9 +4,12 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  base: './', // Use relative paths
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    sourcemap: true, // Enable sourcemaps for debugging
+    assetsDir: 'assets', // Keep assets in their own directory
     rollupOptions: {
       input: {
         popup: resolve(__dirname, 'src/popup.tsx'),
@@ -18,7 +21,10 @@ export default defineConfig({
         assetFileNames: 'assets/[name].[ext]'
       }
     },
-    target: 'es2015',
-    minify: false
+    target: 'chrome112', // Target modern Chrome
+    minify: false,
+    watch: process.env.NODE_ENV === 'development' ? {
+      include: 'src/**'
+    } : null
   }
 });

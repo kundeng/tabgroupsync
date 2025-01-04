@@ -70,31 +70,60 @@ export interface CleanupSettings {
 // Global settings
 export interface GlobalSettings {
   autoSync: boolean;
-  parentFolderId?: BookmarkFolderId;
+  containerFolderId?: BookmarkFolderId;  // Stable across sessions and synced across devices
   syncInterval?: number; // in minutes
   keepRemoved: boolean; // keep bookmarks when group is removed
   syncUngrouped: boolean;
   cleanup: CleanupSettings;
 }
 
-// Complete storage state
-export interface StorageState {
-  version: number; // For future migrations
-  settings: GlobalSettings;
-  groups: Record<TabGroupId, GroupState>;  // All known groups
-  groupSettings: Record<TabGroupId, GroupSyncSettings>; // Per-group sync settings
-  mappings: Record<TabGroupId, GroupFolderMapping>;
-  ungroupedTabs: UngroupedTabsSettings;
-  syncHistory: SyncHistoryEntry[];
+// Runtime mapping for current session
+export interface RuntimeMapping {
+  name: string;  // Group name (stable identifier)
+  folderId: BookmarkFolderId;
+  currentGroupId?: TabGroupId;  // Current session's Chrome group ID
+  color?: string;
+  syncEnabled: boolean;
+  status: SyncStatus;
 }
 
-// Default cleanup settings
-const DEFAULT_CLEANUP_SETTINGS: CleanupSettings = {
-  enabled: true,
-  inactiveThreshold: 30,  // 30 days
-  autoArchive: true,
-  deleteThreshold: 90     // 90 days
-};
+// Runtime state (not persisted)
+export interface RuntimeState {
+  mappings: Record<string, RuntimeMapping>;  // Keyed by group name
+  groupSettings: Record<string, GroupSyncSettings>;
+  ungrouped: UngroupedTabsSettings;
+}
+
+// Partial mapping updates
+export interface RuntimeMappingUpdate {
+  name?: string;
+  folderId?: BookmarkFolderId;
+  currentGroupId?: TabGroupId;
+  color?: string;
+  syncEnabled?: boolean;
+  status?: Partial<SyncStatus>;
+}
+
+// Persisted sync preferences for groups
+export interface GroupSyncPreferences {
+  [name: string]: {
+    syncEnabled: boolean;
+    lastSynced?: number;
+  };
+}
+
+// Persisted storage state
+export interface StorageState {
+  version: number;
+  settings: GlobalSettings;
+  syncHistory: SyncHistoryEntry[];
+  syncPreferences: GroupSyncPreferences;  // Persist sync preferences by group name
+}
+
+// Combined state
+export interface CombinedState extends StorageState {
+  runtime: RuntimeState;
+}
 
 // Default state
 export const DEFAULT_STATE: StorageState = {
@@ -103,34 +132,23 @@ export const DEFAULT_STATE: StorageState = {
     autoSync: false,
     keepRemoved: true,
     syncUngrouped: false,
-    cleanup: DEFAULT_CLEANUP_SETTINGS
-  },
-  groups: {},
-  groupSettings: {},
-  mappings: {},
-  ungroupedTabs: {
-    enabled: false,
-    folderName: 'Ungrouped Tabs',
-    syncEnabled: false,
-    status: {
-      lastSynced: 0,
-      inProgress: false
+    syncInterval: 1, // Sync every minute by default
+    cleanup: {
+      enabled: true,
+      inactiveThreshold: 30,  // 30 days
+      autoArchive: true,
+      deleteThreshold: 90     // 90 days
     }
   },
-  syncHistory: []
+  syncHistory: [],
+  syncPreferences: {}  // Start with empty preferences
 };
 
 // Storage events for observers
 export type StorageEventType = 
   | 'settings-changed'
-  | 'mapping-added'
-  | 'mapping-removed'
-  | 'mapping-updated'
-  | 'sync-status-changed'
-  | 'history-added'
-  | 'group-archived'
-  | 'group-restored'
-  | 'group-deleted';
+  | 'mapping-changed'  // When runtime mappings change
+  | 'history-added';
 
 export interface StorageEvent {
   type: StorageEventType;
@@ -147,7 +165,6 @@ export interface GroupViewModel {
   windowId?: number;
   isCurrentWindow: boolean;
   isActive: boolean;
-  isArchived: boolean;
   lastSeen: number;
   syncEnabled: boolean;
   status: SyncStatus;

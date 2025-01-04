@@ -1,15 +1,15 @@
 import { ValidationError } from './errors';
 import {
   StorageState,
-  GroupFolderMapping,
   SyncHistoryEntry,
   GlobalSettings,
   UngroupedTabsSettings,
   SyncStatus,
-  TabGroupId,
-  GroupSyncSettings,
   CleanupSettings,
-  GroupState
+  RuntimeMapping,
+  RuntimeMappingUpdate,
+  GroupSyncSettings,
+  GroupSyncPreferences
 } from '../types/storage';
 
 // Validation helper functions
@@ -56,30 +56,6 @@ export function validateSyncStatus(status: unknown): SyncStatus {
   };
 }
 
-export function validateGroupFolderMapping(mapping: unknown): GroupFolderMapping {
-  if (!mapping || typeof mapping !== 'object') {
-    throw new ValidationError('Invalid group folder mapping object');
-  }
-
-  const {
-    groupId,
-    folderId,
-    name,
-    color,
-    syncEnabled,
-    status
-  } = mapping as GroupFolderMapping;
-
-  return {
-    groupId: validateString(groupId, 'groupId'),
-    folderId: validateString(folderId, 'folderId'),
-    name: validateString(name, 'name'),
-    color: validateOptional(color, v => validateString(v, 'color')),
-    syncEnabled: validateBoolean(syncEnabled, 'syncEnabled'),
-    status: validateSyncStatus(status)
-  };
-}
-
 export function validateSyncHistoryEntry(entry: unknown): SyncHistoryEntry {
   if (!entry || typeof entry !== 'object') {
     throw new ValidationError('Invalid sync history entry object');
@@ -94,7 +70,7 @@ export function validateSyncHistoryEntry(entry: unknown): SyncHistoryEntry {
     error
   } = entry as SyncHistoryEntry;
 
-  if (!['group-to-folder', 'folder-to-group', 'ungrouped'].includes(type)) {
+  if (!['group-to-folder', 'folder-to-group', 'ungrouped', 'archived'].includes(type)) {
     throw new ValidationError('Invalid sync history type');
   }
 
@@ -135,7 +111,7 @@ export function validateGlobalSettings(settings: unknown): GlobalSettings {
 
   const {
     autoSync,
-    parentFolderId,
+    containerFolderId,
     syncInterval,
     keepRemoved,
     syncUngrouped,
@@ -144,7 +120,7 @@ export function validateGlobalSettings(settings: unknown): GlobalSettings {
 
   return {
     autoSync: validateBoolean(autoSync, 'autoSync'),
-    parentFolderId: validateOptional(parentFolderId, v => validateString(v, 'parentFolderId')),
+    containerFolderId: validateOptional(containerFolderId, v => validateString(v, 'containerFolderId')),
     syncInterval: validateOptional(syncInterval, v => validateNumber(v, 'syncInterval')),
     keepRemoved: validateBoolean(keepRemoved, 'keepRemoved'),
     syncUngrouped: validateBoolean(syncUngrouped, 'syncUngrouped'),
@@ -192,33 +168,40 @@ export function validateGroupSyncSettings(settings: unknown): GroupSyncSettings 
   };
 }
 
-export function validateGroupState(state: unknown): GroupState {
-  if (!state || typeof state !== 'object') {
-    throw new ValidationError('Invalid group state object');
+export function validateRuntimeMapping(mapping: unknown): RuntimeMapping {
+  if (!mapping || typeof mapping !== 'object') {
+    throw new ValidationError('Invalid runtime mapping object');
   }
 
   const {
-    id,
     name,
-    color,
-    windowId,
-    lastSeen,
     folderId,
+    currentGroupId,
+    color,
     syncEnabled,
-    status,
-    archived
-  } = state as GroupState;
+    status
+  } = mapping as RuntimeMapping;
 
   return {
-    id: validateString(id, 'id'),
     name: validateString(name, 'name'),
+    folderId: validateString(folderId, 'folderId'),
+    currentGroupId: validateOptional(currentGroupId, v => validateString(v, 'currentGroupId')),
     color: validateOptional(color, v => validateString(v, 'color')),
-    windowId: validateOptional(windowId, v => validateNumber(v, 'windowId')),
-    lastSeen: validateNumber(lastSeen, 'lastSeen'),
-    folderId: validateOptional(folderId, v => validateString(v, 'folderId')),
     syncEnabled: validateBoolean(syncEnabled, 'syncEnabled'),
-    status: validateSyncStatus(status),
-    archived: validateBoolean(archived, 'archived')
+    status: validateSyncStatus(status)
+  };
+}
+
+export function validateGroupSyncPreference(pref: unknown): { syncEnabled: boolean; lastSynced?: number } {
+  if (!pref || typeof pref !== 'object') {
+    throw new ValidationError('Invalid group sync preference object');
+  }
+
+  const { syncEnabled, lastSynced } = pref as { syncEnabled: boolean; lastSynced?: number };
+
+  return {
+    syncEnabled: validateBoolean(syncEnabled, 'syncEnabled'),
+    lastSynced: validateOptional(lastSynced, v => validateNumber(v, 'lastSynced'))
   };
 }
 
@@ -230,11 +213,8 @@ export function validateStorageState(state: unknown): StorageState {
   const {
     version,
     settings,
-    groups,
-    groupSettings,
-    mappings,
-    ungroupedTabs,
-    syncHistory
+    syncHistory,
+    syncPreferences
   } = state as StorageState;
 
   // Validate version
@@ -242,39 +222,6 @@ export function validateStorageState(state: unknown): StorageState {
 
   // Validate settings
   const validatedSettings = validateGlobalSettings(settings);
-
-  // Validate groups
-  const validatedGroups: Record<TabGroupId, GroupState> = {};
-  if (typeof groups !== 'object') {
-    throw new ValidationError('Invalid groups object');
-  }
-  
-  Object.entries(groups || {}).forEach(([key, value]) => {
-    validatedGroups[key] = validateGroupState(value);
-  });
-
-  // Validate group settings
-  const validatedGroupSettings: Record<TabGroupId, GroupSyncSettings> = {};
-  if (typeof groupSettings !== 'object') {
-    throw new ValidationError('Invalid group settings object');
-  }
-  
-  Object.entries(groupSettings || {}).forEach(([key, value]) => {
-    validatedGroupSettings[key] = validateGroupSyncSettings(value);
-  });
-
-  // Validate mappings
-  const validatedMappings: Record<TabGroupId, GroupFolderMapping> = {};
-  if (typeof mappings !== 'object') {
-    throw new ValidationError('Invalid mappings object');
-  }
-  
-  Object.entries(mappings).forEach(([key, value]) => {
-    validatedMappings[key] = validateGroupFolderMapping(value);
-  });
-
-  // Validate ungrouped tabs settings
-  const validatedUngroupedTabs = validateUngroupedTabsSettings(ungroupedTabs);
 
   // Validate sync history
   if (!Array.isArray(syncHistory)) {
@@ -284,13 +231,18 @@ export function validateStorageState(state: unknown): StorageState {
     validateSyncHistoryEntry(entry)
   );
 
+  // Validate sync preferences
+  const validatedSyncPreferences: GroupSyncPreferences = {};
+  if (typeof syncPreferences === 'object' && syncPreferences !== null) {
+    Object.entries(syncPreferences).forEach(([name, pref]) => {
+      validatedSyncPreferences[name] = validateGroupSyncPreference(pref);
+    });
+  }
+
   return {
     version: validatedVersion,
     settings: validatedSettings,
-    groups: validatedGroups,
-    groupSettings: validatedGroupSettings,
-    mappings: validatedMappings,
-    ungroupedTabs: validatedUngroupedTabs,
-    syncHistory: validatedSyncHistory
+    syncHistory: validatedSyncHistory,
+    syncPreferences: validatedSyncPreferences
   };
 }

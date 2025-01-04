@@ -40,7 +40,7 @@ export function initializeTabListeners(tabGroupManager: TabGroupManager): void {
     }
   });
 
-  // Log when tabs are moved between groups
+  // Handle tab group membership changes
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.groupId !== undefined) {
       logger.debug('tab:groupUpdated', {
@@ -50,6 +50,24 @@ export function initializeTabListeners(tabGroupManager: TabGroupManager): void {
         url: tab.url,
         title: tab.title
       });
+
+      try {
+        // If tab is in a group, trigger sync
+        if (tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+          const group = await chrome.tabGroups.get(tab.groupId);
+          await tabGroupManager.handleGroupUpdated(group);
+          logger.info('tab:groupUpdated:synced', {
+            tabId,
+            groupId: tab.groupId,
+            groupTitle: group.title
+          });
+        }
+      } catch (error) {
+        logger.error('tab:groupUpdated:syncFailed', {
+          tabId,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }, error instanceof Error ? error : undefined);
+      }
     }
   });
 

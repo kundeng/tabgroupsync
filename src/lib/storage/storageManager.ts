@@ -3,26 +3,94 @@ import {
   DEFAULT_STATE,
   StorageEvent,
   StorageEventCallback,
-  GroupFolderMapping,
   SyncHistoryEntry,
-  TabGroupId,
-  BookmarkFolderId,
   GlobalSettings,
   GroupSyncSettings,
-  GroupState
+  RuntimeState,
+  RuntimeMapping,
+  RuntimeMappingUpdate,
+  CombinedState,
+  UngroupedTabsSettings
 } from '../types/storage';
-import { validateStorageState, validateGroupFolderMapping, validateSyncHistoryEntry } from '../utils/validators';
+import { validateStorageState, validateRuntimeMapping, validateSyncHistoryEntry } from '../utils/validators';
 import { StorageError, withErrorHandling, ErrorType } from '../utils/errors';
+import { Logger } from '../utils/logger';
 
 export class StorageManager {
-  private observers: Set<StorageEventCallback> = new Set();
-  private state: StorageState = DEFAULT_STATE;
+  private persistedState: StorageState;
+  private runtimeState: RuntimeState;
 
   constructor() {
-    this.loadState();
+    // Initialize with default states
+    this.persistedState = DEFAULT_STATE;
+    this.runtimeState = {
+      mappings: {},
+      groupSettings: {},
+      ungrouped: {
+        enabled: false,
+        folderName: 'Ungrouped Tabs',
+        syncEnabled: false,
+        status: {
+          lastSynced: 0,
+          inProgress: false
+        }
+      }
+    };
   }
 
-  // State Management
+  // Initialize storage
+  async initialize(): Promise<void> {
+    try {
+      // Load and validate state
+      await this.loadState();
+      
+      this.logger.info('storage:initialized', {
+        settings: this.persistedState.settings,
+        mappings: Object.keys(this.runtimeState.mappings).length
+      });
+    } catch (error) {
+      this.logger.error('storage:initialize:failed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
+  }
+
+  // Public method to reload state (e.g., when popup opens)
+  async reloadState(): Promise<CombinedState> {
+    try {
+      await this.loadState();
+      return {
+        ...this.persistedState,
+        runtime: this.runtimeState
+      };
+    } catch (error) {
+      this.logger.error('storage:reloadState:failed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
+  }
+
+  private logger = Logger.getInstance();
+
+  private async getTabGroupsFolder(): Promise<chrome.bookmarks.BookmarkTreeNode | null> {
+    const settings = await this.getSettings();
+    if (!settings.containerFolderId) {
+      return null;
+    }
+    return new Promise<chrome.bookmarks.BookmarkTreeNode | null>((resolve) => {
+      chrome.bookmarks.get(settings.containerFolderId, (results) => {
+        if (chrome.runtime.lastError || !results || results.length === 0) {
+          resolve(null);
+        } else {
+          resolve(results[0]);
+        }
+      });
+    });
+  }
+
+  // Persisted State Management
   async loadState(): Promise<void> {
     return withErrorHandling(async () => {
       const result = await new Promise<{ state?: unknown }>(resolve => {
@@ -32,24 +100,43 @@ export class StorageManager {
       try {
         if (result.state) {
           const validatedState = validateStorageState(result.state);
-          this.state = this.migrateStateIfNeeded(validatedState);
+          this.persistedState = this.migrateStateIfNeeded(validatedState);
+          
+          // Initialize runtime mappings from persisted preferences
+          const tabGroupsFolder = await this.getTabGroupsFolder();
+          if (tabGroupsFolder) {
+            const folders = await chrome.bookmarks.getChildren(tabGroupsFolder.id);
+            
+            Object.entries(this.persistedState.syncPreferences).forEach(([name, pref]) => {
+              // Find matching folder
+              const folder = folders.find(f => f.title === name);
+              
+              this.runtimeState.mappings[name] = {
+                name,
+                folderId: folder?.id ?? '',  // Use existing folder ID if found
+                syncEnabled: pref.syncEnabled,
+                status: {
+                  lastSynced: pref.lastSynced ?? 0,
+                  inProgress: false
+                }
+              };
+            });
+          }
+
+          this.logger.info('storage:loaded', {
+            syncPreferences: this.persistedState.syncPreferences,
+            runtimeMappings: this.runtimeState.mappings
+          });
         } else {
-          // Initialize with default state
-          this.state = DEFAULT_STATE;
+          this.persistedState = DEFAULT_STATE;
           await this.saveState();
-          this.notify({
-            type: 'settings-changed',
-            data: this.state
+          this.logger.info('storage:initialized', {
+            state: 'default'
           });
         }
       } catch (error) {
-        // If validation fails, reset to default state
-        this.state = DEFAULT_STATE;
+        this.persistedState = DEFAULT_STATE;
         await this.saveState();
-        this.notify({
-          type: 'settings-changed',
-          data: this.state
-        });
         throw new StorageError('Failed to validate stored state, reset to default', error);
       }
     }, ErrorType.STORAGE);
@@ -57,7 +144,113 @@ export class StorageManager {
 
   private async saveState(): Promise<void> {
     return new Promise((resolve) => {
-      chrome.storage.sync.set({ state: this.state }, resolve);
+      chrome.storage.sync.set({ state: this.persistedState }, resolve);
+    });
+  }
+
+  // Ungrouped Tabs Management
+  async getUngroupedSettings(): Promise<UngroupedTabsSettings> {
+    return this.runtimeState.ungrouped;
+  }
+
+  async updateUngroupedSettings(settings: Partial<UngroupedTabsSettings>): Promise<void> {
+    this.runtimeState.ungrouped = {
+      ...this.runtimeState.ungrouped,
+      ...settings
+    };
+    this.notify({
+      type: 'mapping-changed',
+      data: {}
+    });
+  }
+
+  // Runtime Mapping Management
+  async getMapping(name: string): Promise<RuntimeMapping | undefined> {
+    return this.runtimeState.mappings[name];
+  }
+
+  async getAllMappings(): Promise<Record<string, RuntimeMapping>> {
+    return this.runtimeState.mappings;
+  }
+
+  async updateMapping(name: string, update: RuntimeMappingUpdate): Promise<void> {
+    const persisted = this.persistedState.syncPreferences[name];
+    this.logger.debug('mapping:update:start', {
+      name,
+      update,
+      persisted
+    });
+
+    const current = this.runtimeState.mappings[name] || {
+      name,
+      folderId: '',
+      syncEnabled: persisted?.syncEnabled ?? false,
+      status: {
+        lastSynced: persisted?.lastSynced ?? 0,
+        inProgress: false
+      }
+    };
+
+    // Handle status updates specially to allow partial updates
+    const status = update.status ? {
+      ...current.status,
+      ...update.status
+    } : current.status;
+
+    const newMapping = {
+      ...current,
+      ...update,
+      status
+    };
+
+    this.runtimeState.mappings[name] = newMapping;
+
+    // Always update persisted preferences to match runtime state
+    this.persistedState.syncPreferences[name] = {
+      syncEnabled: newMapping.syncEnabled,
+      lastSynced: newMapping.status.lastSynced
+    };
+    await this.saveState();
+
+    this.logger.info('mapping:updated', {
+      name,
+      mapping: newMapping,
+      preferences: this.persistedState.syncPreferences[name]
+    });
+
+    this.notify({
+      type: 'mapping-changed',
+      data: {}
+    });
+  }
+
+  async removeMapping(name: string): Promise<void> {
+    delete this.runtimeState.mappings[name];
+    delete this.persistedState.syncPreferences[name];
+    await this.saveState();
+    this.notify({
+      type: 'mapping-changed',
+      data: {}
+    });
+  }
+
+  async getGroupSyncSettings(name: string): Promise<GroupSyncSettings> {
+    const persisted = this.persistedState.syncPreferences[name];
+    return {
+      enabled: persisted?.syncEnabled ?? false,
+      lastSynced: persisted?.lastSynced ?? 0
+    };
+  }
+
+  async updateGroupSyncSettings(name: string, settings: GroupSyncSettings): Promise<void> {
+    this.persistedState.syncPreferences[name] = {
+      syncEnabled: settings.enabled,
+      lastSynced: settings.lastSynced ?? 0
+    };
+    await this.saveState();
+    this.notify({
+      type: 'mapping-changed',
+      data: {}
     });
   }
 
@@ -74,223 +267,102 @@ export class StorageManager {
     };
   }
 
-  // Event System
-  subscribe(callback: StorageEventCallback): () => void {
-    this.observers.add(callback);
-    return () => this.observers.delete(callback);
-  }
-
   private notify(event: StorageEvent): void {
-    this.observers.forEach(callback => callback(event));
+    // Use chrome.storage.onChanged instead of custom observers
+    chrome.storage.sync.set({ 
+      lastEvent: { 
+        type: event.type, 
+        data: event.data,
+        timestamp: Date.now() 
+      } 
+    });
   }
 
-  // State Management
-  async getState(): Promise<StorageState> {
-    await this.loadState();
-    return this.state;
+  // Combined State Access
+  async getState(): Promise<CombinedState> {
+    await this.reloadState(); // Ensure fresh state when popup opens
+    return {
+      ...this.persistedState,
+      runtime: this.runtimeState
+    };
   }
 
   // Settings Management
   async getSettings(): Promise<GlobalSettings> {
-    await this.loadState();
-    return this.state.settings;
-  }
-
-  // Group Management
-  async updateGroup(groupId: TabGroupId, updates: Partial<GroupState>): Promise<void> {
-    await this.loadState();
-    if (!this.state.groups[groupId]) {
-      throw new StorageError(`Group ${groupId} not found`);
-    }
-
-    this.state.groups[groupId] = {
-      ...this.state.groups[groupId],
-      ...updates
-    };
-
-    await this.saveState();
-    this.notify({
-      type: updates.archived ? 'group-archived' : 'group-restored',
-      data: { groups: this.state.groups }
-    });
-  }
-
-  async removeGroup(groupId: TabGroupId): Promise<void> {
-    await this.loadState();
-    if (!this.state.groups[groupId]) {
-      throw new StorageError(`Group ${groupId} not found`);
-    }
-
-    delete this.state.groups[groupId];
-    delete this.state.groupSettings[groupId];
-    delete this.state.mappings[groupId];
-
-    await this.saveState();
-    this.notify({
-      type: 'group-deleted',
-      data: { groups: this.state.groups }
-    });
+    return this.persistedState.settings;
   }
 
   async updateSettings(settings: Partial<GlobalSettings>): Promise<void> {
-    this.state.settings = { ...this.state.settings, ...settings };
+    this.persistedState.settings = { ...this.persistedState.settings, ...settings };
     await this.saveState();
     this.notify({
       type: 'settings-changed',
-      data: { settings: this.state.settings }
+      data: { settings: this.persistedState.settings }
     });
   }
 
-  // Group Sync Settings Management
-  async getGroupSyncSettings(groupId: TabGroupId): Promise<GroupSyncSettings> {
-    await this.loadState();
-    return (
-      this.state.groupSettings[groupId] || {
-        enabled: true, // Default to enabled for new groups
-        lastSynced: 0
-      }
-    );
-  }
-
-  async updateGroupSyncSettings(groupId: TabGroupId, settings: Partial<GroupSyncSettings>): Promise<void> {
-    const current = await this.getGroupSyncSettings(groupId);
-    this.state.groupSettings[groupId] = {
-      ...current,
-      ...settings
-    };
-    await this.saveState();
-    this.notify({
-      type: 'sync-status-changed',
-      data: { groupSettings: this.state.groupSettings }
-    });
-  }
-
-  async getAllGroupSyncSettings(): Promise<Record<TabGroupId, GroupSyncSettings>> {
-    await this.loadState();
-    return this.state.groupSettings;
-  }
-
-  // Group-Folder Mapping Management
-  async getMapping(groupId: TabGroupId): Promise<GroupFolderMapping | undefined> {
-    await this.loadState();
-    return this.state.mappings[groupId];
-  }
-
-  async getAllMappings(): Promise<Record<TabGroupId, GroupFolderMapping>> {
-    await this.loadState();
-    return this.state.mappings;
-  }
-
-  async isSyncEnabled(groupId: TabGroupId): Promise<boolean> {
-    const settings = await this.getGroupSyncSettings(groupId);
-    const globalSettings = await this.getSettings();
-    return globalSettings.autoSync && settings.enabled;
-  }
-
-  async addMapping(mapping: GroupFolderMapping): Promise<void> {
-    return withErrorHandling(async () => {
-      const validatedMapping = validateGroupFolderMapping(mapping);
-      this.state.mappings[validatedMapping.groupId] = validatedMapping;
-      await this.saveState();
-      this.notify({
-        type: 'mapping-added',
-        data: { mappings: this.state.mappings }
-      });
-    }, ErrorType.STORAGE);
-  }
-
-  async updateMapping(groupId: TabGroupId, updates: Partial<GroupFolderMapping>): Promise<void> {
-    if (!this.state.mappings[groupId]) return;
-
-    this.state.mappings[groupId] = {
-      ...this.state.mappings[groupId],
-      ...updates
-    };
-    
-    await this.saveState();
-    this.notify({
-      type: 'mapping-updated',
-      data: { mappings: this.state.mappings }
-    });
-  }
-
-  async removeMapping(groupId: TabGroupId): Promise<void> {
-    delete this.state.mappings[groupId];
-    await this.saveState();
-    this.notify({
-      type: 'mapping-removed',
-      data: { mappings: this.state.mappings }
-    });
-  }
-
-  async getFolderMapping(folderId: BookmarkFolderId): Promise<GroupFolderMapping | undefined> {
-    await this.loadState();
-    return Object.values(this.state.mappings).find(
-      mapping => mapping.folderId === folderId
-    );
-  }
-
-  // Sync History Management
+  // History Management
   async addHistoryEntry(entry: SyncHistoryEntry): Promise<void> {
     return withErrorHandling(async () => {
       const validatedEntry = validateSyncHistoryEntry(entry);
-      this.state.syncHistory = [validatedEntry, ...this.state.syncHistory].slice(0, 100);
+      this.persistedState.syncHistory = [validatedEntry, ...this.persistedState.syncHistory].slice(0, 100);
       await this.saveState();
       this.notify({
         type: 'history-added',
-        data: { syncHistory: this.state.syncHistory }
+        data: { syncHistory: this.persistedState.syncHistory }
       });
     }, ErrorType.STORAGE);
   }
 
   async getHistory(): Promise<SyncHistoryEntry[]> {
     await this.loadState();
-    return this.state.syncHistory;
-  }
-
-  // Ungrouped Tabs Management
-  async getUngroupedSettings() {
-    await this.loadState();
-    return this.state.ungroupedTabs;
-  }
-
-  async updateUngroupedSettings(updates: Partial<typeof DEFAULT_STATE.ungroupedTabs>) {
-    this.state.ungroupedTabs = {
-      ...this.state.ungroupedTabs,
-      ...updates
-    };
-    await this.saveState();
-    this.notify({
-      type: 'settings-changed',
-      data: { ungroupedTabs: this.state.ungroupedTabs }
-    });
+    return this.persistedState.syncHistory;
   }
 
   // Utility Methods
   async clearAllData(): Promise<void> {
-    this.state = DEFAULT_STATE;
+    this.persistedState = DEFAULT_STATE;
+    this.runtimeState = {
+      mappings: {},
+      groupSettings: {},
+      ungrouped: {
+        enabled: false,
+        folderName: 'Ungrouped Tabs',
+        syncEnabled: false,
+        status: {
+          lastSynced: 0,
+          inProgress: false
+        }
+      }
+    };
     await this.saveState();
     this.notify({
       type: 'settings-changed',
-      data: this.state
+      data: this.persistedState
     });
   }
 
   async exportData(): Promise<string> {
     await this.loadState();
-    return JSON.stringify(this.state, null, 2);
+    return JSON.stringify({
+      ...this.persistedState,
+      runtime: this.runtimeState
+    }, null, 2);
   }
 
   async importData(jsonData: string): Promise<void> {
     return withErrorHandling(async () => {
       try {
-        const parsedState = JSON.parse(jsonData);
-        const validatedState = validateStorageState(parsedState);
-        this.state = this.migrateStateIfNeeded(validatedState);
+        const parsed = JSON.parse(jsonData);
+        const validatedState = validateStorageState(parsed);
+        this.persistedState = this.migrateStateIfNeeded(validatedState);
+        if (parsed.runtime) {
+          this.runtimeState = parsed.runtime;
+        }
         await this.saveState();
         this.notify({
           type: 'settings-changed',
-          data: this.state
+          data: this.persistedState
         });
       } catch (error) {
         throw new StorageError('Invalid import data', error);

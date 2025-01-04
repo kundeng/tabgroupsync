@@ -2,6 +2,7 @@ import { Logger, OperationTracker } from '../utils/logger';
 import { StorageManager } from '../storage/storageManager';
 import { createBookmark } from './bookmarkMutations';
 import { getBookmark, getBookmarkChildren } from './bookmarkQueries';
+import { BOOKMARK_FOLDERS } from '../constants';
 
 export interface SnapshotMetadata {
   id: string;
@@ -21,24 +22,39 @@ export class SnapshotManager {
     this.storage = storage;
   }
 
+  private async findFolderByPath(parentId: string, name: string): Promise<chrome.bookmarks.BookmarkTreeNode | null> {
+    const children = await chrome.bookmarks.getChildren(parentId);
+    return children.find(child => child.title === name && !child.url) || null;
+  }
+
   private async ensureSnapshotFolder(): Promise<string> {
     if (this.snapshotFolderId) {
       const folder = await getBookmark(this.snapshotFolderId);
-      if (folder) return this.snapshotFolderId;
+      if (folder && folder.title === BOOKMARK_FOLDERS.SNAPSHOTS) {
+        return this.snapshotFolderId;
+      }
     }
 
     // Get or create "Tab Group Snapshots" folder
     const settings = await this.storage.getSettings();
-    if (!settings.parentFolderId) {
-      throw new Error('Parent folder not set');
+    if (!settings.containerFolderId) {
+      throw new Error('Container folder not set');
     }
 
-    const parent = await getBookmark(settings.parentFolderId);
-    if (!parent) {
-      throw new Error('Parent folder not found');
+    const container = await getBookmark(settings.containerFolderId);
+    if (!container) {
+      throw new Error('Container folder not found');
     }
 
-    const folder = await createBookmark(parent.id, 'Tab Group Snapshots');
+    // Try to find existing snapshots folder
+    const existingFolder = await this.findFolderByPath(container.id, BOOKMARK_FOLDERS.SNAPSHOTS);
+    if (existingFolder) {
+      this.snapshotFolderId = existingFolder.id;
+      return existingFolder.id;
+    }
+
+    // Create new snapshots folder
+    const folder = await createBookmark(container.id, BOOKMARK_FOLDERS.SNAPSHOTS);
     this.snapshotFolderId = folder.id;
     return folder.id;
   }

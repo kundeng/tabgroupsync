@@ -57,15 +57,44 @@ export function initializeTabGroupListeners(tabGroupManager: TabGroupManager): v
     });
 
     try {
-      await tabGroupManager.handleGroupRemoved(group.id);
+      // Pass group name to preserve folder mapping
+      const name = group.title || 'Unnamed Group';
+      await tabGroupManager.handleGroupRemoved(name);
       logger.info('tabGroup:removed:handled', {
         groupId: group.id,
+        name,
         title: group.title
       });
     } catch (error) {
       logger.error('tabGroup:removed:failed', {
         groupId: group.id,
         title: group.title,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }, error instanceof Error ? error : undefined);
+    }
+  });
+
+  // Handle window removal to properly handle groups in closed windows
+  chrome.windows.onRemoved.addListener(async (windowId) => {
+    logger.debug('window:removed', { windowId });
+    
+    try {
+      // Get groups in the window before it's removed
+      const groups = await chrome.tabGroups.query({ windowId });
+      
+      // Handle each group removal
+      for (const group of groups) {
+        const name = group.title || 'Unnamed Group';
+        await tabGroupManager.handleGroupRemoved(name);
+        logger.info('window:removed:group:handled', {
+          windowId,
+          groupId: group.id,
+          name
+        });
+      }
+    } catch (error) {
+      logger.error('window:removed:failed', {
+        windowId,
         error: error instanceof Error ? error.message : 'Unknown error'
       }, error instanceof Error ? error : undefined);
     }

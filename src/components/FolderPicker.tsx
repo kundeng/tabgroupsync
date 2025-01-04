@@ -30,6 +30,9 @@ export default function FolderPicker({ open, onClose, onSelect }: FolderPickerPr
   React.useEffect(() => {
     if (open) {
       setLoading(true);
+      // Reset state when opening
+      setFolders([]);
+      setCurrentPath([]);
       chrome.bookmarks.getTree((tree) => {
         setFolders(tree[0].children || []);
         setCurrentPath([tree[0]]);
@@ -38,31 +41,58 @@ export default function FolderPicker({ open, onClose, onSelect }: FolderPickerPr
     }
   }, [open]);
 
-  const handleFolderClick = async (folder: chrome.bookmarks.BookmarkTreeNode) => {
-    setLoading(true);
-    chrome.bookmarks.getChildren(folder.id, (children) => {
+  const refreshFolders = React.useCallback(() => {
+    if (!currentPath.length) return;
+    
+    const parent = currentPath[currentPath.length - 1];
+    chrome.bookmarks.getChildren(parent.id, (children) => {
       const subfolders = children.filter(node => !node.url);
       setFolders(subfolders);
-      setCurrentPath([...currentPath, folder]);
-      setLoading(false);
     });
+  }, [currentPath]);
+
+  // Refresh folders when dialog is opened or current path changes
+  React.useEffect(() => {
+    if (open && currentPath.length > 0) {
+      refreshFolders();
+    }
+  }, [open, currentPath, refreshFolders]);
+
+  const handleFolderClick = async (folder: chrome.bookmarks.BookmarkTreeNode) => {
+    setLoading(true);
+    try {
+      chrome.bookmarks.getChildren(folder.id, (children) => {
+        const subfolders = children.filter(node => !node.url);
+        setFolders(subfolders);
+        setCurrentPath([...currentPath, folder]);
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleNavigateUp = () => {
     if (currentPath.length > 1) {
-      const newPath = currentPath.slice(0, -1);
-      const parent = newPath[newPath.length - 1];
-      chrome.bookmarks.getChildren(parent.id, (children) => {
-        const subfolders = children.filter(node => !node.url);
-        setFolders(subfolders);
-        setCurrentPath(newPath);
-      });
+      setLoading(true);
+      try {
+        const newPath = currentPath.slice(0, -1);
+        const parent = newPath[newPath.length - 1];
+        chrome.bookmarks.getChildren(parent.id, (children) => {
+          const subfolders = children.filter(node => !node.url);
+          setFolders(subfolders);
+          setCurrentPath(newPath);
+        });
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
   const handleSelect = (folder: chrome.bookmarks.BookmarkTreeNode) => {
-    onSelect(folder);
+    // Close dialog first
     onClose();
+    // Then handle selection
+    onSelect(folder);
   };
 
   return (
@@ -80,7 +110,7 @@ export default function FolderPicker({ open, onClose, onSelect }: FolderPickerPr
       <DialogTitle sx={{ pb: 1 }}>
         <Box>
           <Typography variant="h6" sx={{ fontSize: '1rem', mb: 0.5 }}>
-            Select Parent Folder
+            Select Container Folder
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
             {currentPath.map(f => f.title).join(' > ')}

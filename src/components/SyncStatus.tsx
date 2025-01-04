@@ -29,7 +29,7 @@ export default function SyncStatus({ storage }: SyncStatusProps) {
   const [history, setHistory] = React.useState<SyncHistoryEntry[]>([]);
   const [expanded, setExpanded] = React.useState(false);
 
-  // Subscribe to storage changes
+  // Listen for storage changes
   React.useEffect(() => {
     const loadHistory = async () => {
       const history = await storage.getHistory();
@@ -38,13 +38,17 @@ export default function SyncStatus({ storage }: SyncStatusProps) {
 
     loadHistory();
 
-    const unsubscribe = storage.subscribe((event) => {
-      if (event.type === 'history-added') {
+    const handleStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }) => {
+      if (changes.lastEvent?.newValue?.type === 'history-added') {
         loadHistory();
       }
-    });
+    };
 
-    return unsubscribe;
+    chrome.storage.onChanged.addListener(handleStorageChange);
+
+    return () => {
+      chrome.storage.onChanged.removeListener(handleStorageChange);
+    };
   }, [storage]);
 
   const getEntryIcon = (entry: SyncHistoryEntry) => {

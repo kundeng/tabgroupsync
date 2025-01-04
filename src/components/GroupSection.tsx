@@ -11,13 +11,11 @@ import {
   CircularProgress,
   Divider,
   Collapse,
+  Alert,
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
-  Archive as ArchiveIcon,
-  Unarchive as UnarchiveIcon,
-  Delete as DeleteIcon,
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { GroupViewModel } from '../lib/types/storage';
@@ -28,32 +26,59 @@ interface GroupSectionProps {
   title: string;
   groups: GroupViewModel[];
   storage: StorageManager;
-  onToggleSync: (groupId: string, enabled: boolean) => void;
+  parentFolder: chrome.bookmarks.BookmarkTreeNode | null;
+  onToggleSync: (name: string) => void;
   onFullResync: (group: GroupViewModel) => void;
-  onArchive?: (group: GroupViewModel) => void;
-  onRestore?: (group: GroupViewModel) => void;
-  onDelete?: (group: GroupViewModel) => void;
   disabled?: boolean;
+}
+
+interface ErrorWithTimestamp {
+  message: string;
+  timestamp: number;
 }
 
 export default function GroupSection({
   title,
   groups,
+  storage,
+  parentFolder,
   onToggleSync,
   onFullResync,
-  onArchive,
-  onRestore,
-  onDelete,
-  disabled = false,
-  storage
+  disabled = false
 }: GroupSectionProps) {
   const [expanded, setExpanded] = React.useState(true);
   const [syncing, setSyncing] = React.useState<Record<string, boolean>>({});
+  const [errors, setErrors] = React.useState<Record<string, ErrorWithTimestamp>>({});
 
   const handleFullResync = async (group: GroupViewModel) => {
+    if (!parentFolder) {
+      setErrors(prev => ({
+        ...prev,
+        [group.id]: {
+          message: 'Please select a location for your bookmarks first',
+          timestamp: Date.now()
+        }
+      }));
+      return;
+    }
+
     setSyncing(prev => ({ ...prev, [group.id]: true }));
     try {
       await onFullResync(group);
+      setErrors(prev => {
+        const next = { ...prev };
+        delete next[group.id];
+        return next;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to sync';
+      setErrors(prev => ({ 
+        ...prev, 
+        [group.id]: {
+          message,
+          timestamp: Date.now()
+        }
+      }));
     } finally {
       setSyncing(prev => ({ ...prev, [group.id]: false }));
     }
@@ -109,63 +134,125 @@ export default function GroupSection({
                     <Typography sx={{ fontWeight: 500, fontSize: '0.95rem' }}>
                       {group.name}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                      {group.syncEnabled ? 'Backing up to bookmarks' : 'Sync paused'}
-                    </Typography>
-                    {group.inactiveFor !== undefined && (
-                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.8rem', display: 'block' }}>
-                        {getInactiveText(group.inactiveFor)}
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                        {group.syncEnabled ? 'Backing up to bookmarks' : 'Backup paused'}
                       </Typography>
-                    )}
+                      
+                      {/* Sync Status */}
+                      {group.syncEnabled && (
+                        <>
+                          <Typography variant="caption" sx={{ 
+                            fontSize: '0.8rem',
+                            color: group.status.error ? 'error.main' : 'text.secondary'
+                          }}>
+                            {group.status.inProgress ? 'Syncing...' : (
+                              group.status.error ? `Last sync failed: ${group.status.error}` : (
+                                group.status.lastSynced ? 
+                                  `Last synced ${new Date(group.status.lastSynced).toLocaleTimeString()}` :
+                                  'Not synced yet'
+                              )
+                            )}
+                          </Typography>
+                          <Typography variant="caption" sx={{ 
+                            fontSize: '0.8rem',
+                            color: group.folder ? 'success.main' : 'warning.main'
+                          }}>
+                            {group.folder ? 
+                              `Folder: ${group.folder.title}` : 
+                              'Creating folder...'
+                            }
+                          </Typography>
+                        </>
+                      )}
+
+                      {/* Inactive Status */}
+                      {group.inactiveFor !== undefined && (
+                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                          {getInactiveText(group.inactiveFor)}
+                        </Typography>
+                      )}
+
+                      {/* Operation Errors */}
+                      {errors[group.id] && (
+                        <Alert severity="error" sx={{ mt: 1, py: 0 }}>
+                          {errors[group.id].message}
+                          <Typography variant="caption" sx={{ 
+                            display: 'block',
+                            fontSize: '0.75rem',
+                            color: 'error.light',
+                            mt: 0.5
+                          }}>
+                            {new Date(errors[group.id].timestamp).toLocaleTimeString()}
+                          </Typography>
+                        </Alert>
+                      )}
+                    </Box>
                   </Box>
                 </Grid>
                 {!disabled && (
                   <Grid item style={{ flexShrink: 0 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {onArchive && !group.isArchived && (
-                        <Tooltip title="Archive group">
-                          <IconButton
-                            onClick={() => onArchive(group)}
-                            size="small"
-                            sx={{ padding: '6px' }}
-                          >
-                            <ArchiveIcon fontSize="small" />
-                          </IconButton>
+                      {/* Primary Actions */}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Tooltip title={!parentFolder ? 'Select a location for your bookmarks first' : (group.syncEnabled ? 'Pause backup' : 'Resume backup')}>
+                          <span>
+                            <Switch
+                              size="small"
+                              checked={group.syncEnabled}
+                              onChange={async () => {
+                                if (!parentFolder) {
+                                  setErrors(prev => ({
+                                    ...prev,
+                                    [group.id]: {
+                                      message: 'Please select a location for your bookmarks first',
+                                      timestamp: Date.now()
+                                    }
+                                  }));
+                                  return;
+                                }
+
+                                try {
+                                  await onToggleSync(group.name);
+                                  setErrors(prev => {
+                                    const next = { ...prev };
+                                    delete next[group.id];
+                                    return next;
+                                  });
+                                } catch (error) {
+                                  const message = error instanceof Error ? error.message : 'Failed to toggle sync';
+                                  if (!message.includes('cancelled')) {
+                                    setErrors(prev => ({ 
+                                      ...prev, 
+                                      [group.id]: {
+                                        message: `Failed to toggle sync: ${message}`,
+                                        timestamp: Date.now()
+                                      }
+                                    }));
+                                  }
+                                }
+                              }}
+                              disabled={!parentFolder} // Disable if no parent folder
+                              sx={{
+                                '& .MuiSwitch-switchBase': {
+                                  padding: '4px'
+                                }
+                              }}
+                            />
+                          </span>
                         </Tooltip>
-                      )}
-                      {onRestore && group.isArchived && (
-                        <Tooltip title="Restore group">
-                          <IconButton
-                            onClick={() => onRestore(group)}
-                            size="small"
-                            sx={{ padding: '6px' }}
-                          >
-                            <UnarchiveIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                      {onDelete && group.isArchived && (
-                        <Tooltip title="Delete group and bookmarks">
-                          <IconButton
-                            onClick={() => onDelete(group)}
-                            size="small"
-                            color="error"
-                            sx={{ padding: '6px' }}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                      <SnapshotList
-                        storage={storage}
-                        groupId={group.id}
-                        groupName={group.name}
-                      />
-                      <Divider orientation="vertical" flexItem sx={{ mx: 0.5, height: 24 }} />
-                      <Tooltip title="Full resync (replaces all bookmarks)">
+                      </Box>
+
+                      <Tooltip title={!group.syncEnabled ? 'Enable backup first' : 'Full resync (replaces all bookmarks)'}>
                         <span>
                           <IconButton
-                            onClick={() => handleFullResync(group)}
+                            onClick={async () => {
+                              try {
+                                await handleFullResync(group);
+                              } catch (error) {
+                                // Error is handled in handleFullResync
+                              }
+                            }}
                             disabled={!group.syncEnabled || syncing[group.id]}
                             size="small"
                             sx={{ padding: '6px' }}
@@ -178,18 +265,15 @@ export default function GroupSection({
                           </IconButton>
                         </span>
                       </Tooltip>
-                      <Tooltip title={group.syncEnabled ? 'Pause backup' : 'Resume backup'}>
-                        <Switch
-                          size="small"
-                          checked={group.syncEnabled}
-                          onChange={(e) => onToggleSync(group.id, e.target.checked)}
-                          sx={{
-                            '& .MuiSwitch-switchBase': {
-                              padding: '4px'
-                            }
-                          }}
-                        />
-                      </Tooltip>
+
+                      <Divider orientation="vertical" flexItem sx={{ mx: 0.5, height: 24 }} />
+
+                      {/* Snapshots */}
+                      <SnapshotList
+                        storage={storage}
+                        groupId={group.id}
+                        groupName={group.name}
+                      />
                     </Box>
                   </Grid>
                 )}

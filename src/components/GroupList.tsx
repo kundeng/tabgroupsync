@@ -3,183 +3,233 @@ import { Box, Typography } from '@mui/material';
 import { Info as InfoIcon } from '@mui/icons-material';
 import { StorageManager } from '../lib/storage/storageManager';
 import { SyncEngine } from '../lib/sync/syncEngine';
-import { GroupViewModel, GroupState } from '../lib/types/storage';
+import { GroupViewModel } from '../lib/types/storage';
 import GroupSection from './GroupSection';
 import { Logger } from '../lib/utils/logger';
+import { BookmarkManager } from '../lib/bookmarks/bookmarkManager';
 
 interface GroupListProps {
   storage: StorageManager;
   syncEngine: SyncEngine;
+  bookmarkManager: BookmarkManager;
 }
 
-export default function GroupList({ storage, syncEngine }: GroupListProps) {
+export default function GroupList({ storage, syncEngine, bookmarkManager }: GroupListProps) {
   const [groups, setGroups] = React.useState<GroupViewModel[]>([]);
+  const [parentFolder, setParentFolder] = React.useState<chrome.bookmarks.BookmarkTreeNode | null>(null);
   const logger = Logger.getInstance();
 
-  // Load all groups and their states
-  React.useEffect(() => {
-    const loadGroups = async () => {
-      try {
-        // Get all tab groups from all windows
-        const allGroups = await chrome.tabGroups.query({});
-        const currentWindowId = await chrome.windows.getCurrent().then(w => w.id);
-        const now = Date.now();
+  // Load groups helper
+  const loadGroups = React.useCallback(async () => {
+    try {
+      // Get all tab groups from all windows
+      const allGroups = await chrome.tabGroups.query({});
+      const currentWindowId = await chrome.windows.getCurrent().then(w => w.id);
+      const now = Date.now();
 
-        // Get stored state
-        const state = await storage.getState();
-        
-        // Build view models from all current groups
-        const viewModels: GroupViewModel[] = allGroups.map(group => {
-          const stored = state.groups[group.id.toString()];
-          const isCurrentWindow = group.windowId === currentWindowId;
+      // Get parent folder and its subfolders
+      const parentResponse = await new Promise<{ folder: chrome.bookmarks.BookmarkTreeNode | null }>((resolve, reject) => {
+        chrome.runtime.sendMessage({ type: 'GET_TAB_GROUPS_FOLDER' }, response => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError);
+          } else if (response.error) {
+            reject(new Error(response.error));
+          } else {
+            resolve(response);
+          }
+        });
+      });
+      const parent = parentResponse.folder;
+      if (!parent) {
+        setGroups([]);
+        return;
+      }
 
-          return {
-            id: group.id.toString(),
-            name: group.title || 'Unnamed Group',
-            color: group.color,
-            windowId: group.windowId,
-            isCurrentWindow,
-            isActive: true,
-            isArchived: stored?.archived || false,
+      const folders = await chrome.bookmarks.getChildren(parent.id);
+      const settingsResponse = await new Promise<{ settings: any }>((resolve, reject) => {
+        chrome.runtime.sendMessage({ type: 'GET_SETTINGS' }, response => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError);
+          } else if (response.error) {
+            reject(new Error(response.error));
+          } else {
+            resolve(response);
+          }
+        });
+      });
+      const settings = settingsResponse.settings;
+
+      const mappingsResponse = await new Promise<{ mappings: any }>((resolve, reject) => {
+        chrome.runtime.sendMessage({ type: 'GET_ALL_MAPPINGS' }, response => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError);
+          } else if (response.error) {
+            reject(new Error(response.error));
+          } else {
+            resolve(response);
+          }
+        });
+      });
+      const runtimeMappings = mappingsResponse.mappings;
+      
+      logger.info('groups:loading', {
+        allGroups: allGroups.map(g => ({ id: g.id, title: g.title })),
+        folders: folders.map(f => ({ id: f.id, title: f.title })),
+        runtimeMappings
+      });
+
+      // Build view models from current groups
+      const viewModels: GroupViewModel[] = allGroups.map(group => {
+        const name = group.title || 'Unnamed Group';
+        const mapping = runtimeMappings[name];
+        const folder = folders.find(f => f.title === name);
+        const isCurrentWindow = group.windowId === currentWindowId;
+
+        return {
+          id: group.id.toString(),
+          name,
+          color: group.color,
+          windowId: group.windowId,
+          isCurrentWindow,
+          isActive: true,
+          lastSeen: now,
+          syncEnabled: mapping?.syncEnabled ?? (settings.autoSync && !!folder),
+          status: mapping?.status ?? {
+            lastSynced: 0,
+            inProgress: false
+          },
+          folder,
+          inactiveFor: 0
+        };
+      });
+
+      // Add folders without active groups
+      folders.forEach(folder => {
+        if (!viewModels.some(vm => vm.name === folder.title)) {
+          const mapping = runtimeMappings[folder.title];
+          viewModels.push({
+            id: `inactive-${folder.id}`,
+            name: folder.title,
+            isCurrentWindow: false,
+            isActive: false,
             lastSeen: now,
-            syncEnabled: stored?.syncEnabled ?? true,
-            status: stored?.status || {
+            syncEnabled: mapping?.syncEnabled ?? true,
+            status: mapping?.status ?? {
               lastSynced: 0,
               inProgress: false
             },
+            folder,
             inactiveFor: 0
-          };
-        });
-
-        // Add stored groups that aren't currently active
-        Object.values(state.groups).forEach((stored: GroupState) => {
-          if (!viewModels.some(vm => vm.id === stored.id) && !stored.archived) {
-            viewModels.push({
-              id: stored.id,
-              name: stored.name,
-              color: stored.color,
-              windowId: stored.windowId,
-              isCurrentWindow: false,
-              isActive: false,
-              isArchived: stored.archived,
-              lastSeen: stored.lastSeen,
-              syncEnabled: stored.syncEnabled,
-              status: stored.status,
-              inactiveFor: Math.floor((now - stored.lastSeen) / (1000 * 60 * 60 * 24))
-            });
-          }
-        });
-
-        // Add archived groups
-        Object.values(state.groups)
-          .filter(stored => stored.archived)
-          .forEach((stored: GroupState) => {
-            if (!viewModels.some(vm => vm.id === stored.id)) {
-              viewModels.push({
-                id: stored.id,
-                name: stored.name,
-                color: stored.color,
-                windowId: stored.windowId,
-                isCurrentWindow: false,
-                isActive: false,
-                isArchived: true,
-                lastSeen: stored.lastSeen,
-                syncEnabled: stored.syncEnabled,
-                status: stored.status,
-                inactiveFor: Math.floor((now - stored.lastSeen) / (1000 * 60 * 60 * 24))
-              });
-            }
           });
+        }
+      });
 
-        setGroups(viewModels);
+      logger.info('groups:loaded', {
+        viewModels: viewModels.map(vm => ({
+          name: vm.name,
+          syncEnabled: vm.syncEnabled,
+          isCurrentWindow: vm.isCurrentWindow,
+          folder: vm.folder?.title
+        }))
+      });
+
+      setGroups(viewModels);
+    } catch (error) {
+      logger.error('groupList:loadFailed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }, [logger]);
+
+  // Load parent folder and groups
+  React.useEffect(() => {
+    const loadParentFolder = async () => {
+      try {
+        const response = await new Promise<{ folder: chrome.bookmarks.BookmarkTreeNode | null }>(resolve => {
+          chrome.runtime.sendMessage({ type: 'GET_TAB_GROUPS_FOLDER' }, resolve);
+        });
+        setParentFolder(response.folder);
+        // Load groups after parent folder is loaded
+        await loadGroups();
       } catch (error) {
-        logger.error('groupList:loadFailed', {
+        logger.error('groupList:loadTabGroupsFolderFailed', {
           error: error instanceof Error ? error.message : 'Unknown error'
         });
       }
     };
+    loadParentFolder();
 
-    loadGroups();
-
-    // Set up listeners for group changes
-    const handleGroupChange = () => loadGroups();
-    chrome.tabGroups.onCreated.addListener(handleGroupChange);
-    chrome.tabGroups.onUpdated.addListener(handleGroupChange);
-    chrome.tabGroups.onRemoved.addListener(handleGroupChange);
+    // Set up listeners for group changes and storage changes
+    const handleChange = () => loadGroups();
+    chrome.tabGroups.onCreated.addListener(handleChange);
+    chrome.tabGroups.onUpdated.addListener(handleChange);
+    chrome.tabGroups.onRemoved.addListener(handleChange);
+    chrome.storage.onChanged.addListener(handleChange);
 
     return () => {
-      chrome.tabGroups.onCreated.removeListener(handleGroupChange);
-      chrome.tabGroups.onUpdated.removeListener(handleGroupChange);
-      chrome.tabGroups.onRemoved.removeListener(handleGroupChange);
+      chrome.tabGroups.onCreated.removeListener(handleChange);
+      chrome.tabGroups.onUpdated.removeListener(handleChange);
+      chrome.tabGroups.onRemoved.removeListener(handleChange);
+      chrome.storage.onChanged.removeListener(handleChange);
     };
-  }, [storage, logger]);
+  }, [logger, loadGroups]);
 
-  const handleToggleSync = async (groupId: string, enabled: boolean) => {
+  const handleToggleSync = async (name: string) => {
     try {
-      await syncEngine.setGroupSyncEnabled(groupId, enabled);
-      logger.info('sync:toggled', { groupId, enabled });
-    } catch (error) {
-      logger.error('sync:toggleFailed', {
-        groupId,
-        error: error instanceof Error ? error.message : 'Unknown error'
+      await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({ type: 'TOGGLE_SYNC', name }, response => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else if (response.error) {
+            reject(new Error(response.error));
+          } else {
+            resolve(response.success);
+          }
+        });
       });
+      
+      logger.info('sync:toggled', { name });
+      await loadGroups(); // Refresh groups to show updated state
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('sync:toggleFailed', {
+        name,
+        error: message
+      });
+      await loadGroups(); // Refresh groups to show original state
+      throw error; // Re-throw to let GroupSection handle the error
     }
   };
 
   const handleFullResync = async (group: GroupViewModel) => {
     try {
       const currentGroup = await chrome.tabGroups.get(parseInt(group.id));
-      await syncEngine.fullResyncGroup(currentGroup);
-      logger.info('sync:fullResync:completed', { groupId: group.id });
+      await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({ type: 'FULL_RESYNC_GROUP', group: currentGroup }, response => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else if (response.error) {
+            reject(new Error(response.error));
+          } else {
+            resolve(response.success);
+          }
+        });
+      });
+
+      logger.info('sync:fullResync:completed', { name: group.name });
+      await loadGroups(); // Refresh UI after sync
     } catch (error) {
       logger.error('sync:fullResync:failed', {
-        groupId: group.id,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  };
-
-  const handleArchive = async (group: GroupViewModel) => {
-    try {
-      await storage.updateGroup(group.id, { archived: true });
-      logger.info('group:archived', { groupId: group.id });
-    } catch (error) {
-      logger.error('group:archive:failed', {
-        groupId: group.id,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  };
-
-  const handleRestore = async (group: GroupViewModel) => {
-    try {
-      await storage.updateGroup(group.id, { archived: false });
-      logger.info('group:restored', { groupId: group.id });
-    } catch (error) {
-      logger.error('group:restore:failed', {
-        groupId: group.id,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  };
-
-  const handleDelete = async (group: GroupViewModel) => {
-    try {
-      await storage.removeGroup(group.id);
-      logger.info('group:deleted', { groupId: group.id });
-    } catch (error) {
-      logger.error('group:delete:failed', {
-        groupId: group.id,
+        name: group.name,
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
   };
 
   // Group the tab groups by category
-  const currentWindowGroups = groups.filter(g => g.isCurrentWindow && !g.isArchived);
-  const otherWindowGroups = groups.filter(g => !g.isCurrentWindow && !g.isArchived && g.windowId);
-  const inactiveGroups = groups.filter(g => !g.windowId && !g.isArchived);
-  const archivedGroups = groups.filter(g => g.isArchived);
+  const currentWindowGroups = groups.filter(g => g.isCurrentWindow);
+  const otherWindowGroups = groups.filter(g => !g.isCurrentWindow && g.windowId);
+  const inactiveGroups = groups.filter(g => !g.windowId);
 
   return (
     <Box>
@@ -192,9 +242,9 @@ export default function GroupList({ storage, syncEngine }: GroupListProps) {
           title="Current Window"
           groups={currentWindowGroups}
           storage={storage}
+          parentFolder={parentFolder}
           onToggleSync={handleToggleSync}
           onFullResync={handleFullResync}
-          onArchive={handleArchive}
         />
       )}
 
@@ -203,9 +253,9 @@ export default function GroupList({ storage, syncEngine }: GroupListProps) {
           title="Other Windows"
           groups={otherWindowGroups}
           storage={storage}
+          parentFolder={parentFolder}
           onToggleSync={handleToggleSync}
           onFullResync={handleFullResync}
-          onArchive={handleArchive}
           disabled
         />
       )}
@@ -215,21 +265,9 @@ export default function GroupList({ storage, syncEngine }: GroupListProps) {
           title="Previously Synced"
           groups={inactiveGroups}
           storage={storage}
+          parentFolder={parentFolder}
           onToggleSync={handleToggleSync}
           onFullResync={handleFullResync}
-          onArchive={handleArchive}
-        />
-      )}
-
-      {archivedGroups.length > 0 && (
-        <GroupSection
-          title="Archived"
-          groups={archivedGroups}
-          storage={storage}
-          onToggleSync={handleToggleSync}
-          onFullResync={handleFullResync}
-          onRestore={handleRestore}
-          onDelete={handleDelete}
         />
       )}
 
@@ -245,7 +283,7 @@ export default function GroupList({ storage, syncEngine }: GroupListProps) {
       <Box sx={{ mt: 2, color: 'text.secondary' }}>
         <Typography variant="caption" component="div" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <InfoIcon fontSize="small" />
-          Changes to tab groups are automatically backed up to bookmarks. Bookmarks are never deleted when tabs are closed.
+          Enable sync for each group to back up tabs to bookmarks. Bookmarks are preserved even when tabs are closed.
         </Typography>
       </Box>
     </Box>

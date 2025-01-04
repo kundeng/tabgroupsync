@@ -35,14 +35,23 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
   const [error, setError] = React.useState<string | null>(null);
   const [showHistory, setShowHistory] = React.useState(false);
   const logger = Logger.getInstance();
-  const snapshotManager = React.useMemo(() => new SnapshotManager(storage), [storage]);
 
   const loadSnapshots = React.useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const list = await snapshotManager.listSnapshots(groupId);
-      setSnapshots(list.sort((a, b) => b.timestamp - a.timestamp));
+      const response = await new Promise<{ snapshots: SnapshotMetadata[] }>((resolve, reject) => {
+        chrome.runtime.sendMessage({ type: 'LIST_SNAPSHOTS', groupId }, response => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError);
+          } else if (response.error) {
+            reject(new Error(response.error));
+          } else {
+            resolve(response);
+          }
+        });
+      });
+      setSnapshots(response.snapshots.sort((a, b) => b.timestamp - a.timestamp));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load snapshots';
       setError(message);
@@ -50,7 +59,7 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
     } finally {
       setLoading(false);
     }
-  }, [groupId, snapshotManager, logger]);
+  }, [groupId, logger]);
 
   React.useEffect(() => {
     if (showHistory) {
@@ -61,7 +70,20 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
   const handleCreateSnapshot = async () => {
     setError(null);
     try {
-      await snapshotManager.createSnapshot(groupId, groupName);
+      await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(
+          { type: 'CREATE_SNAPSHOT', groupId, groupName },
+          response => {
+            if (chrome.runtime.lastError) {
+              reject(chrome.runtime.lastError);
+            } else if (response.error) {
+              reject(new Error(response.error));
+            } else {
+              resolve(response.snapshot);
+            }
+          }
+        );
+      });
       logger.info('snapshot:created', { groupId, groupName });
       await loadSnapshots();
       onSnapshotCreated?.();
@@ -75,7 +97,20 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
   const handleDeleteSnapshot = async (snapshotId: string) => {
     setError(null);
     try {
-      await snapshotManager.deleteSnapshot(snapshotId);
+      await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(
+          { type: 'DELETE_SNAPSHOT', snapshotId },
+          response => {
+            if (chrome.runtime.lastError) {
+              reject(chrome.runtime.lastError);
+            } else if (response.error) {
+              reject(new Error(response.error));
+            } else {
+              resolve(response.success);
+            }
+          }
+        );
+      });
       logger.info('snapshot:deleted', { snapshotId });
       await loadSnapshots();
     } catch (err) {
@@ -88,20 +123,6 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
   return (
     <>
       <Box sx={{ display: 'flex', gap: 0.5 }}>
-        <Tooltip title="Create snapshot">
-          <IconButton 
-            onClick={handleCreateSnapshot} 
-            size="small"
-            sx={{ 
-              padding: '6px',
-              '& .MuiSvgIcon-root': {
-                fontSize: '1.2rem'
-              }
-            }}
-          >
-            <CameraIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
         <Tooltip title="View snapshot history">
           <IconButton 
             onClick={() => setShowHistory(true)} 
@@ -114,6 +135,20 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
             }}
           >
             <HistoryIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Create snapshot">
+          <IconButton 
+            onClick={handleCreateSnapshot} 
+            size="small"
+            sx={{ 
+              padding: '6px',
+              '& .MuiSvgIcon-root': {
+                fontSize: '1.2rem'
+              }
+            }}
+          >
+            <CameraIcon fontSize="small" />
           </IconButton>
         </Tooltip>
       </Box>
@@ -130,7 +165,14 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
         }}
       >
         <DialogTitle sx={{ pb: 1 }}>
-          Snapshots - {groupName}
+          <Box>
+            <Typography variant="h6" sx={{ fontSize: '1rem', mb: 0.5 }}>
+              Snapshots
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              {groupName}
+            </Typography>
+          </Box>
         </DialogTitle>
         <DialogContent sx={{ pt: '8px !important' }}>
           {error && (

@@ -12,62 +12,111 @@ import {
   Switch,
   Typography,
   CircularProgress,
+  Divider,
 } from '@mui/material';
 import FolderPicker from './FolderPicker';
 import { Settings as SettingsIcon } from '@mui/icons-material';
 import { StorageManager } from '../lib/storage/storageManager';
 import { SyncEngine } from '../lib/sync/syncEngine';
-import { BookmarkManager } from '../lib/bookmarkManager';
+import { BookmarkManager } from '../lib/bookmarks/bookmarkManager';
 import { Logger } from '../lib/utils/logger';
+import LocationDisplay from './LocationDisplay';
 
 interface SettingsProps {
   storage: StorageManager;
   syncEngine: SyncEngine;
+  bookmarkManager: BookmarkManager;
 }
 
-export default function Settings({ storage, syncEngine }: SettingsProps) {
+export default function Settings({ storage, syncEngine, bookmarkManager }: SettingsProps) {
   const [open, setOpen] = React.useState(false);
   const [autoSync, setAutoSync] = React.useState(false);
-  const [parentFolder, setParentFolder] = React.useState<chrome.bookmarks.BookmarkTreeNode | null>(null);
+  const [containerFolder, setContainerFolder] = React.useState<chrome.bookmarks.BookmarkTreeNode | null>(null);
   const [isSelectingFolder, setIsSelectingFolder] = React.useState(false);
   const [showFolderPicker, setShowFolderPicker] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const logger = Logger.getInstance();
-  const bookmarkManager = React.useMemo(() => new BookmarkManager(storage), [storage]);
+
+  const loadSettings = React.useCallback(async () => {
+    try {
+      const response = await new Promise<{ settings: any }>((resolve, reject) => {
+        chrome.runtime.sendMessage({ type: 'GET_SETTINGS' }, response => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError);
+          } else if (response.error) {
+            reject(new Error(response.error));
+          } else {
+            resolve(response);
+          }
+        });
+      });
+      
+      setAutoSync(response.settings.autoSync);
+      
+      // Get container folder ID
+      if (response.settings.containerFolderId) {
+        const folderResponse = await new Promise<{ folder: chrome.bookmarks.BookmarkTreeNode | null }>((resolve, reject) => {
+          chrome.runtime.sendMessage({ type: 'GET_TAB_GROUPS_FOLDER' }, response => {
+            if (chrome.runtime.lastError) {
+              reject(chrome.runtime.lastError);
+            } else if (response.error) {
+              reject(new Error(response.error));
+            } else {
+              resolve(response);
+            }
+          });
+        });
+        setContainerFolder(folderResponse.folder);
+      }
+    } catch (error) {
+      logger.error('settings:load:failed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }, [logger]);
 
   React.useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        const settings = await storage.getSettings();
-        setAutoSync(settings.autoSync);
-        
-        if (settings.parentFolderId) {
-          const folder = await bookmarkManager.getParentFolder();
-          setParentFolder(folder);
-        }
-      } catch (error) {
-        logger.error('settings:load:failed', {
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
-        // Keep default false state on error
-      }
-    };
     loadSettings();
 
-    // Subscribe to settings changes
-    const unsubscribe = storage.subscribe((event) => {
-      if (event.type === 'settings-changed' && event.data.settings) {
-        setAutoSync(event.data.settings.autoSync);
+    // Listen for storage changes
+    const handleStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }) => {
+      if (changes.state?.newValue?.settings) {
+        const newSettings = changes.state.newValue.settings;
+        setAutoSync(newSettings.autoSync);
+        
+        // Clear container folder if containerFolderId is removed
+        if (!newSettings.containerFolderId) {
+          setContainerFolder(null);
+        } else {
+          // Reload container folder when settings change
+          loadSettings();
+        }
       }
-    });
+    };
+    chrome.storage.onChanged.addListener(handleStorageChange);
 
-    return unsubscribe;
-  }, [storage, logger, bookmarkManager]);
+    return () => {
+      chrome.storage.onChanged.removeListener(handleStorageChange);
+    };
+  }, [logger, loadSettings]);
 
   const handleAutoSyncChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const enabled = event.target.checked;
     try {
-      await storage.updateSettings({ autoSync: enabled });
+      await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(
+          { type: 'UPDATE_SETTINGS', settings: { autoSync: enabled } },
+          response => {
+            if (chrome.runtime.lastError) {
+              reject(chrome.runtime.lastError);
+            } else if (response.error) {
+              reject(new Error(response.error));
+            } else {
+              resolve(response.success);
+            }
+          }
+        );
+      });
       setAutoSync(enabled);
       logger.info('settings:autoSync:updated', { enabled });
     } catch (error) {
@@ -81,21 +130,79 @@ export default function Settings({ storage, syncEngine }: SettingsProps) {
     setIsSelectingFolder(true);
     setError(null);
     try {
-            const folder = await bookmarkManager.setParentFolder(selectedFolder);
-      await storage.updateSettings({ parentFolderId: folder.id });
-      setParentFolder(folder);
-            logger.info('settings:parentFolder:selected', { folderId: folder.id });
+      // Create Tab Group Bookmarks folder and store its ID
+      const folderResponse = await new Promise<{ folder: chrome.bookmarks.BookmarkTreeNode }>((resolve, reject) => {
+        chrome.runtime.sendMessage(
+          { type: 'SETUP_TAB_GROUPS_FOLDER', containerFolder: selectedFolder },
+          response => {
+            if (chrome.runtime.lastError) {
+              reject(chrome.runtime.lastError);
+            } else if (response.error) {
+              reject(new Error(response.error));
+            } else {
+              resolve(response);
+            }
+          }
+        );
+      });
+      setContainerFolder(folderResponse.folder);
+      
+      // Reload settings to ensure UI is in sync
+      const settingsResponse = await new Promise<{ settings: any }>((resolve, reject) => {
+        chrome.runtime.sendMessage({ type: 'GET_SETTINGS' }, response => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError);
+          } else if (response.error) {
+            reject(new Error(response.error));
+          } else {
+            resolve(response);
+          }
+        });
+      });
+      setAutoSync(settingsResponse.settings.autoSync);
+      
+      logger.info('settings:tabGroupFolder:setup', { 
+        containerId: selectedFolder.id,
+        containerName: selectedFolder.title,
+        folderId: folderResponse.folder.id
+      });
       setShowFolderPicker(false);
     } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to set parent folder';
+      const message = error instanceof Error ? error.message : 'Failed to create folder';
       if (!message.includes('cancelled')) {
         setError(message);
-            logger.error('settings:parentFolder:selectFailed', { error: message });
+        logger.error('settings:tabGroupFolder:setupFailed', { error: message });
       }
     } finally {
       setIsSelectingFolder(false);
     }
   };
+
+  React.useEffect(() => {
+    if (open) {
+      const loadContainerFolder = async () => {
+        try {
+          const response = await new Promise<{ folder: chrome.bookmarks.BookmarkTreeNode | null }>((resolve, reject) => {
+            chrome.runtime.sendMessage({ type: 'GET_TAB_GROUPS_FOLDER' }, response => {
+              if (chrome.runtime.lastError) {
+                reject(chrome.runtime.lastError);
+              } else if (response.error) {
+                reject(new Error(response.error));
+              } else {
+                resolve(response);
+              }
+            });
+          });
+          setContainerFolder(response.folder);
+        } catch (error) {
+          logger.error('settings:loadTabGroupFolder:failed', {
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      };
+      loadContainerFolder();
+    }
+  }, [open, logger]);
 
   return (
     <>
@@ -145,32 +252,15 @@ export default function Settings({ storage, syncEngine }: SettingsProps) {
                 {error}
               </Typography>
             )}
-            <Box sx={{ mb: 2 }}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={autoSync}
-                    onChange={handleAutoSyncChange}
-                    size="small"
-                  />
-                }
-                label={
-                  <Typography variant="body2">
-                    Automatically sync tab groups to bookmarks
-                  </Typography>
-                }
-              />
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, ml: 4 }}>
-                When enabled, changes to tab groups will be automatically backed up to bookmarks
-              </Typography>
-            </Box>
 
-            <Box sx={{ mb: 2 }}>
-              {parentFolder ? (
+            {/* Location Settings */}
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1.5, color: 'text.secondary' }}>
+                Bookmark Location
+              </Typography>
+              {containerFolder ? (
                 <Box>
-                  <Typography variant="body2" sx={{ mb: 1 }}>
-                    Parent Folder: {parentFolder.title}
-                  </Typography>
+                  <LocationDisplay folder={containerFolder} />
                   <Button
                     size="small"
                     variant="outlined"
@@ -180,9 +270,12 @@ export default function Settings({ storage, syncEngine }: SettingsProps) {
                     {isSelectingFolder ? (
                       <CircularProgress size={16} sx={{ mx: 1 }} />
                     ) : (
-                      'Change Parent Folder'
+                      'Change Location'
                     )}
                   </Button>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                    Your tab groups will be synced to folders inside "Tab Group Bookmarks"
+                  </Typography>
                 </Box>
               ) : (
                 <Box>
@@ -196,14 +289,43 @@ export default function Settings({ storage, syncEngine }: SettingsProps) {
                     {isSelectingFolder ? (
                       <CircularProgress size={16} sx={{ mx: 1 }} />
                     ) : (
-                      'Select Parent Folder'
+                      'Select Location'
                     )}
                   </Button>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                    Choose where to store your tab group bookmarks
+                    Choose where to create the "Tab Group Bookmarks" folder
                   </Typography>
                 </Box>
               )}
+            </Box>
+
+            <Divider sx={{ my: 2 }} />
+
+            {/* Sync Settings */}
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1.5, color: 'text.secondary' }}>
+                Sync Settings
+              </Typography>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={autoSync}
+                    onChange={handleAutoSyncChange}
+                    size="small"
+                    disabled={!containerFolder}
+                  />
+                }
+                label={
+                  <Typography variant="body2">
+                    Enable automatic sync
+                  </Typography>
+                }
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, ml: 4 }}>
+                {containerFolder 
+                  ? "When enabled, new tab groups will automatically start syncing. You can still manually control sync for each group."
+                  : "Select a container folder first to enable sync"}
+              </Typography>
             </Box>
           </Box>
         </DialogContent>
