@@ -65,10 +65,10 @@ export class SyncEngine {
             { maxAttempts: 3, delayMs: 500 }
           ) : [];
 
-        // Get existing bookmarks to check for duplicates
-        const folder = await this.bookmarkManager.getTabGroupsFolder();
+        // Get container folder
+        const folder = await this.bookmarkManager.getContainerFolder();
         if (!folder) {
-          throw new SyncError('Tab Group Bookmarks folder not found');
+          throw new SyncError('Please select a location for your bookmarks first');
         }
 
         // Sync tabs to the folder

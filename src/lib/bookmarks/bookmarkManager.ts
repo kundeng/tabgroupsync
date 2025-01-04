@@ -46,9 +46,15 @@ export class BookmarkManager {
     }
 
     try {
+      // Try to find existing folder
       const children = await getBookmarkChildren(container.id);
       const folder = children.find(child => child.title === BOOKMARK_FOLDERS.TAB_GROUPS && !child.url);
-      return folder || null;
+      if (folder) {
+        return folder;
+      }
+
+      // Create if not found
+      return createBookmark(container.id, BOOKMARK_FOLDERS.TAB_GROUPS);
     } catch (error) {
       this.logger.error('getTabGroupsFolder:failed', {
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -206,8 +212,11 @@ export class BookmarkManager {
     });
 
     try {
-      // Get the Tab Group Bookmarks folder
-      const tabGroupsFolder = await this.getTabGroupsFolderInternal();
+      // Get or create the Tab Group Bookmarks folder
+      const tabGroupsFolder = await this.getTabGroupsFolder();
+      if (!tabGroupsFolder) {
+        throw new Error('Please select a location for your bookmarks first');
+      }
       
       // Create or get the folder for this group
       let groupFolder = await this.ensureGroupFolder(name);
