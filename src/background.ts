@@ -57,16 +57,22 @@ async function startPeriodicSync() {
 
   // Start periodic sync if enabled
   if (settings.syncInterval) {
+    // Use 5 minute minimum interval to avoid quota issues
+    const interval = Math.max(settings.syncInterval, 5) * 60 * 1000;
+    
     setInterval(async () => {
       try {
         await syncEngine.syncAll();
-        logger.info('sync:periodic', { timestamp: Date.now() });
+        logger.info('sync:periodic', { 
+          timestamp: Date.now(),
+          interval: interval / 60000 // Log interval in minutes
+        });
       } catch (error) {
         logger.error('sync:periodic:failed', {
           error: error instanceof Error ? error.message : 'Unknown error'
         });
       }
-    }, settings.syncInterval * 60 * 1000); // Convert minutes to milliseconds
+    }, interval);
   }
 }
 
@@ -74,8 +80,19 @@ async function startPeriodicSync() {
 async function initializeAndSync() {
   try {
     await initializeManagers();
-    await startPeriodicSync();
     logger.info('background:ready', { timestamp: Date.now() });
+
+    // Wait a bit before starting sync to let the browser settle
+    setTimeout(async () => {
+      try {
+        await startPeriodicSync();
+        logger.info('sync:started', { timestamp: Date.now() });
+      } catch (error) {
+        logger.error('sync:start:failed', {
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }, 5000); // Wait 5 seconds before starting sync
   } catch (error) {
     logger.error('initialization:failed', {
       error: error instanceof Error ? error.message : 'Unknown error'

@@ -4,26 +4,43 @@ import { Logger } from '../lib/utils/logger';
 export function initializeTabGroupListeners(tabGroupManager: TabGroupManager): void {
   const logger = Logger.getInstance();
 
-  chrome.tabGroups.onCreated.addListener(async (group) => {
+  // Queue for handling group events
+  let groupQueue: chrome.tabGroups.TabGroup[] = [];
+  let processingQueue = false;
+
+  async function processGroupQueue() {
+    if (processingQueue || groupQueue.length === 0) return;
+    
+    processingQueue = true;
+    try {
+      const group = groupQueue.shift()!;
+      await tabGroupManager.handleGroupVisible(group);
+      logger.info('tabGroup:visible:handled', {
+        groupId: group.id,
+        title: group.title,
+        type: 'created_or_restored'
+      });
+    } catch (error) {
+      logger.error('tabGroup:queue:failed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    } finally {
+      processingQueue = false;
+      if (groupQueue.length > 0) {
+        setTimeout(processGroupQueue, 1000); // Process next group after 1 second
+      }
+    }
+  }
+
+  chrome.tabGroups.onCreated.addListener((group) => {
     logger.debug('tabGroup:created', {
       groupId: group.id,
       title: group.title,
       windowId: group.windowId
     });
 
-    try {
-      await tabGroupManager.handleGroupCreated(group);
-      logger.info('tabGroup:created:handled', {
-        groupId: group.id,
-        title: group.title
-      });
-    } catch (error) {
-      logger.error('tabGroup:created:failed', {
-        groupId: group.id,
-        title: group.title,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }, error instanceof Error ? error : undefined);
-    }
+    groupQueue.push(group);
+    processGroupQueue();
   });
 
   chrome.tabGroups.onUpdated.addListener(async (group) => {
@@ -74,6 +91,33 @@ export function initializeTabGroupListeners(tabGroupManager: TabGroupManager): v
     }
   });
 
+  // Queue for handling group removals
+  let removalQueue: { name: string, groupId: number }[] = [];
+  let processingRemovals = false;
+
+  async function processRemovalQueue() {
+    if (processingRemovals || removalQueue.length === 0) return;
+    
+    processingRemovals = true;
+    try {
+      const item = removalQueue.shift()!;
+      await tabGroupManager.handleGroupRemoved(item.name);
+      logger.info('tabGroup:removed:handled', {
+        groupId: item.groupId,
+        name: item.name
+      });
+    } catch (error) {
+      logger.error('tabGroup:removal:failed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    } finally {
+      processingRemovals = false;
+      if (removalQueue.length > 0) {
+        setTimeout(processRemovalQueue, 1000); // Process next removal after 1 second
+      }
+    }
+  }
+
   // Handle window removal to properly handle groups in closed windows
   chrome.windows.onRemoved.addListener(async (windowId) => {
     logger.debug('window:removed', { windowId });
@@ -82,16 +126,18 @@ export function initializeTabGroupListeners(tabGroupManager: TabGroupManager): v
       // Get groups in the window before it's removed
       const groups = await chrome.tabGroups.query({ windowId });
       
-      // Handle each group removal
-      for (const group of groups) {
+      // Queue each group for removal
+      groups.forEach(group => {
         const name = group.title || 'Unnamed Group';
-        await tabGroupManager.handleGroupRemoved(name);
-        logger.info('window:removed:group:handled', {
+        removalQueue.push({ name, groupId: group.id });
+        logger.debug('window:removed:group:queued', {
           windowId,
           groupId: group.id,
           name
         });
-      }
+      });
+
+      processRemovalQueue();
     } catch (error) {
       logger.error('window:removed:failed', {
         windowId,

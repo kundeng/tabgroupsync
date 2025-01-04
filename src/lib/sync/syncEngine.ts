@@ -207,19 +207,45 @@ export class SyncEngine {
       folderId = mapping?.folderId || '';
     }
 
-    // Update sync settings
-    await this.storage.updateGroupSyncSettings(name, { enabled });
-
-    // Update mapping
-    await this.storage.updateMapping(name, { 
-      name,
-      folderId,
-      syncEnabled: enabled,
-      status: {
-        lastSynced: Date.now(),
-        inProgress: false
-      }
-    });
+    try {
+      const timestamp = Date.now();
+      
+      // Batch all storage operations into a single update
+      await Promise.all([
+        // Update sync settings
+        this.storage.updateGroupSyncSettings(name, { 
+          enabled,
+          lastSynced: timestamp
+        }),
+        
+        // Update mapping
+        this.storage.updateMapping(name, { 
+          name,
+          folderId,
+          syncEnabled: enabled,
+          status: {
+            lastSynced: timestamp,
+            inProgress: false,
+            error: undefined // Clear any previous errors
+          }
+        }),
+        
+        // Add history entry
+        this.storage.addHistoryEntry({
+          timestamp,
+          type: 'group-to-folder',
+          folderId,
+          success: true
+        })
+      ]);
+    } catch (error) {
+      this.logger.error('setGroupSyncEnabled:failed', {
+        name,
+        enabled,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
 
     if (enabled) {
       // Find current group with this name
@@ -275,7 +301,11 @@ export class SyncEngine {
     const settings = await this.storage.getSettings();
     const name = group.title || 'Unnamed Group';
 
-    if (settings.autoSync && settings.containerFolderId) {
+    // Check existing preferences first
+    const existingPrefs = await this.storage.getGroupSyncSettings(name);
+    
+    // If autoSync is enabled and no existing preferences, enable sync
+    if (settings.autoSync && settings.containerFolderId && !existingPrefs.enabled) {
       // Create or update mapping
       await this.storage.updateMapping(name, {
         name,

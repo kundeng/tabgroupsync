@@ -15,8 +15,6 @@ import {
   ExpandMore,
   CheckCircle as SuccessIcon,
   Error as ErrorIcon,
-  Folder as FolderIcon,
-  Tab as TabIcon,
 } from '@mui/icons-material';
 import { StorageManager } from '../lib/storage/storageManager';
 import { SyncHistoryEntry } from '../lib/types/storage';
@@ -52,20 +50,9 @@ export default function SyncStatus({ storage }: SyncStatusProps) {
   }, [storage]);
 
   const getEntryIcon = (entry: SyncHistoryEntry) => {
-    if (!entry.success) {
-      return <ErrorIcon color="error" fontSize="small" />;
-    }
-
-    switch (entry.type) {
-      case 'group-to-folder':
-        return <FolderIcon color="primary" fontSize="small" />;
-      case 'folder-to-group':
-        return <TabIcon color="primary" fontSize="small" />;
-      case 'ungrouped':
-        return <TabIcon color="action" fontSize="small" />;
-      default:
-        return <SuccessIcon color="success" fontSize="small" />;
-    }
+    return entry.success ? 
+      <SuccessIcon color="success" fontSize="small" /> :
+      <ErrorIcon color="error" fontSize="small" />;
   };
 
   const getEntryText = (entry: SyncHistoryEntry) => {
@@ -73,33 +60,15 @@ export default function SyncStatus({ storage }: SyncStatusProps) {
     
     if (!entry.success) {
       return {
-        primary: 'Sync Failed',
+        primary: 'Backup paused',
         secondary: `${time} - ${entry.error}`,
       };
     }
 
-    switch (entry.type) {
-      case 'group-to-folder':
-        return {
-          primary: 'Group Synced to Folder',
-          secondary: time,
-        };
-      case 'folder-to-group':
-        return {
-          primary: 'Folder Synced to Group',
-          secondary: time,
-        };
-      case 'ungrouped':
-        return {
-          primary: 'Ungrouped Tabs Synced',
-          secondary: time,
-        };
-      default:
-        return {
-          primary: 'Unknown Operation',
-          secondary: time,
-        };
-    }
+    return {
+      primary: 'Last synced',
+      secondary: time,
+    };
   };
 
   if (history.length === 0) return null;

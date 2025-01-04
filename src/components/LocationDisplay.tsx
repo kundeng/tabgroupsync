@@ -25,7 +25,7 @@ export default function LocationDisplay({ folder }: LocationDisplayProps) {
 
   return (
     <Typography variant="body2" sx={{ mb: 1 }}>
-      Location: "Tab Group Bookmarks" (inside {folder.title})
+      Location: "{folder.title}" (inside {parentName})
     </Typography>
   );
 }

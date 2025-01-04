@@ -37,12 +37,13 @@ export class TabGroupManager {
     });
   }
 
-  async handleGroupCreated(group: chrome.tabGroups.TabGroup): Promise<void> {
+  async handleGroupVisible(group: chrome.tabGroups.TabGroup): Promise<void> {
     const name = group.title || 'Unnamed Group';
-    this.logger.debug('group:created', {
+    this.logger.debug('group:visible', {
       groupId: group.id,
       name,
-      windowId: group.windowId
+      windowId: group.windowId,
+      type: 'created_or_restored'
     });
 
     // Set initial title in our tracking map
