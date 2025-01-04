@@ -22,6 +22,7 @@ let storage: StorageManager;
 let bookmarkManager: BookmarkManager;
 let syncEngine: SyncEngine;
 let tabGroupManager: TabGroupManager;
+let snapshotManager: SnapshotManager;
 let isReady = false;
 
 // Initialize managers
@@ -35,6 +36,9 @@ async function initializeManagers() {
   
   // Update syncEngine with tabGroupManager
   Object.assign(syncEngine, { tabGroupManager });
+  
+  // Initialize managers
+  snapshotManager = new SnapshotManager(storage, bookmarkManager);
   
   // Initialize listeners
   initializeTabGroupListeners(tabGroupManager);
@@ -276,7 +280,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     Promise.resolve().then(async () => {
       try {
-        const snapshotManager = new SnapshotManager(storage);
         const snapshots = await snapshotManager.listSnapshots(message.groupId);
         sendResponse({ snapshots });
       } catch (error) {
@@ -292,7 +295,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     Promise.resolve().then(async () => {
       try {
-        const snapshotManager = new SnapshotManager(storage);
         const snapshot = await snapshotManager.createSnapshot(message.groupId, message.groupName);
         sendResponse({ snapshot });
       } catch (error) {
@@ -308,12 +310,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     Promise.resolve().then(async () => {
       try {
-        const snapshotManager = new SnapshotManager(storage);
         await snapshotManager.deleteSnapshot(message.snapshotId);
         sendResponse({ success: true });
       } catch (error) {
         logger.error('snapshot:delete:failed', { error });
         sendResponse({ error: error instanceof Error ? error.message : 'Failed to delete snapshot' });
+      }
+    });
+  }
+  else if (message.type === 'GET_HISTORY') {
+    if (!isReady) {
+      sendResponse({ error: 'Background service not ready' });
+      return true;
+    }
+    Promise.resolve().then(async () => {
+      try {
+        const history = await storage.getHistory();
+        sendResponse({ history });
+      } catch (error) {
+        logger.error('history:get:failed', { error });
+        sendResponse({ error: error instanceof Error ? error.message : 'Failed to get history' });
       }
     });
   }

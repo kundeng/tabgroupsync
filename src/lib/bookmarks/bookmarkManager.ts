@@ -20,26 +20,41 @@ export class BookmarkManager {
     return typeof settings.containerFolderId === 'string';
   }
 
-  // Get the Tab Group Bookmarks folder
-  async getTabGroupsFolder(): Promise<chrome.bookmarks.BookmarkTreeNode | null> {
+  // Get the container folder
+  async getContainerFolder(): Promise<chrome.bookmarks.BookmarkTreeNode | null> {
     const settings = await this.storage.getSettings();
     if (!settings.containerFolderId) {
       return null;
     }
 
-    // Bookmark IDs are stable across sessions and synced across devices
     try {
       const folder = await getBookmark(settings.containerFolderId);
-      if (folder) {
-        return folder;
-      }
+      return folder;
+    } catch (error) {
+      this.logger.error('getContainerFolder:failed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return null;
+    }
+  }
+
+  // Get the Tab Group Bookmarks folder
+  async getTabGroupsFolder(): Promise<chrome.bookmarks.BookmarkTreeNode | null> {
+    const container = await this.getContainerFolder();
+    if (!container) {
+      return null;
+    }
+
+    try {
+      const children = await getBookmarkChildren(container.id);
+      const folder = children.find(child => child.title === BOOKMARK_FOLDERS.TAB_GROUPS && !child.url);
+      return folder || null;
     } catch (error) {
       this.logger.error('getTabGroupsFolder:failed', {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
+      return null;
     }
-
-    return null;
   }
 
   // Set up the Tab Group Bookmarks folder structure
@@ -86,8 +101,8 @@ export class BookmarkManager {
       });
     }
 
-    // Store the folder ID (stable across sessions and synced across devices)
-    await this.storage.updateSettings({ containerFolderId: tabGroupsFolder.id });
+    // Store the container folder ID (stable across sessions and synced across devices)
+    await this.storage.updateSettings({ containerFolderId: containerFolder.id });
 
     return tabGroupsFolder;
   }

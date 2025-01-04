@@ -12,6 +12,7 @@ import {
   DialogContent,
   DialogActions,
   Button,
+  CircularProgress,
 } from '@mui/material';
 import {
   Delete as DeleteIcon,
@@ -24,19 +25,27 @@ import { Logger } from '../lib/utils/logger';
 
 interface SnapshotListProps {
   storage: StorageManager;
-  groupId: string;
+  groupId?: string;
   groupName: string;
   onSnapshotCreated?: () => void;
+  disabled?: boolean;
 }
 
-export default function SnapshotList({ storage, groupId, groupName, onSnapshotCreated }: SnapshotListProps) {
+export default function SnapshotList({ storage, groupId, groupName, onSnapshotCreated, disabled }: SnapshotListProps) {
   const [snapshots, setSnapshots] = React.useState<SnapshotMetadata[]>([]);
   const [loading, setLoading] = React.useState(false);
+  const [creating, setCreating] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [showHistory, setShowHistory] = React.useState(false);
+  const [status, setStatus] = React.useState<'idle' | 'creating' | 'success' | 'error'>('idle');
   const logger = Logger.getInstance();
 
   const loadSnapshots = React.useCallback(async () => {
+    if (!groupId) {
+      setError('No folder selected');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -68,9 +77,21 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
   }, [showHistory, loadSnapshots]);
 
   const handleCreateSnapshot = async () => {
+    if (!groupId) {
+      setError('No folder selected');
+      setStatus('error');
+      setTimeout(() => {
+        setStatus('idle');
+        setError(null);
+      }, 3000);
+      return;
+    }
+
     setError(null);
+    setCreating(true);
+    setStatus('creating');
     try {
-      await new Promise((resolve, reject) => {
+      const response = await new Promise<{ snapshot?: any; error?: string }>((resolve, reject) => {
         chrome.runtime.sendMessage(
           { type: 'CREATE_SNAPSHOT', groupId, groupName },
           response => {
@@ -84,13 +105,31 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
           }
         );
       });
+      if (response.error) {
+        throw new Error(response.error);
+      }
       logger.info('snapshot:created', { groupId, groupName });
       await loadSnapshots();
       onSnapshotCreated?.();
+      
+      setStatus('success');
+      // Reset status after a delay
+      setTimeout(() => {
+        setStatus('idle');
+      }, 3000);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create snapshot';
       setError(message);
       logger.error('snapshot:createFailed', { groupId, groupName, error: message });
+      
+      setStatus('error');
+      // Reset status after a delay
+      setTimeout(() => {
+        setStatus('idle');
+        setError(null);
+      }, 3000);
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -122,11 +161,12 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
 
   return (
     <>
-      <Box sx={{ display: 'flex', gap: 0.5 }}>
-        <Tooltip title="View snapshot history">
+      <Box sx={{ display: 'flex', gap: 0.5, position: 'relative' }}>
+        <Tooltip title={!groupId ? 'No folder selected' : 'View snapshot history'}>
           <IconButton 
             onClick={() => setShowHistory(true)} 
             size="small"
+            disabled={disabled || !groupId}
             sx={{ 
               padding: '6px',
               '& .MuiSvgIcon-root': {
@@ -137,18 +177,32 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
             <HistoryIcon fontSize="small" />
           </IconButton>
         </Tooltip>
-        <Tooltip title="Create snapshot">
+        <Tooltip title={
+          !groupId ? 'No folder selected' :
+          error ? error :
+          status === 'creating' ? 'Creating snapshot...' :
+          status === 'success' ? 'Snapshot created' :
+          'Create snapshot'
+        }>
           <IconButton 
             onClick={handleCreateSnapshot} 
             size="small"
+            disabled={disabled || !groupId || creating}
             sx={{ 
               padding: '6px',
               '& .MuiSvgIcon-root': {
-                fontSize: '1.2rem'
+                fontSize: '1.2rem',
+                color: error ? 'error.main' :
+                       status === 'success' ? 'success.main' :
+                       'inherit'
               }
             }}
           >
-            <CameraIcon fontSize="small" />
+            {creating ? (
+              <CircularProgress size={16} />
+            ) : (
+              <CameraIcon fontSize="small" />
+            )}
           </IconButton>
         </Tooltip>
       </Box>

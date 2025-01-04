@@ -1,5 +1,6 @@
 import { Logger, OperationTracker } from '../utils/logger';
 import { StorageManager } from '../storage/storageManager';
+import { BookmarkManager } from './bookmarkManager';
 import { createBookmark } from './bookmarkMutations';
 import { getBookmark, getBookmarkChildren } from './bookmarkQueries';
 import { BOOKMARK_FOLDERS } from '../constants';
@@ -15,11 +16,58 @@ export interface SnapshotMetadata {
 export class SnapshotManager {
   private logger = Logger.getInstance();
   private tracker = OperationTracker.getInstance();
-  private storage: StorageManager;
-  private snapshotFolderId?: string;
 
-  constructor(storage: StorageManager) {
-    this.storage = storage;
+  constructor(
+    private readonly storage: StorageManager,
+    private readonly bookmarkManager: BookmarkManager
+  ) {}
+
+  private async migrateOldSnapshots(parentId: string): Promise<void> {
+    try {
+      const snapshots = await getBookmarkChildren(parentId);
+      const mappings = await this.storage.getAllMappings();
+      
+      for (const snapshot of snapshots) {
+        if (snapshot.url) continue; // Skip non-folders
+        
+        // Check if it's in old format
+        const oldFormatMatch = snapshot.title.match(/^(.*?) \((\d{4}-\d{2}-\d{2}) ([\d:]+(?:\s?[AP]M)?)\)$/);
+        if (!oldFormatMatch) continue;
+
+        const [, groupName, date, time] = oldFormatMatch;
+        const timestamp = new Date(`${date} ${time}`).getTime();
+        if (isNaN(timestamp)) continue;
+
+        // Find the group's folder ID from mappings
+        const mapping = Object.values(mappings).find(m => m.name === groupName);
+        if (!mapping || !mapping.folderId) {
+          this.logger.warn('snapshot:migration:noMapping', {
+            groupName,
+            snapshotId: snapshot.id
+          });
+          continue;
+        }
+
+        // Rename to new format
+        const dateStr = new Date(timestamp).toISOString().split('T')[0];
+        const timeStr = new Date(timestamp).toTimeString().split(' ')[0];
+        const newTitle = `${groupName}|${mapping.folderId}|${dateStr} ${timeStr}`;
+        
+        await chrome.bookmarks.update(snapshot.id, { title: newTitle });
+        this.logger.info('snapshot:migrated', { 
+          id: snapshot.id,
+          oldTitle: snapshot.title,
+          newTitle,
+          groupName,
+          groupId: mapping.folderId
+        });
+      }
+    } catch (error) {
+      this.logger.error('snapshot:migration:failed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      // Don't throw - migration failure shouldn't block normal operation
+    }
   }
 
   private async findFolderByPath(parentId: string, name: string): Promise<chrome.bookmarks.BookmarkTreeNode | null> {
@@ -28,42 +76,36 @@ export class SnapshotManager {
   }
 
   private async ensureSnapshotFolder(): Promise<string> {
-    if (this.snapshotFolderId) {
-      const folder = await getBookmark(this.snapshotFolderId);
-      if (folder && folder.title === BOOKMARK_FOLDERS.SNAPSHOTS) {
-        return this.snapshotFolderId;
-      }
-    }
-
-    // Get or create "Tab Group Snapshots" folder
-    const settings = await this.storage.getSettings();
-    if (!settings.containerFolderId) {
-      throw new Error('Container folder not set');
-    }
-
-    const container = await getBookmark(settings.containerFolderId);
+    // Get container folder (abc)
+    const container = await this.bookmarkManager.getContainerFolder();
     if (!container) {
-      throw new Error('Container folder not found');
+      throw new Error('Please select a location for your bookmarks first');
     }
 
     // Try to find existing snapshots folder
     const existingFolder = await this.findFolderByPath(container.id, BOOKMARK_FOLDERS.SNAPSHOTS);
     if (existingFolder) {
-      this.snapshotFolderId = existingFolder.id;
       return existingFolder.id;
     }
 
     // Create new snapshots folder
     const folder = await createBookmark(container.id, BOOKMARK_FOLDERS.SNAPSHOTS);
-    this.snapshotFolderId = folder.id;
+
+    // Migrate any existing snapshots in old format
+    await this.migrateOldSnapshots(folder.id);
+
     return folder.id;
   }
 
-  private async createSnapshotFolder(sourceName: string, timestamp: number): Promise<chrome.bookmarks.BookmarkTreeNode> {
+  private async createSnapshotFolder(
+    sourceName: string, 
+    sourceId: string,
+    timestamp: number
+  ): Promise<chrome.bookmarks.BookmarkTreeNode> {
     const snapshotParentId = await this.ensureSnapshotFolder();
     const dateStr = new Date(timestamp).toISOString().split('T')[0];
-    const timeStr = new Date(timestamp).toLocaleTimeString();
-    const folderName = `${sourceName} (${dateStr} ${timeStr})`;
+    const timeStr = new Date(timestamp).toTimeString().split(' ')[0]; // Use 24-hour format
+    const folderName = `${sourceName}|${sourceId}|${dateStr} ${timeStr}`; // Include sourceId in name
     
     return createBookmark(snapshotParentId, folderName);
   }
@@ -76,21 +118,26 @@ export class SnapshotManager {
     const opId = this.tracker.startOperation('createSnapshot', { sourceId, sourceName });
 
     try {
-      // Get source folder contents
-      const sourceFolder = await getBookmark(sourceId);
-      if (!sourceFolder) {
-        throw new Error(`Source folder ${sourceId} not found`);
+      // Get current tab group
+      const groups = await chrome.tabGroups.query({});
+      const group = groups.find(g => g.title === sourceName);
+      if (!group) {
+        throw new Error('Tab group not found');
       }
 
-      const sourceBookmarks = await getBookmarkChildren(sourceId);
+      // Get tabs in the group
+      const tabs = await chrome.tabs.query({ groupId: group.id });
+      if (tabs.length === 0) {
+        throw new Error('No tabs to snapshot');
+      }
       
       // Create snapshot folder
       const timestamp = Date.now();
-      const snapshotFolder = await this.createSnapshotFolder(sourceName, timestamp);
+      const snapshotFolder = await this.createSnapshotFolder(sourceName, sourceId, timestamp);
 
-      // Copy all bookmarks to snapshot folder
-      await Promise.all(sourceBookmarks.map(bookmark => 
-        createBookmark(snapshotFolder.id, bookmark.title, bookmark.url)
+      // Copy all tabs to snapshot folder
+      await Promise.all(tabs.map(tab => 
+        createBookmark(snapshotFolder.id, tab.title || 'Untitled', tab.url || '')
       ));
 
       const metadata: SnapshotMetadata = {
@@ -105,7 +152,7 @@ export class SnapshotManager {
         sourceId,
         sourceName,
         snapshotId: snapshotFolder.id,
-        bookmarkCount: sourceBookmarks.length
+        bookmarkCount: tabs.length
       });
 
       return metadata;
@@ -130,15 +177,15 @@ export class SnapshotManager {
       const snapshotMetadata = snapshots
         .filter(folder => !folder.url) // Only folders
         .map(folder => {
-          const match = folder.title.match(/^(.*?) \((\d{4}-\d{2}-\d{2}) ([\d:]+(?:\s?[AP]M)?)\)$/);
-          if (!match) return null;
+          const parts = folder.title.split('|');
+          if (parts.length !== 3) return null;
 
-          const [, name, date, time] = match;
-          const timestamp = new Date(`${date} ${time}`).getTime();
+          const [name, sid, datetime] = parts;
+          const timestamp = new Date(datetime).getTime();
 
           return {
             id: folder.id,
-            sourceId: '', // We don't store this in the folder name
+            sourceId: sid,
             sourceName: name,
             timestamp
           };

@@ -246,11 +246,22 @@ export default function GroupSection({
                       <Divider orientation="vertical" flexItem sx={{ mx: 0.5, height: 24 }} />
 
                       {/* Snapshots */}
-                      <SnapshotList
-                        storage={storage}
-                        groupId={group.id}
-                        groupName={group.name}
-                      />
+                      <Box sx={{ opacity: (!group.syncEnabled || !group.folder?.id) ? 0.5 : 1 }}>
+                        <Tooltip title={
+                          !group.syncEnabled ? 'Enable backup to use snapshots' :
+                          !group.folder?.id ? 'Waiting for folder to be created...' :
+                          ''
+                        }>
+                          <span>
+                            <SnapshotList
+                              storage={storage}
+                              groupId={group.folder?.id} // Use bookmark folder ID
+                              groupName={group.name}
+                              disabled={!group.syncEnabled || !group.folder?.id}
+                            />
+                          </span>
+                        </Tooltip>
+                      </Box>
                     </Box>
                   </Grid>
                 )}
