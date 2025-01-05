@@ -82,11 +82,11 @@ export class StorageManager {
             
             // Remove groups that haven't been seen in threshold days
             Object.entries(this.persistedState.syncPreferences).forEach(([name, pref]) => {
-              if (pref.lastSynced && now - pref.lastSynced > threshold) {
+              if (pref.lastSeen && now - pref.lastSeen > threshold) {
                 delete this.persistedState.syncPreferences[name];
                 this.logger.info('cleanup:removed', { 
                   name, 
-                  lastSynced: new Date(pref.lastSynced).toISOString(),
+                  lastSeen: new Date(pref.lastSeen).toISOString(),
                   threshold: this.persistedState.settings.cleanup.inactiveThreshold
                 });
               }
@@ -149,7 +149,8 @@ export class StorageManager {
   async updateGroupSyncSettings(name: string, settings: GroupSyncSettings): Promise<void> {
     this.persistedState.syncPreferences[name] = {
       syncEnabled: settings.enabled,
-      lastSynced: settings.lastSynced ?? 0
+      lastSynced: settings.lastSynced ?? 0,
+      lastSeen: Date.now()  // Initialize lastSeen when creating preferences
     };
     await this.saveState();
     this.notify('mapping-changed', {});
@@ -184,7 +185,8 @@ export class StorageManager {
     this.runtimeState.mappings[name] = newMapping;
     this.persistedState.syncPreferences[name] = {
       syncEnabled: newMapping.syncEnabled,
-      lastSynced: newMapping.status.lastSynced
+      lastSynced: newMapping.status.lastSynced,
+      lastSeen: Date.now()  // Update lastSeen when updating mapping
     };
 
     await this.saveState();

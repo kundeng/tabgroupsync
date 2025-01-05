@@ -109,6 +109,7 @@ export interface GroupSyncPreferences {
   [name: string]: {
     syncEnabled: boolean;
     lastSynced?: number;
+    lastSeen: number;     // When the group was last active
   };
 }
 

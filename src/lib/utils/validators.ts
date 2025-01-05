@@ -192,16 +192,17 @@ export function validateRuntimeMapping(mapping: unknown): RuntimeMapping {
   };
 }
 
-export function validateGroupSyncPreference(pref: unknown): { syncEnabled: boolean; lastSynced?: number } {
+export function validateGroupSyncPreference(pref: unknown): { syncEnabled: boolean; lastSynced?: number; lastSeen: number } {
   if (!pref || typeof pref !== 'object') {
     throw new ValidationError('Invalid group sync preference object');
   }
 
-  const { syncEnabled, lastSynced } = pref as { syncEnabled: boolean; lastSynced?: number };
+  const { syncEnabled, lastSynced, lastSeen } = pref as { syncEnabled: boolean; lastSynced?: number; lastSeen?: number };
 
   return {
     syncEnabled: validateBoolean(syncEnabled, 'syncEnabled'),
-    lastSynced: validateOptional(lastSynced, v => validateNumber(v, 'lastSynced'))
+    lastSynced: validateOptional(lastSynced, v => validateNumber(v, 'lastSynced')),
+    lastSeen: lastSeen ?? Date.now() // Default to now if not provided (for backward compatibility)
   };
 }
 
