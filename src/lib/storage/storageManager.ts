@@ -75,6 +75,27 @@ export class StorageManager {
           const validatedState = validateStorageState(result.state);
           this.persistedState = this.migrateStateIfNeeded(validatedState);
           
+          // Clean up inactive groups if enabled
+          if (this.persistedState.settings.cleanup.enabled) {
+            const now = Date.now();
+            const threshold = this.persistedState.settings.cleanup.inactiveThreshold * 24 * 60 * 60 * 1000; // days to ms
+            
+            // Remove groups that haven't been seen in threshold days
+            Object.entries(this.persistedState.syncPreferences).forEach(([name, pref]) => {
+              if (pref.lastSynced && now - pref.lastSynced > threshold) {
+                delete this.persistedState.syncPreferences[name];
+                this.logger.info('cleanup:removed', { 
+                  name, 
+                  lastSynced: new Date(pref.lastSynced).toISOString(),
+                  threshold: this.persistedState.settings.cleanup.inactiveThreshold
+                });
+              }
+            });
+            
+            // Save cleaned state
+            await this.saveState();
+          }
+          
           // Initialize runtime mappings from persisted preferences
           Object.entries(this.persistedState.syncPreferences).forEach(([name, pref]) => {
             this.runtimeState.mappings[name] = {
