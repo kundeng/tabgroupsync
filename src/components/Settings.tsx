@@ -13,6 +13,7 @@ import {
   Typography,
   CircularProgress,
   Divider,
+  Slider,
 } from '@mui/material';
 import FolderPicker from './FolderPicker';
 import { Settings as SettingsIcon } from '@mui/icons-material';
@@ -31,6 +32,8 @@ interface SettingsProps {
 export default function Settings({ storage, syncEngine, bookmarkManager }: SettingsProps) {
   const [open, setOpen] = React.useState(false);
   const [autoSync, setAutoSync] = React.useState(false);
+  const [cleanupEnabled, setCleanupEnabled] = React.useState(false);
+  const [inactiveThreshold, setInactiveThreshold] = React.useState(30);
   const [containerFolder, setContainerFolder] = React.useState<chrome.bookmarks.BookmarkTreeNode | null>(null);
   const [isSelectingFolder, setIsSelectingFolder] = React.useState(false);
   const [showFolderPicker, setShowFolderPicker] = React.useState(false);
@@ -52,6 +55,8 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
       });
       
       setAutoSync(response.settings.autoSync);
+      setCleanupEnabled(response.settings.cleanup.enabled);
+      setInactiveThreshold(response.settings.cleanup.inactiveThreshold);
       
       // Get container folder ID
       if (response.settings.containerFolderId) {
@@ -325,6 +330,118 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
                 {containerFolder 
                   ? "When enabled, new tab groups will automatically start syncing. You can still manually control sync for each group."
                   : "Select a container folder first to enable sync"}
+              </Typography>
+            </Box>
+
+            <Divider sx={{ my: 2 }} />
+
+            {/* Cleanup Settings */}
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1.5, color: 'text.secondary' }}>
+                Cleanup Settings
+              </Typography>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={cleanupEnabled}
+                    onChange={async (event) => {
+                      const enabled = event.target.checked;
+                      try {
+                        await new Promise((resolve, reject) => {
+                          chrome.runtime.sendMessage(
+                            { 
+                              type: 'UPDATE_SETTINGS', 
+                              settings: { 
+                                cleanup: {
+                                  enabled,
+                                  inactiveThreshold,
+                                  autoArchive: true,
+                                  deleteThreshold: 90
+                                }
+                              } 
+                            },
+                            response => {
+                              if (chrome.runtime.lastError) {
+                                reject(chrome.runtime.lastError);
+                              } else if (response.error) {
+                                reject(new Error(response.error));
+                              } else {
+                                resolve(response.success);
+                              }
+                            }
+                          );
+                        });
+                        setCleanupEnabled(enabled);
+                        logger.info('settings:cleanup:updated', { enabled });
+                      } catch (error) {
+                        logger.error('settings:cleanup:updateFailed', {
+                          error: error instanceof Error ? error.message : 'Unknown error'
+                        });
+                      }
+                    }}
+                    size="small"
+                  />
+                }
+                label={
+                  <Typography variant="body2">
+                    Auto-remove inactive groups
+                  </Typography>
+                }
+              />
+              <Box sx={{ px: 4, mt: 2, ...(cleanupEnabled ? {} : { opacity: 0.5 }) }}>
+                <Slider
+                  value={inactiveThreshold}
+                  onChange={(_, value) => setInactiveThreshold(value as number)}
+                  onChangeCommitted={async (_, value) => {
+                    try {
+                      await new Promise((resolve, reject) => {
+                        chrome.runtime.sendMessage(
+                          { 
+                            type: 'UPDATE_SETTINGS', 
+                            settings: { 
+                              cleanup: {
+                                enabled: cleanupEnabled,
+                                inactiveThreshold: value as number,
+                                autoArchive: true,
+                                deleteThreshold: 90
+                              }
+                            } 
+                          },
+                          response => {
+                            if (chrome.runtime.lastError) {
+                              reject(chrome.runtime.lastError);
+                            } else if (response.error) {
+                              reject(new Error(response.error));
+                            } else {
+                              resolve(response.success);
+                            }
+                          }
+                        );
+                      });
+                      logger.info('settings:cleanup:thresholdUpdated', { threshold: value });
+                    } catch (error) {
+                      logger.error('settings:cleanup:thresholdUpdateFailed', {
+                        error: error instanceof Error ? error.message : 'Unknown error'
+                      });
+                    }
+                  }}
+                  disabled={!cleanupEnabled}
+                  min={7}
+                  max={90}
+                  step={1}
+                  marks={[
+                    { value: 7, label: '1w' },
+                    { value: 30, label: '1m' },
+                    { value: 60, label: '2m' },
+                    { value: 90, label: '3m' }
+                  ]}
+                  valueLabelDisplay="auto"
+                  valueLabelFormat={(value) => `${value} days`}
+                  sx={{ width: '100%' }}
+                />
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, ml: 4 }}>
+                Remove groups that haven't been seen for {inactiveThreshold} days
               </Typography>
             </Box>
           </Box>
