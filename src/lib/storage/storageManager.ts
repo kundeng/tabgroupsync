@@ -8,8 +8,7 @@ import {
   RuntimeState,
   RuntimeMapping,
   RuntimeMappingUpdate,
-  CombinedState,
-  UngroupedTabsSettings
+  CombinedState
 } from '../types/storage';
 import { validateStorageState, validateSyncHistoryEntry } from '../utils/validators';
 import { StorageError, withErrorHandling, ErrorType } from '../utils/errors';
@@ -24,16 +23,7 @@ export class StorageManager {
     this.persistedState = DEFAULT_STATE;
     this.runtimeState = {
       mappings: {},
-      groupSettings: {},
-      ungrouped: {
-        enabled: false,
-        folderName: 'Ungrouped Tabs',
-        syncEnabled: false,
-        status: {
-          lastSynced: 0,
-          inProgress: false
-        }
-      }
+      groupSettings: {}
     };
   }
 
@@ -75,39 +65,11 @@ export class StorageManager {
           const validatedState = validateStorageState(result.state);
           this.persistedState = this.migrateStateIfNeeded(validatedState);
           
-          // Clean up inactive groups if enabled
-          if (this.persistedState.settings.cleanup.enabled) {
-            const now = Date.now();
-            const threshold = this.persistedState.settings.cleanup.inactiveThreshold * 24 * 60 * 60 * 1000; // days to ms
-            
-            // Remove groups that haven't been seen in threshold days
-            Object.entries(this.persistedState.syncPreferences).forEach(([name, pref]) => {
-              if (pref.lastSeen && now - pref.lastSeen > threshold) {
-                delete this.persistedState.syncPreferences[name];
-                this.logger.info('cleanup:removed', { 
-                  name, 
-                  lastSeen: new Date(pref.lastSeen).toISOString(),
-                  threshold: this.persistedState.settings.cleanup.inactiveThreshold
-                });
-              }
-            });
-            
-            // Save cleaned state
-            await this.saveState();
-          }
+          // Clean up inactive groups and verify folder structure
+          await this.performMaintenance();
           
           // Initialize runtime mappings from persisted preferences
-          Object.entries(this.persistedState.syncPreferences).forEach(([name, pref]) => {
-            this.runtimeState.mappings[name] = {
-              name,
-              folderId: '',  // Will be populated when folder is created
-              syncEnabled: pref.syncEnabled,
-              status: {
-                lastSynced: pref.lastSynced ?? 0,
-                inProgress: false
-              }
-            };
-          });
+          await this.initializeRuntimeMappings();
         } else {
           this.persistedState = DEFAULT_STATE;
           await this.saveState();
@@ -120,18 +82,91 @@ export class StorageManager {
     }, ErrorType.STORAGE);
   }
 
+  private async performMaintenance(): Promise<void> {
+    // Clean up inactive groups if enabled
+    if (this.persistedState.settings.cleanup.enabled) {
+      const now = Date.now();
+      const threshold = this.persistedState.settings.cleanup.inactiveThreshold * 24 * 60 * 60 * 1000; // days to ms
+      
+      // Remove groups that haven't been seen in threshold days
+      Object.entries(this.persistedState.syncPreferences).forEach(([name, pref]) => {
+        if (pref.lastSeen && now - pref.lastSeen > threshold) {
+          delete this.persistedState.syncPreferences[name];
+          this.logger.info('cleanup:removed', { 
+            name, 
+            lastSeen: new Date(pref.lastSeen).toISOString(),
+            threshold: this.persistedState.settings.cleanup.inactiveThreshold
+          });
+        }
+      });
+    }
+
+    // Verify container folder still exists
+    if (this.persistedState.settings.containerFolderId) {
+      try {
+        const folder = await new Promise<chrome.bookmarks.BookmarkTreeNode[]>((resolve) => {
+          chrome.bookmarks.get(this.persistedState.settings.containerFolderId!, resolve);
+        });
+        
+        if (!folder || folder.length === 0) {
+          // Container folder was deleted, clear the ID
+          this.persistedState.settings.containerFolderId = undefined;
+          this.logger.warn('maintenance:containerFolderMissing', {
+            action: 'cleared container folder ID'
+          });
+        }
+      } catch (error) {
+        // Handle error by clearing the container folder ID
+        this.persistedState.settings.containerFolderId = undefined;
+        this.logger.error('maintenance:containerFolderCheckFailed', {
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
+    // Save cleaned state
+    await this.saveState();
+  }
+
+  private async initializeRuntimeMappings(): Promise<void> {
+    // Initialize runtime mappings from persisted preferences
+    Object.entries(this.persistedState.syncPreferences).forEach(([name, pref]) => {
+      this.runtimeState.mappings[name] = {
+        name,
+        folderId: '',  // Will be populated when folder is created
+        syncEnabled: pref.syncEnabled,
+        status: {
+          lastSynced: pref.lastSynced ?? 0,
+          inProgress: false
+        }
+      };
+    });
+  }
+
   private async getTabGroupsFolder(): Promise<chrome.bookmarks.BookmarkTreeNode | null> {
     const settings = await this.getSettings();
     if (!settings.containerFolderId) return null;
-    return new Promise<chrome.bookmarks.BookmarkTreeNode | null>((resolve) => {
-      chrome.bookmarks.get(settings.containerFolderId, (results) => {
-        if (chrome.runtime.lastError || !results || results.length === 0) {
-          resolve(null);
-        } else {
-          resolve(results[0]);
-        }
+    
+    try {
+      const results = await new Promise<chrome.bookmarks.BookmarkTreeNode[]>((resolve) => {
+        chrome.bookmarks.get(settings.containerFolderId!, resolve);
       });
-    });
+      
+      if (!results || results.length === 0) {
+        // Container folder was deleted, clear the ID
+        await this.updateSettings({ containerFolderId: undefined });
+        return null;
+      }
+      
+      return results[0];
+    } catch (error) {
+      this.logger.error('getTabGroupsFolder:failed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      // Clear invalid container folder ID
+      await this.updateSettings({ containerFolderId: undefined });
+      return null;
+    }
   }
 
   // Settings Operations
@@ -208,20 +243,6 @@ export class StorageManager {
     return this.runtimeState.mappings;
   }
 
-  // Ungrouped Tabs Operations
-  async updateUngroupedSettings(settings: Partial<UngroupedTabsSettings>): Promise<void> {
-    this.runtimeState.ungrouped = {
-      ...this.runtimeState.ungrouped,
-      ...settings
-    };
-    await this.saveState();
-    this.notify('mapping-changed', {});
-  }
-
-  async getUngroupedSettings(): Promise<UngroupedTabsSettings> {
-    return this.runtimeState.ungrouped;
-  }
-
   // History Operations
   async addHistoryEntry(entry: SyncHistoryEntry): Promise<void> {
     return withErrorHandling(async () => {
@@ -248,16 +269,7 @@ export class StorageManager {
     this.persistedState = DEFAULT_STATE;
     this.runtimeState = {
       mappings: {},
-      groupSettings: {},
-      ungrouped: {
-        enabled: false,
-        folderName: 'Ungrouped Tabs',
-        syncEnabled: false,
-        status: {
-          lastSynced: 0,
-          inProgress: false
-        }
-      }
+      groupSettings: {}
     };
     await this.saveState();
     this.notify('settings-changed', this.persistedState);

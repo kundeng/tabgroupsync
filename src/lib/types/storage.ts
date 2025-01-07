@@ -40,19 +40,10 @@ export interface GroupFolderMapping {
   status: SyncStatus;
 }
 
-// Settings for ungrouped tabs
-export interface UngroupedTabsSettings {
-  enabled: boolean;
-  folderId?: BookmarkFolderId;
-  folderName: string;
-  syncEnabled: boolean;
-  status: SyncStatus;
-}
-
 // Sync history entry
 export interface SyncHistoryEntry {
   timestamp: number;
-  type: 'group-to-folder' | 'folder-to-group' | 'ungrouped' | 'archived';
+  type: 'group-to-folder' | 'folder-to-group' | 'archived';
   groupId?: TabGroupId;
   folderId: BookmarkFolderId;
   success: boolean;
@@ -73,7 +64,6 @@ export interface GlobalSettings {
   containerFolderId?: BookmarkFolderId;  // Stable across sessions and synced across devices
   syncInterval?: number; // in minutes
   keepRemoved: boolean; // keep bookmarks when group is removed
-  syncUngrouped: boolean;
   cleanup: CleanupSettings;
 }
 
@@ -91,7 +81,6 @@ export interface RuntimeMapping {
 export interface RuntimeState {
   mappings: Record<string, RuntimeMapping>;  // Keyed by group name
   groupSettings: Record<string, GroupSyncSettings>;
-  ungrouped: UngroupedTabsSettings;
 }
 
 // Partial mapping updates
@@ -132,7 +121,6 @@ export const DEFAULT_STATE: StorageState = {
   settings: {
     autoSync: false,
     keepRemoved: true,
-    syncUngrouped: false,
     syncInterval: 1, // Sync every minute by default
     cleanup: {
       enabled: true,

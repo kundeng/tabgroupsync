@@ -25,7 +25,16 @@ export default function LocationDisplay({ folder }: LocationDisplayProps) {
 
   return (
     <Typography variant="body2" sx={{ mb: 1 }}>
-      Location: "{folder.title}" (inside {parentName})
+      Container Location: "{folder.title}" (inside {parentName})
+      <Typography variant="caption" display="block" sx={{ mt: 0.5, color: 'text.secondary' }}>
+        Two folders will be created here:
+      </Typography>
+      <Typography variant="caption" display="block" sx={{ ml: 2, color: 'text.secondary' }}>
+        • "Tab Group Bookmarks" - for your synced tab groups
+      </Typography>
+      <Typography variant="caption" display="block" sx={{ ml: 2, color: 'text.secondary' }}>
+        • "Tab Group Snapshots" - for your saved snapshots
+      </Typography>
     </Typography>
   );
 }

@@ -20,7 +20,36 @@ export class BookmarkManager {
     return typeof settings.containerFolderId === 'string';
   }
 
-  // Get the container folder
+  // Create a new container folder at the same location as the previous one
+  async createContainerFolder(): Promise<chrome.bookmarks.BookmarkTreeNode> {
+    const settings = await this.storage.getSettings();
+    if (!settings.containerFolderId) {
+      throw new Error('Container folder ID not set');
+    }
+
+    try {
+      // Get the old folder to find its parent
+      const oldFolder = await getBookmark(settings.containerFolderId);
+      const parentId = oldFolder?.parentId || '1'; // Default to bookmarks bar if parent not found
+
+      // Create new container folder at the same location with same name
+      const folder = await createBookmark(parentId, oldFolder?.title || 'Tab Groups');
+      
+      this.logger.info('containerFolder:recreated', {
+        folderId: folder.id,
+        parentId
+      });
+
+      return folder;
+    } catch (error) {
+      this.logger.error('createContainerFolder:failed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
+  }
+
+  // Get the user-selected container folder
   async getContainerFolder(): Promise<chrome.bookmarks.BookmarkTreeNode | null> {
     const settings = await this.storage.getSettings();
     if (!settings.containerFolderId) {
@@ -29,6 +58,38 @@ export class BookmarkManager {
 
     try {
       const folder = await getBookmark(settings.containerFolderId);
+      if (!folder) return null;
+
+      // Check if this folder is nested under another sync folder
+      let current = folder;
+      let depth = 0;
+      const MAX_DEPTH = 5;
+      
+      while (current.parentId && depth < MAX_DEPTH) {
+        const parent = await getBookmark(current.parentId);
+        if (!parent) break;
+        
+        // Check if parent has both intermediate folders
+        const siblings = await getBookmarkChildren(parent.id);
+        const parentBookmarksFolder = siblings.find(s => !s.url && s.title === BOOKMARK_FOLDERS.BOOKMARKS);
+        const parentSnapshotsFolder = siblings.find(s => !s.url && s.title === BOOKMARK_FOLDERS.SNAPSHOTS);
+        
+        if (parentBookmarksFolder && parentSnapshotsFolder) {
+          // Found a parent that's already a container, use it
+          this.logger.warn('container:nestedUnderSync', {
+            folderId: folder.id,
+            parentId: parent.id,
+            action: 'using parent'
+          });
+          
+          await this.storage.updateSettings({ containerFolderId: parent.id });
+          return parent;
+        }
+        
+        current = parent;
+        depth++;
+      }
+
       return folder;
     } catch (error) {
       this.logger.error('getContainerFolder:failed', {
@@ -38,7 +99,7 @@ export class BookmarkManager {
     }
   }
 
-  // Get the Tab Group Bookmarks folder
+  // Get the Tab Group Bookmarks folder inside the container
   async getTabGroupsFolder(): Promise<chrome.bookmarks.BookmarkTreeNode | null> {
     const container = await this.getContainerFolder();
     if (!container) {
@@ -46,15 +107,22 @@ export class BookmarkManager {
     }
 
     try {
-      // Try to find existing folder
+      // Try to find existing bookmarks folder
       const children = await getBookmarkChildren(container.id);
-      const folder = children.find(child => child.title === BOOKMARK_FOLDERS.TAB_GROUPS && !child.url);
-      if (folder) {
-        return folder;
+      const bookmarksFolder = children.find(child => child.title === BOOKMARK_FOLDERS.BOOKMARKS && !child.url);
+      if (bookmarksFolder) {
+        // Ensure snapshots folder exists alongside
+        const hasSnapshotsFolder = children.find(child => child.title === BOOKMARK_FOLDERS.SNAPSHOTS && !child.url);
+        if (!hasSnapshotsFolder) {
+          await createBookmark(container.id, BOOKMARK_FOLDERS.SNAPSHOTS);
+        }
+        return bookmarksFolder;
       }
 
-      // Create if not found
-      return createBookmark(container.id, BOOKMARK_FOLDERS.TAB_GROUPS);
+      // Create both folders if neither exists
+      const newBookmarksFolder = await createBookmark(container.id, BOOKMARK_FOLDERS.BOOKMARKS);
+      await createBookmark(container.id, BOOKMARK_FOLDERS.SNAPSHOTS);
+      return newBookmarksFolder;
     } catch (error) {
       this.logger.error('getTabGroupsFolder:failed', {
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -63,68 +131,69 @@ export class BookmarkManager {
     }
   }
 
-  // Set up the Tab Group Bookmarks folder structure
-  async setupTabGroupsFolder(containerFolder: chrome.bookmarks.BookmarkTreeNode): Promise<chrome.bookmarks.BookmarkTreeNode> {
-    // Create the "Tab Group Bookmarks" subfolder if it doesn't exist
-    const children = await new Promise<chrome.bookmarks.BookmarkTreeNode[]>((resolve, reject) => {
-      chrome.bookmarks.getChildren(containerFolder.id, (result) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-        } else {
-          resolve(result);
-        }
-      });
-    });
+  // Set up the user-selected container folder and ensure proper structure
+  async setupTabGroupsFolder(folder: chrome.bookmarks.BookmarkTreeNode): Promise<chrome.bookmarks.BookmarkTreeNode> {
+    // First check if this folder already has the intermediate folders
+    const children = await getBookmarkChildren(folder.id);
+    const bookmarksFolder = children.find(c => !c.url && c.title === BOOKMARK_FOLDERS.BOOKMARKS);
+    const snapshotsFolder = children.find(c => !c.url && c.title === BOOKMARK_FOLDERS.SNAPSHOTS);
 
-    let tabGroupsFolder = children.find(child => child.title === BOOKMARK_FOLDERS.TAB_GROUPS && !child.url);
-    
-    if (!tabGroupsFolder) {
-      // Create the subfolder
-      tabGroupsFolder = await new Promise<chrome.bookmarks.BookmarkTreeNode>((resolve, reject) => {
-        chrome.bookmarks.create({
-          parentId: containerFolder.id,
-          title: BOOKMARK_FOLDERS.TAB_GROUPS,
-          url: undefined
-        }, (result) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-          } else {
-            resolve(result);
-          }
-        });
-      });
-
-      this.logger.info('tabGroupFolder:created', {
-        containerId: containerFolder.id,
-        containerName: containerFolder.title,
-        folderId: tabGroupsFolder.id
-      });
-    } else {
-      this.logger.info('tabGroupFolder:reused', {
-        containerId: containerFolder.id,
-        containerName: containerFolder.title,
-        folderId: tabGroupsFolder.id
-      });
+    if (bookmarksFolder && snapshotsFolder) {
+      // Already set up correctly
+      await this.storage.updateSettings({ containerFolderId: folder.id });
+      return bookmarksFolder;
     }
 
-    // Store the container folder ID (stable across sessions and synced across devices)
-    await this.storage.updateSettings({ containerFolderId: containerFolder.id });
+    // Check if this folder is inside an existing container
+    let current = folder;
+    let depth = 0;
+    const MAX_DEPTH = 5;
 
-    return tabGroupsFolder;
+    while (current.parentId && depth < MAX_DEPTH) {
+      const parent = await getBookmark(current.parentId);
+      if (!parent) break;
+
+      const siblings = await getBookmarkChildren(parent.id);
+      const parentBookmarksFolder = siblings.find(s => !s.url && s.title === BOOKMARK_FOLDERS.BOOKMARKS);
+      const parentSnapshotsFolder = siblings.find(s => !s.url && s.title === BOOKMARK_FOLDERS.SNAPSHOTS);
+
+      if (parentBookmarksFolder && parentSnapshotsFolder) {
+        // Found a parent that's already a container, use it
+        this.logger.warn('container:nestedSetup', {
+          folderId: folder.id,
+          parentId: parent.id,
+          action: 'using parent'
+        });
+        await this.storage.updateSettings({ containerFolderId: parent.id });
+        return parentBookmarksFolder;
+      }
+
+      current = parent;
+      depth++;
+    }
+
+    // No existing container found, set up the selected folder
+    await this.storage.updateSettings({ containerFolderId: folder.id });
+    
+    // Create both intermediate folders
+    const newBookmarksFolder = await createBookmark(folder.id, BOOKMARK_FOLDERS.BOOKMARKS);
+    await createBookmark(folder.id, BOOKMARK_FOLDERS.SNAPSHOTS);
+    
+    return newBookmarksFolder;
   }
 
-  // Get the Tab Group Bookmarks folder (internal use)
+  // Get the bookmarks folder (internal use)
   private async getTabGroupsFolderInternal(): Promise<chrome.bookmarks.BookmarkTreeNode> {
     const folder = await this.getTabGroupsFolder();
     if (!folder) {
-      throw new Error('Tab Group Bookmarks folder not found');
+      throw new Error('Tab Groups bookmarks folder not found');
     }
     return folder;
   }
 
   async ensureGroupFolder(name: string): Promise<chrome.bookmarks.BookmarkTreeNode> {
     this.logger.info('ensureGroupFolder:start', { name });
-    const tabGroupsFolder = await this.getTabGroupsFolderInternal();
+    const bookmarksFolder = await this.getTabGroupsFolderInternal();
     
     // Check if we already have a folder for this group
     const mapping = await this.storage.getMapping(name);
@@ -156,7 +225,7 @@ export class BookmarkManager {
     }
 
     // Check for existing folder with same name
-    const existingFolders = await chrome.bookmarks.getChildren(tabGroupsFolder.id);
+    const existingFolders = await chrome.bookmarks.getChildren(bookmarksFolder.id);
     const existingFolder = existingFolders.find(f => f.title === name);
     
     if (existingFolder) {
@@ -178,11 +247,11 @@ export class BookmarkManager {
     }
 
     // Create new folder
-    const folder = await createBookmark(tabGroupsFolder.id, name);
+    const folder = await createBookmark(bookmarksFolder.id, name);
     this.logger.info('groupFolder:created', {
       name,
       folderId: folder.id,
-      parentId: tabGroupsFolder.id
+      parentId: bookmarksFolder.id
     });
 
     // Update mapping
@@ -213,8 +282,8 @@ export class BookmarkManager {
 
     try {
       // Get or create the Tab Group Bookmarks folder
-      const tabGroupsFolder = await this.getTabGroupsFolder();
-      if (!tabGroupsFolder) {
+      const bookmarksFolder = await this.getTabGroupsFolder();
+      if (!bookmarksFolder) {
         throw new Error('Please select a location for your bookmarks first');
       }
       
@@ -322,57 +391,5 @@ export class BookmarkManager {
         reason: 'folder deleted'
       });
     }
-  }
-
-  async createUngroupedFolder(): Promise<chrome.bookmarks.BookmarkTreeNode> {
-    const folder = await this.getTabGroupsFolderInternal();
-    const settings = await this.storage.getUngroupedSettings();
-    return createBookmark(folder.id, settings.folderName);
-  }
-
-  async syncUngroupedTabs(tabs: chrome.tabs.Tab[]): Promise<void> {
-    const settings = await this.storage.getUngroupedSettings();
-    if (!settings.folderId) throw new Error('Ungrouped folder not set');
-
-    await this.updateFolderTabs(settings.folderId, tabs);
-  }
-
-  // Only adds new bookmarks, never removes existing ones
-  private async updateFolderTabs(
-    folderId: string,
-    tabs: chrome.tabs.Tab[]
-  ): Promise<void> {
-    const children = await getBookmarkChildren(folderId);
-    const existingUrls = new Set(children.map(child => child.url));
-
-    // Only create bookmarks for new tabs with valid URLs
-    const validTabs = tabs
-      .map(tab => ({
-        id: tab.id,
-        title: tab.title || '',
-        url: tab.url || tab.pendingUrl
-      }))
-      .filter((tab): tab is { id: number; title: string; url: string } =>
-        typeof tab.url === 'string' && !existingUrls.has(tab.url)
-      );
-
-    // Add only new bookmarks, never remove existing ones
-    await Promise.all(
-      validTabs.map(tab =>
-        new Promise<chrome.bookmarks.BookmarkTreeNode>((resolve, reject) => {
-          chrome.bookmarks.create({
-            parentId: folderId,
-            title: tab.title,
-            url: tab.url
-          }, (result) => {
-            if (chrome.runtime.lastError) {
-              reject(new Error(chrome.runtime.lastError.message));
-            } else {
-              resolve(result);
-            }
-          });
-        })
-      )
-    );
   }
 }

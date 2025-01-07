@@ -3,7 +3,6 @@ import {
   StorageState,
   SyncHistoryEntry,
   GlobalSettings,
-  UngroupedTabsSettings,
   SyncStatus,
   CleanupSettings,
   RuntimeMapping,
@@ -70,7 +69,7 @@ export function validateSyncHistoryEntry(entry: unknown): SyncHistoryEntry {
     error
   } = entry as SyncHistoryEntry;
 
-  if (!['group-to-folder', 'folder-to-group', 'ungrouped', 'archived'].includes(type)) {
+  if (!['group-to-folder', 'folder-to-group', 'archived'].includes(type)) {
     throw new ValidationError('Invalid sync history type');
   }
 
@@ -114,7 +113,6 @@ export function validateGlobalSettings(settings: unknown): GlobalSettings {
     containerFolderId,
     syncInterval,
     keepRemoved,
-    syncUngrouped,
     cleanup
   } = settings as GlobalSettings;
 
@@ -123,30 +121,7 @@ export function validateGlobalSettings(settings: unknown): GlobalSettings {
     containerFolderId: validateOptional(containerFolderId, v => validateString(v, 'containerFolderId')),
     syncInterval: validateOptional(syncInterval, v => validateNumber(v, 'syncInterval')),
     keepRemoved: validateBoolean(keepRemoved, 'keepRemoved'),
-    syncUngrouped: validateBoolean(syncUngrouped, 'syncUngrouped'),
     cleanup: validateCleanupSettings(cleanup)
-  };
-}
-
-export function validateUngroupedTabsSettings(settings: unknown): UngroupedTabsSettings {
-  if (!settings || typeof settings !== 'object') {
-    throw new ValidationError('Invalid ungrouped tabs settings object');
-  }
-
-  const {
-    enabled,
-    folderId,
-    folderName,
-    syncEnabled,
-    status
-  } = settings as UngroupedTabsSettings;
-
-  return {
-    enabled: validateBoolean(enabled, 'enabled'),
-    folderId: validateOptional(folderId, v => validateString(v, 'folderId')),
-    folderName: validateString(folderName, 'folderName'),
-    syncEnabled: validateBoolean(syncEnabled, 'syncEnabled'),
-    status: validateSyncStatus(status)
   };
 }
 

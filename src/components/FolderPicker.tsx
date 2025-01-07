@@ -110,7 +110,10 @@ export default function FolderPicker({ open, onClose, onSelect }: FolderPickerPr
       <DialogTitle sx={{ pb: 1 }}>
         <Box>
           <Typography variant="h6" sx={{ fontSize: '1rem', mb: 0.5 }}>
-            Select Container Folder
+            Select Container Location
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Choose where to store your tab group bookmarks and snapshots
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
             {currentPath.map(f => f.title).join(' > ')}
@@ -181,7 +184,10 @@ export default function FolderPicker({ open, onClose, onSelect }: FolderPickerPr
             {folders.length === 0 && (
               <Box sx={{ p: 2, textAlign: 'center' }}>
                 <Typography variant="body2" color="text.secondary">
-                  No folders found
+                  No subfolders found in this location
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                  You can select the current folder or navigate to another location
                 </Typography>
               </Box>
             )}

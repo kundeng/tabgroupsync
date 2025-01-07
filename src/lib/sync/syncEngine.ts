@@ -33,18 +33,35 @@ export class SyncEngine {
         }
       }
 
-      // Handle ungrouped tabs if enabled
-      const ungroupedSettings = await this.storage.getUngroupedSettings();
-      if (ungroupedSettings.enabled && ungroupedSettings.syncEnabled) {
-        await this.syncUngroupedTabs();
-      }
     }, ErrorType.SYNC);
+  }
+
+  async ensureSyncFolders(name: string): Promise<BookmarkFolderId> {
+    // Get container folder, recreate if missing
+    const settings = await this.storage.getSettings();
+    if (!settings.containerFolderId) {
+      throw new SyncError('Please select a location for your bookmarks first');
+    }
+
+    let containerFolder = await this.bookmarkManager.getContainerFolder();
+    if (!containerFolder) {
+      // Container folder was deleted, create new one at same location
+      containerFolder = await this.bookmarkManager.createContainerFolder();
+      await this.storage.updateSettings({ 
+        containerFolderId: containerFolder.id 
+      });
+    }
+
+    // Get or create group folder
+    const folder = await this.bookmarkManager.ensureGroupFolder(name);
+    return folder.id;
   }
 
   async syncGroupToFolder(name: string): Promise<void> {
     const opId = this.tracker.startOperation('syncGroupToFolder', { name });
     
     return withErrorHandling(async () => {
+      // Get current sync state
       const mapping = await this.storage.getMapping(name);
       if (!mapping || !mapping.syncEnabled) return;
 
@@ -65,15 +82,39 @@ export class SyncEngine {
             { maxAttempts: 3, delayMs: 500 }
           ) : [];
 
-        // Get container folder
-        const folder = await this.bookmarkManager.getContainerFolder();
-        if (!folder) {
-          throw new SyncError('Please select a location for your bookmarks first');
+        // Try to sync to existing folder first
+        try {
+          if (mapping.folderId) {
+            await withRetry('syncToFolder',
+              () => this.bookmarkManager.syncGroupToFolder(name, tabs, mapping.folderId),
+              { maxAttempts: 3, delayMs: 1000 }
+            );
+            return;
+          }
+        } catch (error) {
+          this.logger.warn('sync:existingFolderFailed', {
+            name,
+            folderId: mapping.folderId,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+          // Continue to recreate folder
         }
 
-        // Sync tabs to the folder
+        // If existing folder sync failed or no folder exists, create new one
+        const folder = await this.bookmarkManager.ensureGroupFolder(name);
+        
+        // Update mapping with new folder
+        await this.storage.updateMapping(name, { 
+          folderId: folder.id,
+          status: {
+            lastSynced: Date.now(),
+            inProgress: true
+          }
+        });
+
+        // Sync tabs to new folder
         await withRetry('syncToFolder',
-          () => this.bookmarkManager.syncGroupToFolder(name, tabs, mapping.folderId),
+          () => this.bookmarkManager.syncGroupToFolder(name, tabs, folder.id),
           { maxAttempts: 3, delayMs: 1000 }
         );
 
@@ -126,61 +167,6 @@ export class SyncEngine {
         throw error;
       } finally {
         this.tracker.endOperation(opId);
-      }
-    }, ErrorType.SYNC);
-  }
-
-  async syncUngroupedTabs(): Promise<void> {
-    return withErrorHandling(async () => {
-      const settings = await this.storage.getUngroupedSettings();
-      if (!settings.enabled || !settings.syncEnabled) return;
-
-      // Update sync status
-      await this.storage.updateUngroupedSettings({
-        status: { lastSynced: Date.now(), inProgress: true }
-      });
-
-      try {
-        const ungroupedTabs = await this.tabGroupManager.getUngroupedTabs();
-        if (!settings.folderId) {
-          const folder = await this.bookmarkManager.createUngroupedFolder();
-          await this.storage.updateUngroupedSettings({ folderId: folder.id });
-        }
-
-        await this.bookmarkManager.syncUngroupedTabs(ungroupedTabs);
-
-        // Update sync status on success
-        await this.storage.updateUngroupedSettings({
-          status: { lastSynced: Date.now(), inProgress: false }
-        });
-
-        // Add success entry to history
-        await this.storage.addHistoryEntry({
-          timestamp: Date.now(),
-          type: 'ungrouped',
-          folderId: settings.folderId!,
-          success: true
-        });
-      } catch (error) {
-        // Update sync status on failure
-        await this.storage.updateUngroupedSettings({
-          status: {
-            lastSynced: Date.now(),
-            inProgress: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
-          }
-        });
-
-        // Add failure entry to history
-        await this.storage.addHistoryEntry({
-          timestamp: Date.now(),
-          type: 'ungrouped',
-          folderId: settings.folderId!,
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
-
-        throw error;
       }
     }, ErrorType.SYNC);
   }
@@ -280,19 +266,6 @@ export class SyncEngine {
 
       // Use setGroupSyncEnabled to handle all the sync logic
       await this.setGroupSyncEnabled(name, newSyncEnabled);
-    }, ErrorType.SYNC);
-  }
-
-  async toggleUngroupedSync(): Promise<void> {
-    return withErrorHandling(async () => {
-      const settings = await this.storage.getUngroupedSettings();
-      const newSyncEnabled = !settings.syncEnabled;
-
-      await this.storage.updateUngroupedSettings({ syncEnabled: newSyncEnabled });
-
-      if (newSyncEnabled) {
-        await this.syncUngroupedTabs();
-      }
     }, ErrorType.SYNC);
   }
 

@@ -1,7 +1,7 @@
 export const BOOKMARK_FOLDERS = {
-  TAB_GROUPS: 'Tab Group Bookmarks',
-  SNAPSHOTS: 'Tab Group Snapshots',
-  UNGROUPED: 'Ungrouped Tabs'
+  // Intermediate folders inside the container
+  BOOKMARKS: 'Tab Group Bookmarks',
+  SNAPSHOTS: 'Tab Group Snapshots'
 } as const;
 
 // Folder lookup strategy:

@@ -261,7 +261,7 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
             {/* Location Settings */}
             <Box sx={{ mb: 3 }}>
               <Typography variant="subtitle2" sx={{ mb: 1.5, color: 'text.secondary' }}>
-                Bookmark Location
+                Container Location
               </Typography>
               {containerFolder ? (
                 <Box>
@@ -279,7 +279,13 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
                     )}
                   </Button>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                    Your tab groups will be synced to folders inside "Tab Group Bookmarks"
+                    This container has two folders:
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 2 }}>
+                    • "Tab Group Bookmarks" - contains your synced tab groups
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 2 }}>
+                    • "Tab Group Snapshots" - contains your saved snapshots
                   </Typography>
                 </Box>
               ) : (
@@ -298,7 +304,13 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
                     )}
                   </Button>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                    Choose where to create the "Tab Group Bookmarks" folder
+                    Select a container location where we'll create:
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 2 }}>
+                    • "Tab Group Bookmarks" folder for your synced tab groups
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 2 }}>
+                    • "Tab Group Snapshots" folder for your saved snapshots
                   </Typography>
                 </Box>
               )}
