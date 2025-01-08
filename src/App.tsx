@@ -1,10 +1,17 @@
 import React from 'react';
+import { Box, Typography } from '@mui/material';
 
 function App() {
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-      <p>Start prompting (or editing) to see magic happen :)</p>
-    </div>
+    <Box sx={{ 
+      minHeight: '100vh',
+      bgcolor: 'grey.100',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center'
+    }}>
+      <Typography>Start prompting (or editing) to see magic happen :)</Typography>
+    </Box>
   );
 }
 

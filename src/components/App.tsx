@@ -125,6 +125,19 @@ export default function App() {
                 }
               });
             });
+          },
+          getHistory: async () => {
+            return new Promise((resolve, reject) => {
+              chrome.runtime.sendMessage({ type: 'GET_HISTORY' }, response => {
+                if (chrome.runtime.lastError) {
+                  reject(new Error(chrome.runtime.lastError.message));
+                } else if (response.error) {
+                  reject(new Error(response.error));
+                } else {
+                  resolve(response.history);
+                }
+              });
+            });
           }
         } as StorageManager;
 
