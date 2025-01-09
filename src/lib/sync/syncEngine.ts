@@ -18,7 +18,8 @@ export class SyncEngine {
   private tracker = OperationTracker.getInstance();
   private syncQueue: QueuedSync[] = [];
   private processingQueue = false;
-  private readonly SYNC_DELAY = 2000; // 2 seconds between syncs
+  private readonly SYNC_DELAY = 4000; // 4 seconds between syncs
+  private lastKnownHashes: Map<string, string> = new Map();
   private readonly MAX_QUEUE_SIZE = 100;
   private readonly MAX_RETRIES = 3;
 
@@ -161,6 +162,20 @@ export class SyncEngine {
     return folder.id;
   }
 
+  private async computeTabsHash(tabs: chrome.tabs.Tab[]): Promise<string> {
+    const tabData = tabs.map(tab => ({
+      url: tab.url,
+      title: tab.title,
+      pinned: tab.pinned
+    }));
+    const hash = await crypto.subtle.digest('SHA-256', 
+      new TextEncoder().encode(JSON.stringify(tabData))
+    );
+    return Array.from(new Uint8Array(hash))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
   async syncGroupToFolder(name: string): Promise<void> {
     const opId = this.tracker.startOperation('syncGroupToFolder', { name });
     
@@ -169,22 +184,33 @@ export class SyncEngine {
       const mapping = await this.storage.getMapping(name);
       if (!mapping || !mapping.syncEnabled) return;
 
+      // Get current tabs
+      const group = mapping.currentGroupId ? 
+        await this.tabGroupManager.getGroup(parseInt(mapping.currentGroupId)) : null;
+      const tabs = group ? 
+        await withRetry<chrome.tabs.Tab[]>('getGroupTabs',
+          () => getTabsInGroup(group.id),
+          { maxAttempts: 3, delayMs: 500 }
+        ) : [];
+
+      // Check if tabs have changed
+      const currentHash = await this.computeTabsHash(tabs);
+      const lastHash = this.lastKnownHashes.get(name);
+      if (currentHash === lastHash) {
+        this.logger.debug('sync:skipped', {
+          name,
+          reason: 'no changes'
+        });
+        return;
+      }
+      this.lastKnownHashes.set(name, currentHash);
+
       // Update sync status
       await this.storage.updateMapping(name, {
         status: { lastSynced: Date.now(), inProgress: true }
       });
 
       try {
-        // Get current group info if it exists
-        const group = mapping.currentGroupId ? 
-          await this.tabGroupManager.getGroup(parseInt(mapping.currentGroupId)) : null;
-
-        // Get current tabs if group exists
-        const tabs = group ? 
-          await withRetry<chrome.tabs.Tab[]>('getGroupTabs',
-            () => getTabsInGroup(group.id),
-            { maxAttempts: 3, delayMs: 500 }
-          ) : [];
 
         // Try to sync to existing folder first
         try {
