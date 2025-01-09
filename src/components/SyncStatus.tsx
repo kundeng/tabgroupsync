@@ -57,10 +57,11 @@ export default function SyncStatus({ storage }: SyncStatusProps) {
 
   const getEntryText = (entry: SyncHistoryEntry) => {
     const time = new Date(entry.timestamp).toLocaleTimeString();
+    const groupName = entry.groupId?.split(':')[1] || 'Unknown group';
     
     if (!entry.success) {
       // More specific error messages based on error type
-      let errorMessage = 'Sync failed';
+      let errorMessage = `"${groupName}" sync failed`;
       if (entry.error?.includes('Please select a location')) {
         errorMessage = 'No backup location set';
       } else if (entry.error?.includes('folder was deleted')) {
@@ -68,9 +69,9 @@ export default function SyncStatus({ storage }: SyncStatusProps) {
       } else if (entry.error?.includes('network')) {
         errorMessage = 'Network error';
       } else if (entry.error?.includes('MAX_WRITE_OPERATIONS_PER_HOUR')) {
-        errorMessage = 'Sync rate limit reached';
+        errorMessage = `"${groupName}" rate limit reached`;
       } else if (entry.error?.includes('QUOTA_BYTES_PER_ITEM')) {
-        errorMessage = 'Storage quota exceeded';
+        errorMessage = `"${groupName}" quota exceeded`;
       }
 
       return {
@@ -81,17 +82,22 @@ export default function SyncStatus({ storage }: SyncStatusProps) {
 
     // More descriptive success messages based on sync type
     let successMessage = 'Backup completed';
+    let details = '';
+
     if (entry.type === 'group-to-folder') {
-      successMessage = 'Tab group backed up';
+      successMessage = `"${groupName}" backed up`;
+      details = `${time} - Saved to bookmarks`;
     } else if (entry.type === 'folder-to-group') {
-      successMessage = 'Restored from backup';
+      successMessage = `"${groupName}" restored`;
+      details = `${time} - Loaded from bookmarks`;
     } else if (entry.type === 'archived') {
-      successMessage = 'Group archived';
+      successMessage = `"${groupName}" archived`;
+      details = `${time} - Moved to archive`;
     }
 
     return {
       primary: successMessage,
-      secondary: time,
+      secondary: details,
     };
   };
 
