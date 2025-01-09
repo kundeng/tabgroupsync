@@ -57,11 +57,7 @@ const theme = createTheme({
   },
 });
 
-interface AppProps {
-  mode?: 'popup' | 'app';
-}
-
-export default function App({ mode = 'popup' }: AppProps) {
+export default function App() {
   const [isInitialized, setIsInitialized] = React.useState(false);
   const [error, setError] = React.useState<Error | null>(null);
   const [managers, setManagers] = React.useState<{
@@ -264,7 +260,7 @@ export default function App({ mode = 'popup' }: AppProps) {
       <Box 
         sx={{
           width: '480px',
-          height: mode === 'popup' ? '600px' : '100vh',
+          height: '100%',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden'
