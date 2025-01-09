@@ -24,7 +24,9 @@ This documentation serves two purposes:
 13. [Security & Privacy](#13-security--privacy)
 14. [Development & Testing](#14-development--testing)
 15. [Extension Lifecycle](#15-extension-lifecycle)
-
+16. [Storage Optimization Deep Dive](#16-storage-optimization-deep-dive)
+17. [Help System Implementation](#17-help-system-implementation)
+18. [Snapshot System Implementation](#18-snapshot-system-implementation)
 ## Part 1: Learning Guide
 
 ### 1. Getting Started
@@ -792,10 +794,10 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
 chrome.runtime.setUninstallURL('https://example.com/feedback');
 ```
 
-## Part 2: Technical Reference
-### Storage Optimization Deep Dive
 
-#### Storage Strategy Evolution
+### 16. Storage Optimization Deep Dive
+
+#### 16.1 Storage Strategy Evolution
 The storage system has evolved to be more efficient:
 
 1. **Original Approach**
@@ -873,7 +875,7 @@ This optimization significantly improves:
 - Reliability: Less chance of quota limits
 - Sync Speed: Faster cross-device sync
 
-### Help System Implementation
+### 17. Help System Implementation
 
 #### HelpDialog Component
 The HelpDialog component provides in-app documentation:
