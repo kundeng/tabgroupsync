@@ -45,9 +45,10 @@ export interface SyncHistoryEntry {
   timestamp: number;
   type: 'group-to-folder' | 'folder-to-group' | 'archived';
   groupId?: TabGroupId;
-  folderId: BookmarkFolderId;
+  folderId?: BookmarkFolderId;  // Optional for error cases
   success: boolean;
   error?: string;
+  details?: string;  // Additional context for the entry
 }
 
 // Cleanup settings

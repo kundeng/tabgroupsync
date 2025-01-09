@@ -182,7 +182,17 @@ export class SyncEngine {
     return withErrorHandling(async () => {
       // Get current sync state
       const mapping = await this.storage.getMapping(name);
-      if (!mapping || !mapping.syncEnabled) return;
+      if (!mapping || !mapping.syncEnabled) {
+        // Add history entry for disabled sync
+        await this.storage.addHistoryEntry({
+          timestamp: Date.now(),
+          type: 'group-to-folder',
+          groupId: `group:${name}`,
+          success: false,
+          error: 'Sync is disabled'
+        });
+        return;
+      }
 
       // Get current tabs
       const group = mapping.currentGroupId ? 
@@ -201,6 +211,25 @@ export class SyncEngine {
           name,
           reason: 'no changes'
         });
+        
+        // Add history entry for unchanged sync
+        await this.storage.addHistoryEntry({
+          timestamp: Date.now(),
+          type: 'group-to-folder',
+          groupId: `group:${name}`,
+          folderId: mapping.folderId,
+          success: true,
+          details: 'No changes detected'
+        });
+
+        // Update last synced time
+        await this.storage.updateMapping(name, {
+          status: { 
+            lastSynced: Date.now(),
+            inProgress: false,
+            error: undefined
+          }
+        });
         return;
       }
       this.lastKnownHashes.set(name, currentHash);
@@ -211,7 +240,6 @@ export class SyncEngine {
       });
 
       try {
-
         // Try to sync to existing folder first
         try {
           if (mapping.folderId) {
@@ -219,6 +247,16 @@ export class SyncEngine {
               () => this.bookmarkManager.syncGroupToFolder(name, tabs, mapping.folderId),
               { maxAttempts: 3, delayMs: 1000 }
             );
+            
+            // Add success entry to history
+            await this.storage.addHistoryEntry({
+              timestamp: Date.now(),
+              type: 'group-to-folder',
+              groupId: `group:${name}`,
+              folderId: mapping.folderId,
+              success: true,
+              details: `${tabs.length} tabs synced`
+            });
             return;
           }
         } catch (error) {
@@ -262,8 +300,9 @@ export class SyncEngine {
           timestamp: Date.now(),
           type: 'group-to-folder',
           groupId: `group:${name}`,
-          folderId: mapping.folderId,
-          success: true
+          folderId: folder.id,
+          success: true,
+          details: `${tabs.length} tabs synced to new folder`
         });
 
         this.logger.info('sync:completed', {
@@ -352,7 +391,8 @@ export class SyncEngine {
         type: 'group-to-folder',
         groupId: `group:${name}`,
         folderId,
-        success: true
+        success: true,
+        details: enabled ? 'Sync enabled' : 'Sync disabled'
       });
 
       if (enabled) {
@@ -493,6 +533,15 @@ export class SyncEngine {
     // Update mapping to remove current group ID but keep the folder
     await this.storage.updateMapping(name, {
       currentGroupId: undefined
+    });
+
+    // Add history entry for group removal
+    await this.storage.addHistoryEntry({
+      timestamp: Date.now(),
+      type: 'group-to-folder',
+      groupId: `group:${name}`,
+      success: true,
+      details: 'Group removed, bookmarks preserved'
     });
 
     this.logger.info('sync:groupRemoved', {

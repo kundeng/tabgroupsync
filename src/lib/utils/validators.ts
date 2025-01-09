@@ -66,7 +66,8 @@ export function validateSyncHistoryEntry(entry: unknown): SyncHistoryEntry {
     groupId,
     folderId,
     success,
-    error
+    error,
+    details
   } = entry as SyncHistoryEntry;
 
   if (!['group-to-folder', 'folder-to-group', 'archived'].includes(type)) {
@@ -77,9 +78,10 @@ export function validateSyncHistoryEntry(entry: unknown): SyncHistoryEntry {
     timestamp: validateNumber(timestamp, 'timestamp'),
     type,
     groupId: validateOptional(groupId, v => validateString(v, 'groupId')),
-    folderId: validateString(folderId, 'folderId'),
+    folderId: validateOptional(folderId, v => validateString(v, 'folderId')),
     success: validateBoolean(success, 'success'),
-    error: validateOptional(error, v => validateString(v, 'error'))
+    error: validateOptional(error, v => validateString(v, 'error')),
+    details: validateOptional(details, v => validateString(v, 'details'))
   };
 }
 

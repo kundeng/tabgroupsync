@@ -181,14 +181,19 @@ export class StorageManager {
             action: 'cleared container folder ID and disabled sync for all groups'
           });
 
-          // Add history entry for the container removal
-          await this.addHistoryEntry({
-            timestamp: Date.now(),
-            type: 'group-to-folder',
-            folderId: this.persistedState.settings.containerFolderId!,
-            success: false,
-            error: 'Backup location not found'
-          });
+          // Add history entry for each affected group
+          await Promise.all(
+            Object.keys(this.runtimeState.mappings).map(name =>
+              this.addHistoryEntry({
+                timestamp: Date.now(),
+                type: 'group-to-folder',
+                groupId: `group:${name}`,
+                folderId: this.persistedState.settings.containerFolderId!,
+                success: false,
+                error: 'Backup location not found'
+              })
+            )
+          );
         }
       } catch (error) {
         // Handle error by clearing the container folder ID and disabling sync
