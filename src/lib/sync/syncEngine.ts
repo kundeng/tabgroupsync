@@ -235,6 +235,7 @@ export class SyncEngine {
         await this.storage.addHistoryEntry({
           timestamp: Date.now(),
           type: 'group-to-folder',
+          groupId: `group:${name}`,
           folderId: mapping.folderId,
           success: true
         });
@@ -263,6 +264,7 @@ export class SyncEngine {
         await this.storage.addHistoryEntry({
           timestamp: Date.now(),
           type: 'group-to-folder',
+          groupId: `group:${name}`,
           folderId: mapping.folderId,
           success: false,
           error: errorMessage
@@ -322,6 +324,7 @@ export class SyncEngine {
       await this.storage.addHistoryEntry({
         timestamp,
         type: 'group-to-folder',
+        groupId: `group:${name}`,
         folderId,
         success: true
       });
