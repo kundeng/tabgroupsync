@@ -29,29 +29,26 @@ export class StorageManager {
   }
 
   private async saveState(): Promise<void> {
-    // Save settings
-    await new Promise<void>((resolve) => {
-      chrome.storage.sync.set({ 'state:settings': this.persistedState.settings }, resolve);
+    // Save essential data
+    const data: Record<string, any> = {
+      'state:settings': this.persistedState.settings,
+      'state:history': this.persistedState.syncHistory.slice(-50) // Keep last 50 entries
+    };
+
+    // Save sync preferences that have been explicitly set by user
+    Object.entries(this.persistedState.syncPreferences).forEach(([name, pref]) => {
+      if (pref.userSet) {  // Only save preferences that user has explicitly set
+        data[`pref:${name}`] = {
+          syncEnabled: pref.syncEnabled,
+          lastSeen: pref.lastSeen,    // For cleanup functionality
+          lastSynced: pref.lastSynced // For sync state persistence
+        };
+      }
     });
 
-    // Save each group's preferences separately
-    await Promise.all(
-      Object.entries(this.persistedState.syncPreferences).map(([name, pref]) =>
-        new Promise<void>((resolve) => {
-          chrome.storage.sync.set({
-            [`pref:${name}`]: {
-              syncEnabled: pref.syncEnabled  // Only store essential data
-            }
-          }, resolve);
-        })
-      )
-    );
-
-    // Save limited history
+    // Save in a single operation
     await new Promise<void>((resolve) => {
-      chrome.storage.sync.set({
-        'state:history': this.persistedState.syncHistory.slice(0, 10)
-      }, resolve);
+      chrome.storage.sync.set(data, resolve);
     });
   }
 
@@ -77,13 +74,13 @@ export class StorageManager {
 
   private async loadState(): Promise<void> {
     return withErrorHandling(async () => {
-      // Load settings first
-      const settings = await new Promise<{ 'state:settings'?: unknown }>(resolve => {
-        chrome.storage.sync.get('state:settings', resolve);
+      // Load settings and history
+      const data = await new Promise<{ [key: string]: any }>(resolve => {
+        chrome.storage.sync.get(['state:settings', 'state:history'], resolve);
       });
 
       try {
-        if (settings['state:settings']) {
+        if (data['state:settings']) {
           // Get all preference keys
           const allKeys = await new Promise<{ [key: string]: any }>(resolve => {
             chrome.storage.sync.get(null, resolve);
@@ -96,23 +93,19 @@ export class StorageManager {
               const name = key.slice(5); // Remove 'pref:' prefix
               preferences[name] = {
                 syncEnabled: value.syncEnabled,
-                lastSeen: Date.now(),  // Initialize lastSeen
-                lastSynced: 0  // Initialize lastSynced
+                userSet: true,  // If it's in storage, it was user-set
+                lastSeen: value.lastSeen ?? Date.now(),
+                lastSynced: value.lastSynced ?? 0
               };
             }
           }
 
-          // Load history
-          const history = await new Promise<{ 'state:history'?: SyncHistoryEntry[] }>(resolve => {
-            chrome.storage.sync.get('state:history', resolve);
-          });
-
           // Reconstruct state
           const state = {
             version: DEFAULT_STATE.version,
-            settings: settings['state:settings'] as GlobalSettings,
+            settings: data['state:settings'] as GlobalSettings,
             syncPreferences: preferences,
-            syncHistory: history['state:history'] || []
+            syncHistory: data['state:history'] || [] // Load history from storage
           };
           const validatedState = validateStorageState(state);
           this.persistedState = await this.migrateStateIfNeeded(validatedState);
@@ -180,20 +173,6 @@ export class StorageManager {
           this.logger.warn('maintenance:containerFolderMissing', {
             action: 'cleared container folder ID and disabled sync for all groups'
           });
-
-          // Add history entry for each affected group
-          await Promise.all(
-            Object.keys(this.runtimeState.mappings).map(name =>
-              this.addHistoryEntry({
-                timestamp: Date.now(),
-                type: 'group-to-folder',
-                groupId: `group:${name}`,
-                folderId: this.persistedState.settings.containerFolderId!,
-                success: false,
-                error: 'Backup location not found'
-              })
-            )
-          );
         }
       } catch (error) {
         // Handle error by clearing the container folder ID and disabling sync
@@ -329,8 +308,9 @@ export class StorageManager {
   async updateGroupSyncSettings(name: string, settings: GroupSyncSettings): Promise<void> {
     this.persistedState.syncPreferences[name] = {
       syncEnabled: settings.enabled,
-      lastSynced: settings.lastSynced ?? 0,
-      lastSeen: Date.now()  // Initialize lastSeen when creating preferences
+      userSet: true,  // This is always a user action
+      lastSynced: Date.now(),
+      lastSeen: Date.now()
     };
     await this.saveState();
     this.notify('mapping-changed', {});
@@ -342,6 +322,11 @@ export class StorageManager {
       enabled: persisted?.syncEnabled ?? false,
       lastSynced: persisted?.lastSynced ?? 0
     };
+  }
+
+  // Update runtime mapping without persisting to storage
+  updateRuntimeMapping(name: string, mapping: RuntimeMapping): void {
+    this.runtimeState.mappings[name] = mapping;
   }
 
   async updateMapping(name: string, update: RuntimeMappingUpdate): Promise<void> {
@@ -365,20 +350,17 @@ export class StorageManager {
     // Update runtime state
     this.runtimeState.mappings[name] = newMapping;
 
-    // Only update persisted sync preference if explicitly changed
-    if (update.syncEnabled !== undefined) {
+    // Only persist if sync enabled state was explicitly changed by user
+    if (update.syncEnabled !== undefined && update.userAction) {
       this.persistedState.syncPreferences[name] = {
-        syncEnabled: update.syncEnabled, // Use the explicit update value
-        lastSynced: newMapping.status.lastSynced,
-        lastSeen: Date.now()
+        syncEnabled: update.syncEnabled,
+        userSet: true,  // Mark as explicitly set by user
+        lastSeen: Date.now(),
+        lastSynced: Date.now()
       };
-    } else if (this.persistedState.syncPreferences[name]) {
-      // Just update timestamps if preference exists
-      this.persistedState.syncPreferences[name].lastSynced = newMapping.status.lastSynced;
-      this.persistedState.syncPreferences[name].lastSeen = Date.now();
+      await this.saveState();
     }
 
-    await this.saveState();
     this.notify('mapping-changed', {});
   }
 
@@ -399,13 +381,18 @@ export class StorageManager {
 
   // History Operations
   async addHistoryEntry(entry: SyncHistoryEntry): Promise<void> {
-    return withErrorHandling(async () => {
-      const validatedEntry = validateSyncHistoryEntry(entry);
-      // Keep limited history
-      this.persistedState.syncHistory = [validatedEntry, ...this.persistedState.syncHistory].slice(0, 10);
-      await this.saveState();
-      this.notify('history-added', { syncHistory: this.persistedState.syncHistory });
-    }, ErrorType.STORAGE);
+    // Add to history and keep last 50 entries
+    this.persistedState.syncHistory = [
+      entry,
+      ...this.persistedState.syncHistory
+    ].slice(0, 50);
+
+    // Log and notify
+    this.logger.info('sync:history', entry);
+    this.notify('history-added', { syncHistory: [entry] });
+
+    // Save state
+    await this.saveState();
   }
 
   async getHistory(): Promise<SyncHistoryEntry[]> {
@@ -437,28 +424,23 @@ export class StorageManager {
     if (state.version === 1) {
       try {
         // Save settings chunk
-        await new Promise<void>((resolve) => {
-          chrome.storage.sync.set({ 'state:settings': state.settings }, resolve);
+        // Batch all migration data into a single write
+        const migrationData = {
+          'state:settings': state.settings,
+          'state:history': state.syncHistory.slice(-50) // Keep last 50 entries
+        };
+
+        // Add preferences to the batch
+        Object.entries(state.syncPreferences).forEach(([name, pref]) => {
+          migrationData[`pref:${name}`] = {
+            syncEnabled: pref.syncEnabled,
+            lastSeen: Date.now(),
+            lastSynced: 0
+          };
         });
 
-        // Save each group's preferences separately
-        await Promise.all(
-          Object.entries(state.syncPreferences).map(([name, pref]) =>
-            new Promise<void>((resolve) => {
-              chrome.storage.sync.set({
-                [`pref:${name}`]: {
-                  syncEnabled: pref.syncEnabled
-                }
-              }, resolve);
-            })
-          )
-        );
-
-        // Save limited history
         await new Promise<void>((resolve) => {
-          chrome.storage.sync.set({
-            'state:history': state.syncHistory.slice(0, 10)
-          }, resolve);
+          chrome.storage.sync.set(migrationData, resolve);
         });
 
         // Remove old monolithic state
@@ -480,7 +462,7 @@ export class StorageManager {
             syncInterval: Math.max(state.settings.syncInterval || 5, 5) // Enforce 5 min minimum
           },
           syncPreferences: state.syncPreferences,
-          syncHistory: state.syncHistory.slice(0, 10)
+          syncHistory: state.syncHistory.slice(-50) // Keep last 50 entries
         };
       } catch (error) {
         this.logger.error('storage:migrationFailed', {

@@ -338,12 +338,14 @@ export class SyncEngine {
       }
       this.lastKnownHashes.set(name, currentHash);
 
-      // Update sync status
-      await this.storage.updateMapping(name, {
-        status: { lastSynced: Date.now(), inProgress: true }
-      });
-
       try {
+        // Only update runtime status, no storage write needed
+        const mapping = await this.storage.getMapping(name);
+        if (mapping) {
+          mapping.status.inProgress = true;
+          mapping.status.error = undefined;
+        }
+
         // Try to sync to existing folder first
         try {
           if (mapping.folderId) {
@@ -375,13 +377,9 @@ export class SyncEngine {
         // If existing folder sync failed or no folder exists, create new one
         const folder = await this.bookmarkManager.ensureGroupFolder(name);
         
-        // Update mapping with new folder
+        // Only persist folder ID change
         await this.storage.updateMapping(name, { 
-          folderId: folder.id,
-          status: {
-            lastSynced: Date.now(),
-            inProgress: true
-          }
+          folderId: folder.id
         });
 
         // Sync tabs to new folder
@@ -390,16 +388,7 @@ export class SyncEngine {
           { maxAttempts: 3, delayMs: 1000 }
         );
 
-        // Update sync status on success
-        await this.storage.updateMapping(name, {
-          status: { 
-            lastSynced: Date.now(), 
-            inProgress: false,
-            error: undefined // Clear any previous error
-          }
-        });
-
-        // Add success entry to history
+        // Only log success, no storage write needed
         await this.storage.addHistoryEntry({
           timestamp: Date.now(),
           type: 'group-to-folder',
@@ -420,16 +409,14 @@ export class SyncEngine {
           error: errorMessage
         }, error instanceof Error ? error : undefined);
 
-        // Update sync status on failure
-        await this.storage.updateMapping(name, {
-          status: {
-            lastSynced: Date.now(),
-            inProgress: false,
-            error: errorMessage
-          }
-        });
+        // Only update runtime status, no storage write needed
+        const mapping = await this.storage.getMapping(name);
+        if (mapping) {
+          mapping.status.inProgress = false;
+          mapping.status.error = errorMessage;
+        }
 
-        // Add failure entry to history
+        // Log failure
         await this.storage.addHistoryEntry({
           timestamp: Date.now(),
           type: 'group-to-folder',
@@ -461,13 +448,7 @@ export class SyncEngine {
     try {
       const timestamp = Date.now();
       
-      // First update the persisted preference
-      await this.storage.updateGroupSyncSettings(name, { 
-        enabled,
-        lastSynced: timestamp
-      });
-
-      // Then get or create folder if enabling sync
+      // Get or create folder if enabling sync
       let folderId = '';
       if (enabled) {
         const folder = await this.bookmarkManager.ensureGroupFolder(name);
@@ -477,16 +458,11 @@ export class SyncEngine {
         folderId = mapping?.folderId || '';
       }
       
-      // Update runtime mapping
+      // Single storage write with essential data only
       await this.storage.updateMapping(name, { 
         name,
         folderId,
-        syncEnabled: enabled,
-        status: {
-          lastSynced: timestamp,
-          inProgress: false,
-          error: undefined
-        }
+        syncEnabled: enabled
       });
       
       // Add history entry
@@ -571,22 +547,6 @@ export class SyncEngine {
         settingsEnabled: groupSettings.enabled
       });
 
-      // Create or update mapping
-      await this.storage.updateMapping(name, {
-        name,
-        currentGroupId: group.id.toString(),
-        color: group.color,
-        folderId: folder.id,
-        // Keep existing sync state if available
-        syncEnabled: previousState ?? newState,
-        status: {
-          // Keep existing lastSynced if available
-          lastSynced: mapping?.status.lastSynced ?? Date.now(),
-          inProgress: false,
-          error: undefined // Clear any previous errors
-        }
-      });
-
       // Only update settings if auto-sync is enabled
       if (settings.autoSync && !groupSettings.enabled) {
         this.logger.info('sync:autoSync', {
@@ -599,6 +559,22 @@ export class SyncEngine {
           lastSynced: Date.now()
         });
       }
+
+      // Create or update mapping
+      await this.storage.updateMapping(name, {
+        name,
+        currentGroupId: group.id.toString(),
+        color: group.color,
+        folderId: folder.id,
+        // For new groups with autoSync, ensure sync is enabled
+        syncEnabled: settings.autoSync ? true : (previousState ?? newState),
+        status: {
+          // Keep existing lastSynced if available
+          lastSynced: mapping?.status.lastSynced ?? Date.now(),
+          inProgress: false,
+          error: undefined // Clear any previous errors
+        }
+      });
 
       // Queue sync if enabled
       if (groupSettings.enabled) {

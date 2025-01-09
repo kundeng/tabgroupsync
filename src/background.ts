@@ -127,12 +127,35 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 
-// Initialize immediately
-initializeAndSync().catch(error => {
-  logger.error('immediate:initialization:failed', {
-    error: error instanceof Error ? error.message : 'Unknown error'
-  });
-});
+// Initialize with retries
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 5000; // 5 seconds
+
+async function initializeWithRetry(attempt = 1) {
+  try {
+    await initializeAndSync();
+  } catch (error) {
+    logger.error('initialization:attempt:failed', {
+      attempt,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+
+    if (attempt < MAX_RETRIES) {
+      logger.info('initialization:retrying', {
+        attempt: attempt + 1,
+        delay: RETRY_DELAY
+      });
+      setTimeout(() => initializeWithRetry(attempt + 1), RETRY_DELAY);
+    } else {
+      logger.error('initialization:failed:maxRetries', {
+        attempts: MAX_RETRIES
+      });
+    }
+  }
+}
+
+// Start initialization
+initializeWithRetry();
 
 // Listen for messages
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -394,35 +417,24 @@ ctx.addEventListener('activate', (event: ExtendableEvent) => {
         .filter(([key, value]) => key.startsWith('pref:') && value.syncEnabled)
         .map(([key]) => key.slice(5)); // Remove 'pref:' prefix
 
-      // Update runtime mappings first
-      await Promise.all(enabledGroups.map(name => 
-        storage.updateMapping(name, {
+      // Only update runtime state, no storage writes needed
+      enabledGroups.forEach(name => {
+        storage.updateRuntimeMapping(name, {
           name,
+          folderId: '',  // Will be set when syncing
           syncEnabled: true,
           status: {
-            lastSynced: 0, // Reset sync time on worker reload
+            lastSynced: 0,
             inProgress: false
           }
-        })
-      ));
-      
-      // Stagger syncs to avoid quota issues
-      if (enabledGroups.length > 0) {
-        enabledGroups.forEach((name, index) => {
-          setTimeout(() => {
-            syncEngine.syncGroupToFolder(name).catch(error => {
-              logger.error('serviceWorker:syncFailed', {
-                name,
-                error: error instanceof Error ? error.message : 'Unknown error'
-              });
-            });
-          }, index * 2000); // 2 second delay between syncs
         });
-      }
+      });
+      
+      // Start periodic sync which will handle all groups
+      await startPeriodicSync();
       
       logger.info('serviceWorker:syncPreferencesRestored', {
-        preferences: enabledGroups.length,
-        delay: 2000
+        preferences: enabledGroups.length
       });
     } catch (error) {
       logger.error('serviceWorker:reinitializationFailed', {

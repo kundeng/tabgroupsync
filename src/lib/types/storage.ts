@@ -92,14 +92,16 @@ export interface RuntimeMappingUpdate {
   color?: string;
   syncEnabled?: boolean;
   status?: Partial<SyncStatus>;
+  userAction?: boolean;  // Whether this update was triggered by user action
 }
 
 // Persisted sync preferences for groups
 export interface GroupSyncPreferences {
   [name: string]: {
     syncEnabled: boolean;
-    lastSynced?: number;
-    lastSeen: number;     // When the group was last active
+    userSet?: boolean;    // Whether user has explicitly set this preference
+    lastSynced?: number;  // Runtime only
+    lastSeen?: number;    // Runtime only
   };
 }
 
