@@ -791,3 +791,83 @@ const StyledBox = styled(Box)(({ theme }) => ({
   backgroundColor: theme.palette.background.paper
 }));
 ```
+
+### Storage Optimization Deep Dive
+
+#### Storage Strategy Evolution
+The storage system has evolved to be more efficient:
+
+1. **Original Approach**
+```typescript
+// Original implementation saved everything separately
+private async saveState(): Promise<void> {
+  // Save settings
+  await new Promise<void>((resolve) => {
+    chrome.storage.sync.set({ 
+      'state:settings': this.persistedState.settings 
+    }, resolve);
+  });
+
+  // Save each group's preferences separately
+  await Promise.all(
+    Object.entries(this.persistedState.syncPreferences)
+      .map(([name, pref]) =>
+        new Promise<void>((resolve) => {
+          chrome.storage.sync.set({
+            [`pref:${name}`]: {
+              syncEnabled: pref.syncEnabled
+            }
+          }, resolve);
+        })
+      )
+  );
+}
+```
+
+2. **Optimized Approach**
+```typescript
+// New implementation batches data and only saves essential fields
+private async saveState(): Promise<void> {
+  // Only save essential data
+  const data: Record<string, any> = {
+    'state:settings': this.persistedState.settings
+  };
+
+  // Only save sync preferences that have been explicitly set by user
+  Object.entries(this.persistedState.syncPreferences)
+    .forEach(([name, pref]) => {
+      if (pref.syncEnabled !== undefined) {
+        data[`pref:${name}`] = {
+          syncEnabled: pref.syncEnabled
+        };
+      }
+    });
+
+  // Single storage operation
+  await new Promise<void>((resolve) => {
+    chrome.storage.sync.set(data, resolve);
+  });
+}
+```
+
+#### Key Improvements
+1. **Batched Operations**
+   - Single storage.sync.set call instead of multiple
+   - Reduces Chrome API calls
+   - Better performance
+
+2. **Selective Storage**
+   - Only saves explicitly set preferences
+   - Reduces storage space usage
+   - Faster sync operations
+
+3. **Data Optimization**
+   - Minimal data structure
+   - Only essential fields stored
+   - Efficient state restoration
+
+This optimization significantly improves:
+- Performance: Fewer API calls
+- Storage: Reduced space usage
+- Reliability: Less chance of quota limits
+- Sync Speed: Faster cross-device sync
