@@ -260,8 +260,7 @@ export default function App() {
       <Box 
         sx={{
           width: '480px',
-          height: '100vh',
-          maxHeight: '600px',
+          height: '100%',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden'
