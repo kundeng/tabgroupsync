@@ -164,22 +164,17 @@ export class StorageManager {
           // Container folder was deleted, clear the ID and disable sync for all groups
           this.persistedState.settings.containerFolderId = undefined;
           
-          // Update all runtime mappings to reflect missing container
+          // Update all runtime mappings to show error but preserve sync state
           Object.keys(this.runtimeState.mappings).forEach(name => {
+            const mapping = this.runtimeState.mappings[name];
             this.runtimeState.mappings[name] = {
-              ...this.runtimeState.mappings[name],
-              syncEnabled: false,
+              ...mapping,
               status: {
-                lastSynced: Date.now(),
+                ...mapping.status,
                 inProgress: false,
                 error: 'Backup location not found'
               }
             };
-            
-            // Update persisted preferences
-            if (this.persistedState.syncPreferences[name]) {
-              this.persistedState.syncPreferences[name].syncEnabled = false;
-            }
           });
 
           this.logger.warn('maintenance:containerFolderMissing', {
@@ -232,17 +227,17 @@ export class StorageManager {
     // Initialize runtime mappings from persisted preferences
     const containerFolder = await this.getTabGroupsFolder();
     
-    // If container folder is missing, disable sync for all groups
+    // If container folder is missing, show error but preserve sync state
     if (!containerFolder) {
       Object.entries(this.persistedState.syncPreferences).forEach(([name, pref]) => {
         this.runtimeState.mappings[name] = {
           name,
           folderId: '',
-          syncEnabled: false, // Disable sync when container is missing
+          syncEnabled: pref.syncEnabled, // Keep sync state
           status: {
             lastSynced: pref.lastSynced ?? 0,
             inProgress: false,
-            error: 'Backup location not found'
+            error: 'Please select a location for your bookmarks'
           }
         };
       });
