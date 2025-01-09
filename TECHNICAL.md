@@ -1,12 +1,14 @@
 # Tab Group Sync - Technical Documentation
 
 This documentation serves two purposes:
+
 1. Guide for beginners learning React and Chrome extension development
 2. Technical reference for maintainers and contributors
 
 ## Table of Contents
 
 ### Part 1: Learning Guide
+
 1. [Getting Started](#1-getting-started)
 2. [Chrome Extension Basics](#2-chrome-extension-basics)
 3. [React UI Development](#3-react-ui-development)
@@ -14,36 +16,41 @@ This documentation serves two purposes:
 5. [Advanced Topics](#5-advanced-topics)
 
 ### Part 2: Technical Reference
+
 6. [Architecture Overview](#6-architecture-overview)
 7. [Core Components](#7-core-components)
 8. [UI Components](#8-ui-components)
 9. [State Management](#9-state-management)
 10. [Communication Patterns](#10-communication-patterns)
-11. [Error Handling & Recovery](#11-error-handling--recovery)
+11. [Error Handling &amp; Recovery](#11-error-handling--recovery)
 12. [Performance Considerations](#12-performance-considerations)
-13. [Security & Privacy](#13-security--privacy)
-14. [Development & Testing](#14-development--testing)
+13. [Security &amp; Privacy](#13-security--privacy)
+14. [Development &amp; Testing](#14-development--testing)
 15. [Extension Lifecycle](#15-extension-lifecycle)
 16. [Storage Optimization Deep Dive](#16-storage-optimization-deep-dive)
 17. [Help System Implementation](#17-help-system-implementation)
 18. [Snapshot System Implementation](#18-snapshot-system-implementation)
+
 ## Part 1: Learning Guide
 
 ### 1. Getting Started
 
 #### Prerequisites
+
 - Node.js and npm installed
 - Basic JavaScript/TypeScript knowledge
 - Familiarity with React concepts
 - Chrome browser for development
 
 #### Development Setup
+
 1. Clone the repository
 2. Install dependencies: `npm install`
 3. Build extension: `npm run build`
 4. Load unpacked extension in Chrome
 
 #### Project Structure
+
 ```
 src/
 ├── components/    # React UI components
@@ -60,7 +67,9 @@ src/
 ### 2. Chrome Extension Basics
 
 #### Manifest File
+
 The manifest.json defines the extension:
+
 ```json
 {
   "manifest_version": 3,
@@ -83,6 +92,7 @@ The manifest.json defines the extension:
 ```
 
 Key concepts:
+
 - Manifest V3 is required
 - Permissions must be explicit
 - Popup UI is defined in HTML
@@ -91,7 +101,9 @@ Key concepts:
 ### 3. React UI Development
 
 #### 3.1 Component Basics
+
 React components in our extension:
+
 ```typescript
 // Basic component with props
 interface HeaderProps {
@@ -132,6 +144,7 @@ function GroupList() {
 ### 4. State and Data Flow
 
 #### 4.1 Component State
+
 ```typescript
 // Local state
 const [isOpen, setIsOpen] = useState(false);
@@ -155,6 +168,7 @@ useEffect(() => {
 ```
 
 #### 4.2 Props and Events
+
 ```typescript
 interface GroupItemProps {
   group: TabGroup;
@@ -180,6 +194,7 @@ function GroupItem({ group, onSync }: GroupItemProps) {
 ### 5. Advanced Topics
 
 #### 5.1 Chrome Extension APIs
+
 ```typescript
 // Working with tab groups
 const groups = await chrome.tabGroups.query({});
@@ -197,6 +212,7 @@ const result = await chrome.storage.sync.get('key');
 ```
 
 #### 5.2 TypeScript Integration
+
 ```typescript
 // Type definitions
 interface TabGroup {
@@ -220,6 +236,7 @@ function isTabGroup(obj: any): obj is TabGroup {
 ```
 
 #### 5.3 Material-UI Patterns
+
 ```typescript
 // Theme customization
 const theme = createTheme({
@@ -252,12 +269,14 @@ const StyledBox = styled(Box)(({ theme }) => ({
 ### 6. Architecture Overview
 
 #### Design Philosophy
+
 - Message-based communication
 - Manager-based design pattern
 - Reactive state management
 - Clear separation of concerns
 
 #### Core Architecture
+
 ```
 UI Components (React)
       ↕
@@ -270,12 +289,14 @@ Manager   APIs   Manager
 ```
 
 #### Key Design Decisions
+
 1. **Message-Based Communication**
+
    - UI never directly accesses Chrome APIs
    - Type-safe message passing
    - Centralized error handling
-
 2. **Manager Pattern**
+
    ```typescript
    // Each manager handles specific functionality
    interface StorageManager {
@@ -294,8 +315,8 @@ Manager   APIs   Manager
      syncGroupToFolder(name: string): Promise<void>;
    }
    ```
-
 3. **Reactive Updates**
+
    ```typescript
    // Background updates trigger storage events
    chrome.storage.onChanged.addListener((changes) => {
@@ -305,8 +326,8 @@ Manager   APIs   Manager
      }
    });
    ```
-
 4. **Error Recovery**
+
    ```typescript
    // Centralized error handling in background
    try {
@@ -322,6 +343,7 @@ Manager   APIs   Manager
    ```
 
 #### State Flow
+
 1. User Action → UI Component
 2. Component → Message → Background
 3. Background → Operation → Result
@@ -331,6 +353,7 @@ Manager   APIs   Manager
 ### 7. Core Components
 
 #### 7.1 Storage Manager
+
 The StorageManager handles all state persistence:
 
 ```typescript
@@ -361,12 +384,14 @@ export class StorageManager {
 ```
 
 Key responsibilities:
+
 - State persistence
 - Data validation
 - Migration support
 - Error handling
 
 #### 7.2 Sync Engine
+
 The SyncEngine coordinates tab group and bookmark synchronization:
 
 ```typescript
@@ -406,6 +431,7 @@ export class SyncEngine {
 ```
 
 Key features:
+
 - Rate limiting
 - Two-way sync
 - Conflict resolution
@@ -414,6 +440,7 @@ Key features:
 ### 8. UI Components
 
 #### 8.1 Component Architecture
+
 The UI follows a hierarchical structure with clear responsibilities:
 
 ```typescript
@@ -450,12 +477,15 @@ export default function App() {
 ```
 
 #### 8.2 Component Communication
+
 Components communicate through:
+
 1. Props for parent-child communication
 2. Messages to background service
 3. Storage events for state updates
 
 Example of message handling:
+
 ```typescript
 // In a component
 const handleToggleSync = async (name: string) => {
@@ -475,6 +505,7 @@ const handleToggleSync = async (name: string) => {
 ```
 
 #### 8.3 Error Boundaries
+
 Error boundaries catch and handle component errors:
 
 ```typescript
@@ -516,6 +547,7 @@ export class ErrorBoundary extends React.Component<
 ### 9. State Management
 
 #### 9.1 Storage Architecture
+
 The extension uses a layered storage approach:
 
 ```typescript
@@ -556,7 +588,9 @@ class StorageManager {
 ```
 
 #### 9.2 State Flow
+
 1. **UI State Updates**
+
 ```typescript
 // Component state
 const [isLoading, setIsLoading] = useState(false);
@@ -575,6 +609,7 @@ try {
 ```
 
 2. **Background State Updates**
+
 ```typescript
 // Background service
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -594,6 +629,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 ```
 
 #### 9.3 State Synchronization
+
 - Chrome storage events keep UI in sync
 - Background service maintains source of truth
 - Rate limiting prevents API abuse
@@ -602,6 +638,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 ### 10. Communication Patterns
 
 #### 10.1 Message Types
+
 ```typescript
 // Message type definitions
 type Message = 
@@ -619,7 +656,9 @@ type Response<T = void> = {
 ```
 
 #### 10.2 Message Flow
+
 1. **UI to Background**
+
 ```typescript
 // Sending message
 const response = await chrome.runtime.sendMessage({
@@ -643,6 +682,7 @@ chrome.runtime.onMessage.addListener((
 ```
 
 2. **Background to UI**
+
 ```typescript
 // Storage events
 chrome.storage.onChanged.addListener((changes) => {
@@ -658,6 +698,7 @@ chrome.tabGroups.onUpdated.addListener((group) => {
 ### 11. Error Handling & Recovery
 
 #### 11.1 Error Types
+
 ```typescript
 // Define specific error types
 class SyncError extends Error {
@@ -676,6 +717,7 @@ class StorageError extends Error {
 ```
 
 #### 11.2 Recovery Strategies
+
 ```typescript
 // Retry with exponential backoff
 async function withRetry<T>(
@@ -698,12 +740,14 @@ async function withRetry<T>(
 ### 12. Performance Considerations
 
 #### 12.1 Storage Optimization
+
 - Chunk large data sets
 - Cache frequently accessed data
 - Clean up old data periodically
 - Use appropriate storage areas
 
 #### 12.2 Rate Limiting
+
 ```typescript
 export class RateLimiter {
   private queue: number = 0;
@@ -720,13 +764,13 @@ export class RateLimiter {
       this.queue = 0;
       this.lastReset = now;
     }
-    
+  
     if (this.queue >= this.maxOperations) {
       const delay = this.interval - (now - this.lastReset);
       await new Promise(resolve => setTimeout(resolve, delay));
       return this.acquire();
     }
-    
+  
     this.queue++;
   }
 }
@@ -735,12 +779,14 @@ export class RateLimiter {
 ### 13. Security & Privacy
 
 #### 13.1 Data Handling
+
 - No sensitive data stored
 - Data encrypted in transit
 - Proper permission scoping
 - Secure storage practices
 
 #### 13.2 Permission Usage
+
 ```typescript
 // Minimal permissions required
 {
@@ -756,12 +802,14 @@ export class RateLimiter {
 ### 14. Development & Testing
 
 #### 14.1 Development Workflow
+
 1. Make changes
 2. Build: `npm run build`
 3. Load unpacked extension
 4. Test changes
 
 #### 14.2 Testing Strategy
+
 - Unit tests for managers
 - Integration tests for sync
 - UI component tests
@@ -770,6 +818,7 @@ export class RateLimiter {
 ### 15. Extension Lifecycle
 
 #### 15.1 Installation
+
 ```typescript
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   if (reason === 'install') {
@@ -783,24 +832,27 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
 ```
 
 #### 15.2 Updates
+
 - Version migration support
 - Settings preservation
 - Data structure updates
 - Backward compatibility
 
 #### 15.3 Uninstallation
+
 ```typescript
 // Cleanup on uninstall
 chrome.runtime.setUninstallURL('https://example.com/feedback');
 ```
 
-
 ### 16. Storage Optimization Deep Dive
 
 #### 16.1 Storage Strategy Evolution
+
 The storage system has evolved to be more efficient:
 
 1. **Original Approach**
+
 ```typescript
 // Original implementation saved everything separately
 private async saveState(): Promise<void> {
@@ -828,6 +880,7 @@ private async saveState(): Promise<void> {
 ```
 
 2. **Optimized Approach**
+
 ```typescript
 // New implementation batches data and only saves essential fields
 private async saveState(): Promise<void> {
@@ -854,22 +907,25 @@ private async saveState(): Promise<void> {
 ```
 
 #### Key Improvements
+
 1. **Batched Operations**
+
    - Single storage.sync.set call instead of multiple
    - Reduces Chrome API calls
    - Better performance
-
 2. **Selective Storage**
+
    - Only saves explicitly set preferences
    - Reduces storage space usage
    - Faster sync operations
-
 3. **Data Optimization**
+
    - Minimal data structure
    - Only essential fields stored
    - Efficient state restoration
 
 This optimization significantly improves:
+
 - Performance: Fewer API calls
 - Storage: Reduced space usage
 - Reliability: Less chance of quota limits
@@ -878,6 +934,7 @@ This optimization significantly improves:
 ### 17. Help System Implementation
 
 #### HelpDialog Component
+
 The HelpDialog component provides in-app documentation:
 
 ```typescript
@@ -964,32 +1021,36 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 ```
 
 #### Key Documentation Points
+
 1. **Core Concepts**
+
    - Tab group to bookmark folder mapping
    - Automatic background sync
    - Persistence across browser sessions
-
 2. **Features**
+
    - Container folder selection
    - Per-group sync settings
    - Snapshot management
    - Auto-sync for new groups
-
 3. **User Guidance**
+
    - Clear explanations
    - Feature descriptions
    - Usage instructions
    - Best practices
 
 This help system ensures users understand:
+
 - How the extension works
 - Key features and concepts
 - How to use effectively
 - Common workflows
 
-### Snapshot System Implementation
+### 18. Snapshot System Implementation
 
 #### Overview
+
 The snapshot system provides point-in-time backups of tab groups:
 
 ```typescript
@@ -1038,7 +1099,7 @@ export class SnapshotManager {
   ): Promise<chrome.tabGroups.TabGroup> {
     const snapshot = await chrome.bookmarks.getSubTree(snapshotId);
     const bookmarks = await chrome.bookmarks.getChildren(snapshotId);
-    
+  
     // Create new tabs from bookmarks
     const tabs = await Promise.all(
       bookmarks.map(bookmark =>
@@ -1088,24 +1149,26 @@ export class SnapshotManager {
 #### Key Features
 
 1. **Snapshot Creation**
+
    - Timestamps for versioning
    - Complete tab state preservation
    - Folder-based organization
    - Automatic cleanup
-
 2. **Restoration Process**
+
    - Tab recreation
    - Group properties restoration
    - Window placement
    - Error handling
-
 3. **Management**
+
    - Age-based cleanup
    - Storage optimization
    - Logging and tracking
    - Recovery options
 
 This system provides:
+
 - Data persistence
 - Version control
 - Recovery options
