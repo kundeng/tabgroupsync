@@ -201,20 +201,19 @@ export class StorageManager {
         
         // Update all runtime mappings to reflect error state
         Object.keys(this.runtimeState.mappings).forEach(name => {
+          const mapping = this.runtimeState.mappings[name];
+          const pref = this.persistedState.syncPreferences[name];
+          
+          // Keep user's sync preference but show error
           this.runtimeState.mappings[name] = {
-            ...this.runtimeState.mappings[name],
-            syncEnabled: false,
+            ...mapping,
+            syncEnabled: pref?.syncEnabled ?? false,
             status: {
               lastSynced: Date.now(),
               inProgress: false,
               error: 'Failed to verify backup location'
             }
           };
-          
-          // Update persisted preferences
-          if (this.persistedState.syncPreferences[name]) {
-            this.persistedState.syncPreferences[name].syncEnabled = false;
-          }
         });
 
         this.logger.error('maintenance:containerFolderCheckFailed', {
@@ -278,7 +277,7 @@ export class StorageManager {
         this.runtimeState.mappings[name] = {
           name,
           folderId: '',
-          syncEnabled: false,
+          syncEnabled: pref.syncEnabled, // Keep user's preference
           status: {
             lastSynced: pref.lastSynced ?? 0,
             inProgress: false,

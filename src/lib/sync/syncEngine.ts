@@ -557,14 +557,28 @@ export class SyncEngine {
       // Get current mapping if it exists
       const mapping = await this.storage.getMapping(name);
       
+      // Get previous sync state
+      const previousState = mapping?.syncEnabled;
+      const newState = mapping?.syncEnabled ?? true;
+
+      this.logger.info('sync:stateCheck', {
+        name,
+        event: 'groupCreated',
+        previousState,
+        newState,
+        hasMapping: !!mapping,
+        autoSync: settings.autoSync,
+        settingsEnabled: groupSettings.enabled
+      });
+
       // Create or update mapping
       await this.storage.updateMapping(name, {
         name,
         currentGroupId: group.id.toString(),
         color: group.color,
         folderId: folder.id,
-        // Keep existing sync state if available, otherwise enable
-        syncEnabled: mapping?.syncEnabled ?? true,
+        // Keep existing sync state if available
+        syncEnabled: previousState ?? newState,
         status: {
           // Keep existing lastSynced if available
           lastSynced: mapping?.status.lastSynced ?? Date.now(),
@@ -573,8 +587,13 @@ export class SyncEngine {
         }
       });
 
-      // Enable sync settings if auto-sync and not already enabled
+      // Only update settings if auto-sync is enabled
       if (settings.autoSync && !groupSettings.enabled) {
+        this.logger.info('sync:autoSync', {
+          name,
+          action: 'enabling',
+          reason: 'autoSync enabled'
+        });
         await this.storage.updateGroupSyncSettings(name, { 
           enabled: true,
           lastSynced: Date.now()
@@ -603,25 +622,23 @@ export class SyncEngine {
     if (groupSettings.enabled) {
       let mapping = await this.storage.getMapping(name);
       
-      // If mapping doesn't exist or sync is disabled but should be enabled
-      if (!mapping || !mapping.syncEnabled) {
-        // Create/update mapping with sync enabled
+      // Log current state
+      this.logger.info('sync:stateCheck', {
+        name,
+        event: 'groupUpdated',
+        hasMapping: !!mapping,
+        mappingEnabled: mapping?.syncEnabled,
+        settingsEnabled: groupSettings.enabled
+      });
+
+      // Only update if mapping exists
+      if (mapping) {
+        // Update existing mapping but keep sync state
         await this.storage.updateMapping(name, {
-          name,
           currentGroupId: group.id.toString(),
           color: group.color,
-          syncEnabled: true,
-          status: {
-            lastSynced: Date.now(),
-            inProgress: false
-          }
-        });
-        mapping = await this.storage.getMapping(name);
-      } else {
-        // Update existing mapping
-        await this.storage.updateMapping(name, {
-          currentGroupId: group.id.toString(),
-          color: group.color
+          // Keep existing sync state
+          syncEnabled: mapping.syncEnabled
         });
       }
 
