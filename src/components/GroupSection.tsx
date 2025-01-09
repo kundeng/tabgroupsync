@@ -141,7 +141,11 @@ export default function GroupSection({
                       }}>
                         {!group.syncEnabled ? 'Backup paused' : (
                           group.status.inProgress ? 'Syncing...' : (
-                            group.status.error ? `Backup paused - ${group.status.error}` : (
+                            group.status.error ? (
+                              group.status.error.includes('not found') ? 
+                                'Waiting for group to be available...' :
+                                group.status.error
+                            ) : (
                               group.status.lastSynced ? 
                                 new Date(group.status.lastSynced).toLocaleTimeString() :
                                 'Not synced yet'

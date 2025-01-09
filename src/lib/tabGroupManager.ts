@@ -15,11 +15,32 @@ export class TabGroupManager {
   }
 
   async getGroup(groupId: number): Promise<chrome.tabGroups.TabGroup | null> {
-    return new Promise((resolve) => {
-      chrome.tabGroups.get(groupId, (group) => {
-        resolve(group || null);
+    try {
+      // First try direct lookup
+      const group = await new Promise<chrome.tabGroups.TabGroup | null>((resolve) => {
+        chrome.tabGroups.get(groupId, (group) => {
+          resolve(group || null);
+        });
       });
-    });
+      
+      if (group) return group;
+
+      // If not found, check all windows
+      const windows = await chrome.windows.getAll();
+      for (const window of windows) {
+        const groups = await chrome.tabGroups.query({ windowId: window.id });
+        const match = groups.find(g => g.id === groupId);
+        if (match) return match;
+      }
+
+      return null;
+    } catch (error) {
+      this.logger.error('getGroup:failed', {
+        groupId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return null;
+    }
   }
 
   async getGroupTabs(groupId: number): Promise<chrome.tabs.Tab[]> {

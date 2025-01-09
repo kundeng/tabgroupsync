@@ -195,8 +195,39 @@ export class SyncEngine {
       }
 
       // Get current tabs
+      // Get current group
       const group = mapping.currentGroupId ? 
         await this.tabGroupManager.getGroup(parseInt(mapping.currentGroupId)) : null;
+
+      // If group not found but we have an ID, show error
+      if (mapping.currentGroupId && !group) {
+        this.logger.debug('sync:groupNotFound', {
+          name,
+          groupId: mapping.currentGroupId
+        });
+
+        // Keep sync enabled but show error
+        await this.storage.updateMapping(name, {
+          status: {
+            lastSynced: mapping.status.lastSynced,
+            inProgress: false,
+            error: 'Group not found - Will retry when available'
+          }
+        });
+
+        // Add history entry
+        await this.storage.addHistoryEntry({
+          timestamp: Date.now(),
+          type: 'group-to-folder',
+          groupId: `group:${name}`,
+          folderId: mapping.folderId,
+          success: false,
+          error: 'Group not found'
+        });
+        return;
+      }
+
+      // Get tabs from group
       const tabs = group ? 
         await withRetry<chrome.tabs.Tab[]>('getGroupTabs',
           () => getTabsInGroup(group.id),
