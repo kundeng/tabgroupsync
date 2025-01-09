@@ -195,44 +195,119 @@ export class SyncEngine {
       }
 
       // Get current tabs
+      this.logger.debug('sync:starting', {
+        name,
+        mapping,
+        enabled: mapping?.syncEnabled,
+        lastSynced: mapping?.status.lastSynced
+      });
+
       // Get current group
-      const group = mapping.currentGroupId ? 
-        await this.tabGroupManager.getGroup(parseInt(mapping.currentGroupId)) : null;
+      let group = null;
+      if (mapping.currentGroupId) {
+        group = await this.tabGroupManager.getGroup(parseInt(mapping.currentGroupId));
+        this.logger.debug('sync:groupLookup', {
+          name,
+          groupId: mapping.currentGroupId,
+          found: !!group,
+          windowId: group?.windowId
+        });
+      }
 
       // If group not found but we have an ID, show error
       if (mapping.currentGroupId && !group) {
-        this.logger.debug('sync:groupNotFound', {
+        // Try to find any group with this name
+        const allGroups = await chrome.tabGroups.query({});
+        const sameNameGroup = allGroups.find(g => (g.title || 'Unnamed Group') === name);
+        
+        this.logger.debug('sync:groupSearch', {
           name,
-          groupId: mapping.currentGroupId
+          currentId: mapping.currentGroupId,
+          allGroups: allGroups.map(g => ({ 
+            id: g.id, 
+            title: g.title,
+            windowId: g.windowId 
+          })),
+          foundMatchingName: !!sameNameGroup
         });
 
-        // Keep sync enabled but show error
-        await this.storage.updateMapping(name, {
-          status: {
-            lastSynced: mapping.status.lastSynced,
-            inProgress: false,
-            error: 'Group not found - Will retry when available'
-          }
-        });
+        // If found group with same name but different ID
+        if (sameNameGroup && sameNameGroup.id.toString() !== mapping.currentGroupId) {
+          this.logger.info('sync:groupIdChanged', {
+            name,
+            oldId: mapping.currentGroupId,
+            newId: sameNameGroup.id,
+            windowId: sameNameGroup.windowId
+          });
 
-        // Add history entry
-        await this.storage.addHistoryEntry({
-          timestamp: Date.now(),
-          type: 'group-to-folder',
-          groupId: `group:${name}`,
-          folderId: mapping.folderId,
-          success: false,
-          error: 'Group not found'
-        });
-        return;
+          // Update mapping with new ID
+          await this.storage.updateMapping(name, {
+            currentGroupId: sameNameGroup.id.toString(),
+            status: {
+              lastSynced: mapping.status.lastSynced,
+              inProgress: false,
+              error: undefined
+            }
+          });
+
+          // Retry sync with new ID
+          group = sameNameGroup;
+        } else {
+          this.logger.warn('sync:groupNotFound', {
+            name,
+            groupId: mapping.currentGroupId,
+            searchResult: 'No matching groups found'
+          });
+
+          // Keep sync enabled but show error
+          await this.storage.updateMapping(name, {
+            status: {
+              lastSynced: mapping.status.lastSynced,
+              inProgress: false,
+              error: 'Group not found - Will retry when available'
+            }
+          });
+
+          // Add history entry
+          await this.storage.addHistoryEntry({
+            timestamp: Date.now(),
+            type: 'group-to-folder',
+            groupId: `group:${name}`,
+            folderId: mapping.folderId,
+            success: false,
+            error: 'Group not found'
+          });
+          return;
+        }
       }
 
       // Get tabs from group
-      const tabs = group ? 
-        await withRetry<chrome.tabs.Tab[]>('getGroupTabs',
-          () => getTabsInGroup(group.id),
-          { maxAttempts: 3, delayMs: 500 }
-        ) : [];
+      let tabs: chrome.tabs.Tab[] = [];
+      if (group) {
+        try {
+          tabs = await withRetry<chrome.tabs.Tab[]>('getGroupTabs',
+            () => getTabsInGroup(group.id),
+            { maxAttempts: 3, delayMs: 500 }
+          );
+          this.logger.debug('sync:getTabs', {
+            name,
+            groupId: group.id,
+            tabCount: tabs.length,
+            tabs: tabs.map(t => ({ 
+              id: t.id, 
+              url: t.url,
+              title: t.title 
+            }))
+          });
+        } catch (error) {
+          this.logger.error('sync:getTabsFailed', {
+            name,
+            groupId: group.id,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+          throw error;
+        }
+      }
 
       // Check if tabs have changed
       const currentHash = await this.computeTabsHash(tabs);
