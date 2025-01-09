@@ -293,7 +293,7 @@ export default function App() {
         >
           <GroupList storage={storage} syncEngine={syncEngine} bookmarkManager={bookmarkManager} />
         </Box>
-        <Box sx={{ px: 3, py: 1, borderTop: 1, borderColor: 'divider' }}>
+        <Box sx={{ px: 3, py: 1, borderTop: 1, borderColor: 'divider', position: 'relative' }}>
           <SyncStatus storage={storage} />
         </Box>
       </Box>

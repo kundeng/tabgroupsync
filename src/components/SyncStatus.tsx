@@ -137,9 +137,16 @@ export default function SyncStatus({ storage }: SyncStatusProps) {
         <Paper 
           variant="outlined" 
           sx={{ 
-            mt: 1, 
-            maxHeight: '200px',
+            position: 'absolute',
+            bottom: '100%',
+            left: 0,
+            right: 0,
+            maxHeight: '300px',
             overflow: 'auto',
+            marginBottom: 1,
+            bgcolor: 'background.paper',
+            zIndex: 1,
+            boxShadow: 2,
             '&::-webkit-scrollbar': {
               width: '8px',
             },
