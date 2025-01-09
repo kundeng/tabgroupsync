@@ -37,7 +37,7 @@ export default function SyncStatus({ storage }: SyncStatusProps) {
     loadHistory();
 
     const handleStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }) => {
-      if (changes.lastEvent?.newValue?.type === 'history-added') {
+      if (changes['state:history']) {
         loadHistory();
       }
     };
@@ -67,6 +67,10 @@ export default function SyncStatus({ storage }: SyncStatusProps) {
         errorMessage = 'Backup folder missing';
       } else if (entry.error?.includes('network')) {
         errorMessage = 'Network error';
+      } else if (entry.error?.includes('MAX_WRITE_OPERATIONS_PER_HOUR')) {
+        errorMessage = 'Sync rate limit reached';
+      } else if (entry.error?.includes('QUOTA_BYTES_PER_ITEM')) {
+        errorMessage = 'Storage quota exceeded';
       }
 
       return {
