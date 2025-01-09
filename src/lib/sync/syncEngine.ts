@@ -384,34 +384,43 @@ export class SyncEngine {
       // Ensure folder exists
       const folder = await this.bookmarkManager.ensureGroupFolder(name);
       
+      // Get current mapping if it exists
+      const mapping = await this.storage.getMapping(name);
+      
       // Create or update mapping
       await this.storage.updateMapping(name, {
         name,
         currentGroupId: group.id.toString(),
         color: group.color,
         folderId: folder.id,
-        syncEnabled: true,
+        // Keep existing sync state if available, otherwise enable
+        syncEnabled: mapping?.syncEnabled ?? true,
         status: {
-          lastSynced: Date.now(),
-          inProgress: false
+          // Keep existing lastSynced if available
+          lastSynced: mapping?.status.lastSynced ?? Date.now(),
+          inProgress: false,
+          error: undefined // Clear any previous errors
         }
       });
 
-      // Enable sync settings if not already enabled
-      if (!groupSettings.enabled) {
+      // Enable sync settings if auto-sync and not already enabled
+      if (settings.autoSync && !groupSettings.enabled) {
         await this.storage.updateGroupSyncSettings(name, { 
           enabled: true,
           lastSynced: Date.now()
         });
       }
 
-      // Queue sync instead of immediate sync
-      this.queueSync(name);
+      // Queue sync if enabled
+      if (groupSettings.enabled) {
+        this.queueSync(name);
+      }
       
       this.logger.info('sync:groupCreated', { 
         name,
         autoSync: settings.autoSync,
-        previouslyEnabled: groupSettings.enabled
+        previouslyEnabled: groupSettings.enabled,
+        syncEnabled: groupSettings.enabled
       });
     }
   }

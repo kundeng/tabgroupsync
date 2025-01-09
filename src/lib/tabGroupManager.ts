@@ -49,12 +49,33 @@ export class TabGroupManager {
     // Set initial title in our tracking map
     this.lastKnownTitles.set(group.id, name);
 
+    // Check if this group was previously synced
+    const settings = await this.storage.getGroupSyncSettings(name);
+    if (settings.enabled) {
+      // Restore sync state
+      const mapping = await this.storage.getMapping(name);
+      if (!mapping || !mapping.syncEnabled) {
+        // Update runtime mapping to match persisted preference
+        await this.storage.updateMapping(name, {
+          name,
+          currentGroupId: group.id.toString(),
+          color: group.color,
+          syncEnabled: true,
+          status: {
+            lastSynced: settings.lastSynced ?? 0,
+            inProgress: false
+          }
+        });
+      }
+    }
+
     // Notify sync engine of new group
     await this.syncEngine.handleGroupCreated(group);
 
     this.logger.info('group:created', {
       groupId: group.id,
-      name
+      name,
+      syncEnabled: settings.enabled
     });
   }
 
