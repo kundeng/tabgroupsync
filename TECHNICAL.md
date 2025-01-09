@@ -437,3 +437,357 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 - Background service maintains source of truth
 - Rate limiting prevents API abuse
 - Error states are propagated to UI
+
+### 10. Communication Patterns
+
+#### 10.1 Message Types
+```typescript
+// Message type definitions
+type Message = 
+  | { type: 'GET_SETTINGS' }
+  | { type: 'UPDATE_SETTINGS'; settings: Settings }
+  | { type: 'TOGGLE_SYNC'; name: string }
+  | { type: 'SYNC_GROUP'; name: string }
+  | { type: 'SYNC_ALL' };
+
+// Response type definitions
+type Response<T = void> = {
+  error?: string;
+  data?: T;
+};
+```
+
+#### 10.2 Message Flow
+1. **UI to Background**
+```typescript
+// Sending message
+const response = await chrome.runtime.sendMessage({
+  type: 'TOGGLE_SYNC',
+  name: groupName
+});
+
+// Background handling
+chrome.runtime.onMessage.addListener((
+  message: Message,
+  sender,
+  sendResponse
+) => {
+  if (message.type === 'TOGGLE_SYNC') {
+    handleToggleSync(message.name)
+      .then(() => sendResponse({ success: true }))
+      .catch(error => sendResponse({ error: error.message }));
+    return true; // Keep channel open
+  }
+});
+```
+
+2. **Background to UI**
+```typescript
+// Storage events
+chrome.storage.onChanged.addListener((changes) => {
+  // UI components react to changes
+});
+
+// Tab group events
+chrome.tabGroups.onUpdated.addListener((group) => {
+  // Trigger sync if needed
+});
+```
+
+### 11. Error Handling & Recovery
+
+#### 11.1 Error Types
+```typescript
+// Define specific error types
+class SyncError extends Error {
+  constructor(message: string, public readonly group: string) {
+    super(message);
+    this.name = 'SyncError';
+  }
+}
+
+class StorageError extends Error {
+  constructor(message: string, public readonly operation: string) {
+    super(message);
+    this.name = 'StorageError';
+  }
+}
+```
+
+#### 11.2 Recovery Strategies
+```typescript
+// Retry with exponential backoff
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  maxAttempts = 3
+): Promise<T> {
+  let lastError: Error;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      await delay(Math.pow(2, attempt) * 1000);
+    }
+  }
+  throw lastError;
+}
+```
+
+### 12. Performance Considerations
+
+#### 12.1 Storage Optimization
+- Chunk large data sets
+- Cache frequently accessed data
+- Clean up old data periodically
+- Use appropriate storage areas
+
+#### 12.2 Rate Limiting
+```typescript
+export class RateLimiter {
+  private queue: number = 0;
+  private lastReset: number = Date.now();
+
+  constructor(
+    private maxOperations: number,
+    private interval: number
+  ) {}
+
+  async acquire(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastReset > this.interval) {
+      this.queue = 0;
+      this.lastReset = now;
+    }
+    
+    if (this.queue >= this.maxOperations) {
+      const delay = this.interval - (now - this.lastReset);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return this.acquire();
+    }
+    
+    this.queue++;
+  }
+}
+```
+
+### 13. Security & Privacy
+
+#### 13.1 Data Handling
+- No sensitive data stored
+- Data encrypted in transit
+- Proper permission scoping
+- Secure storage practices
+
+#### 13.2 Permission Usage
+```typescript
+// Minimal permissions required
+{
+  "permissions": [
+    "tabs",        // For tab access
+    "tabGroups",   // For group management
+    "bookmarks",   // For folder sync
+    "storage"      // For settings
+  ]
+}
+```
+
+### 14. Development & Testing
+
+#### 14.1 Development Workflow
+1. Make changes
+2. Build: `npm run build`
+3. Load unpacked extension
+4. Test changes
+
+#### 14.2 Testing Strategy
+- Unit tests for managers
+- Integration tests for sync
+- UI component tests
+- End-to-end testing
+
+### 15. Extension Lifecycle
+
+#### 15.1 Installation
+```typescript
+chrome.runtime.onInstalled.addListener(async ({ reason }) => {
+  if (reason === 'install') {
+    // Initialize default settings
+    await storage.initializeDefaults();
+  } else if (reason === 'update') {
+    // Run migrations if needed
+    await storage.runMigrations();
+  }
+});
+```
+
+#### 15.2 Updates
+- Version migration support
+- Settings preservation
+- Data structure updates
+- Backward compatibility
+
+#### 15.3 Uninstallation
+```typescript
+// Cleanup on uninstall
+chrome.runtime.setUninstallURL('https://example.com/feedback');
+```
+
+### 3. React UI Development
+
+#### 3.1 Component Basics
+React components in our extension:
+```typescript
+// Basic component with props
+interface HeaderProps {
+  onHelpClick: () => void;
+}
+
+function Header({ onHelpClick }: HeaderProps) {
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+      <Typography>Tab Group Sync</Typography>
+      <IconButton onClick={onHelpClick}>
+        <HelpIcon />
+      </IconButton>
+    </Box>
+  );
+}
+
+// Component with state
+function GroupList() {
+  const [groups, setGroups] = useState<TabGroup[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadGroups().catch(err => setError(err.message));
+  }, []);
+
+  return (
+    <Box>
+      {error && <Alert severity="error">{error}</Alert>}
+      {groups.map(group => (
+        <GroupItem key={group.id} group={group} />
+      ))}
+    </Box>
+  );
+}
+```
+
+### 4. State and Data Flow
+
+#### 4.1 Component State
+```typescript
+// Local state
+const [isOpen, setIsOpen] = useState(false);
+
+// Derived state
+const isValid = useMemo(() => {
+  return validateInput(value);
+}, [value]);
+
+// Effect hooks
+useEffect(() => {
+  const handleStorageChange = (changes) => {
+    if (changes.settings) {
+      updateUI(changes.settings.newValue);
+    }
+  };
+  
+  chrome.storage.onChanged.addListener(handleStorageChange);
+  return () => chrome.storage.onChanged.removeListener(handleStorageChange);
+}, []);
+```
+
+#### 4.2 Props and Events
+```typescript
+interface GroupItemProps {
+  group: TabGroup;
+  onSync: (id: string) => void;
+}
+
+function GroupItem({ group, onSync }: GroupItemProps) {
+  const handleClick = () => {
+    onSync(group.id);
+  };
+
+  return (
+    <ListItem>
+      <ListItemText primary={group.name} />
+      <IconButton onClick={handleClick}>
+        <SyncIcon />
+      </IconButton>
+    </ListItem>
+  );
+}
+```
+
+### 5. Advanced Topics
+
+#### 5.1 Chrome Extension APIs
+```typescript
+// Working with tab groups
+const groups = await chrome.tabGroups.query({});
+const tabs = await chrome.tabs.query({ groupId: group.id });
+
+// Working with bookmarks
+const folder = await chrome.bookmarks.create({
+  parentId: '1',
+  title: 'My Group'
+});
+
+// Storage operations
+await chrome.storage.sync.set({ key: value });
+const result = await chrome.storage.sync.get('key');
+```
+
+#### 5.2 TypeScript Integration
+```typescript
+// Type definitions
+interface TabGroup {
+  id: number;
+  name: string;
+  color: chrome.tabGroups.Color;
+}
+
+// Generic types
+type Result<T> = {
+  data?: T;
+  error?: string;
+};
+
+// Type guards
+function isTabGroup(obj: any): obj is TabGroup {
+  return typeof obj === 'object'
+    && typeof obj.id === 'number'
+    && typeof obj.name === 'string';
+}
+```
+
+#### 5.3 Material-UI Patterns
+```typescript
+// Theme customization
+const theme = createTheme({
+  palette: {
+    primary: {
+      main: '#1a73e8'
+    }
+  },
+  components: {
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          textTransform: 'none'
+        }
+      }
+    }
+  }
+});
+
+// Styled components
+const StyledBox = styled(Box)(({ theme }) => ({
+  padding: theme.spacing(2),
+  borderRadius: theme.shape.borderRadius,
+  backgroundColor: theme.palette.background.paper
+}));
+```
