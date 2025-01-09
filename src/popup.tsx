@@ -52,7 +52,7 @@ async function initializeApp() {
       root.render(
         <React.StrictMode>
           <ErrorBoundary>
-            <App />
+            <App mode="popup" />
           </ErrorBoundary>
         </React.StrictMode>
       );
