@@ -208,9 +208,8 @@ export class SyncEngine {
         group = await this.tabGroupManager.getGroup(parseInt(mapping.currentGroupId));
         this.logger.debug('sync:groupLookup', {
           name,
-          groupId: mapping.currentGroupId,
           found: !!group,
-          windowId: group?.windowId
+          window: group ? `Window ${group.windowId}` : 'Not found'
         });
       }
 
@@ -223,21 +222,20 @@ export class SyncEngine {
         this.logger.debug('sync:groupSearch', {
           name,
           currentId: mapping.currentGroupId,
-          allGroups: allGroups.map(g => ({ 
-            id: g.id, 
-            title: g.title,
-            windowId: g.windowId 
+          groupsFound: allGroups.map(g => ({ 
+            name: g.title || 'Unnamed Group',
+            window: `Window ${g.windowId}`,
+            color: g.color
           })),
           foundMatchingName: !!sameNameGroup
         });
 
         // If found group with same name but different ID
         if (sameNameGroup && sameNameGroup.id.toString() !== mapping.currentGroupId) {
-          this.logger.info('sync:groupIdChanged', {
+          this.logger.info('sync:groupFound', {
             name,
-            oldId: mapping.currentGroupId,
-            newId: sameNameGroup.id,
-            windowId: sameNameGroup.windowId
+            window: `Window ${sameNameGroup.windowId}`,
+            color: sameNameGroup.color
           });
 
           // Update mapping with new ID
@@ -291,12 +289,12 @@ export class SyncEngine {
           );
           this.logger.debug('sync:getTabs', {
             name,
-            groupId: group.id,
+            window: `Window ${group.windowId}`,
             tabCount: tabs.length,
             tabs: tabs.map(t => ({ 
-              id: t.id, 
-              url: t.url,
-              title: t.title 
+              title: t.title,
+              url: t.url?.substring(0, 50) + '...',
+              pinned: t.pinned
             }))
           });
         } catch (error) {
