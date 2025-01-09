@@ -79,13 +79,30 @@ export default function GroupList({ storage, syncEngine, bookmarkManager }: Grou
       });
 
       // Build view models from current groups
-      const viewModels: GroupViewModel[] = allGroups.map(group => {
+      const viewModels: GroupViewModel[] = [];
+      
+      // Process active groups
+      for (const group of allGroups) {
         const name = group.title || 'Unnamed Group';
         const mapping = runtimeMappings[name];
         const folder = folders.find(f => f.title === name);
         const isCurrentWindow = group.windowId === currentWindowId;
 
-        return {
+        // Get sync settings for this group
+        const syncSettingsResponse = await new Promise<{ settings: any }>((resolve, reject) => {
+          chrome.runtime.sendMessage({ type: 'GET_GROUP_SYNC_SETTINGS', name }, response => {
+            if (chrome.runtime.lastError) {
+              reject(chrome.runtime.lastError);
+            } else if (response.error) {
+              reject(new Error(response.error));
+            } else {
+              resolve(response);
+            }
+          });
+        });
+        const groupSyncSettings = syncSettingsResponse.settings;
+
+        viewModels.push({
           id: group.id.toString(),
           name,
           color: group.color,
@@ -93,36 +110,56 @@ export default function GroupList({ storage, syncEngine, bookmarkManager }: Grou
           isCurrentWindow,
           isActive: true,
           lastSeen: now,
-          syncEnabled: mapping?.syncEnabled ?? (settings.autoSync && !!folder),
+          // Use group sync settings as source of truth
+          syncEnabled: groupSyncSettings.enabled,
           status: mapping?.status ?? {
-            lastSynced: 0,
+            lastSynced: groupSyncSettings.lastSynced ?? 0,
             inProgress: false
           },
           folder,
           inactiveFor: 0
-        };
-      });
+        });
+      }
 
       // Add folders without active groups
-      folders.forEach(folder => {
+      for (const folder of folders) {
         if (!viewModels.some(vm => vm.name === folder.title)) {
           const mapping = runtimeMappings[folder.title];
+          
+          // Get sync settings for inactive group
+          const syncSettingsResponse = await new Promise<{ settings: any }>((resolve, reject) => {
+            chrome.runtime.sendMessage({ type: 'GET_GROUP_SYNC_SETTINGS', name: folder.title }, response => {
+              if (chrome.runtime.lastError) {
+                reject(chrome.runtime.lastError);
+              } else if (response.error) {
+                reject(new Error(response.error));
+              } else {
+                resolve(response);
+              }
+            });
+          });
+          const groupSyncSettings = syncSettingsResponse.settings;
+
+          // For inactive groups, show their persisted sync state
           viewModels.push({
             id: `inactive-${folder.id}`,
             name: folder.title,
             isCurrentWindow: false,
             isActive: false,
             lastSeen: now,
-            syncEnabled: mapping?.syncEnabled ?? true,
-            status: mapping?.status ?? {
-              lastSynced: 0,
-              inProgress: false
+            // Use persisted sync state
+            syncEnabled: groupSyncSettings.enabled,
+            status: {
+              lastSynced: groupSyncSettings.lastSynced ?? 0,
+              inProgress: false,
+              // No error state for inactive groups, they're just not currently active
+              error: undefined
             },
             folder,
             inactiveFor: 0
           });
         }
-      });
+      }
 
       logger.info('groups:loaded', {
         viewModels: viewModels.map(vm => ({
@@ -256,7 +293,8 @@ export default function GroupList({ storage, syncEngine, bookmarkManager }: Grou
           parentFolder={parentFolder}
           onToggleSync={handleToggleSync}
           onFullResync={handleFullResync}
-          disabled
+          // Other windows are active groups, should be controllable
+          readOnly={false}
         />
       )}
 
@@ -268,6 +306,8 @@ export default function GroupList({ storage, syncEngine, bookmarkManager }: Grou
           parentFolder={parentFolder}
           onToggleSync={handleToggleSync}
           onFullResync={handleFullResync}
+          // Inactive groups should be read-only
+          readOnly={true}
         />
       )}
 

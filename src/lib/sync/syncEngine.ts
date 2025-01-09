@@ -6,9 +6,21 @@ import { SyncError, ErrorType, withErrorHandling } from '../utils/errors';
 import { Logger, withRetry, OperationTracker } from '../utils/logger';
 import { BookmarkFolderId, RuntimeMapping, RuntimeMappingUpdate } from '../types/storage';
 
+// Sync queue to prevent hitting Chrome storage quota
+interface QueuedSync {
+  name: string;
+  timestamp: number;
+  retryCount?: number;
+}
+
 export class SyncEngine {
   private logger = Logger.getInstance();
   private tracker = OperationTracker.getInstance();
+  private syncQueue: QueuedSync[] = [];
+  private processingQueue = false;
+  private readonly SYNC_DELAY = 2000; // 2 seconds between syncs
+  private readonly MAX_QUEUE_SIZE = 100;
+  private readonly MAX_RETRIES = 3;
 
   constructor(
     private storage: StorageManager,
@@ -16,6 +28,95 @@ export class SyncEngine {
     private tabGroupManager: TabGroupManager
   ) {
     this.logger.info('SyncEngine:init', { timestamp: Date.now() });
+  }
+
+  // Process sync queue
+  private async processSyncQueue() {
+    if (this.processingQueue || this.syncQueue.length === 0) return;
+    
+    this.processingQueue = true;
+    try {
+      while (this.syncQueue.length > 0) {
+        const item = this.syncQueue.shift()!;
+        
+        try {
+          await this.syncGroupToFolder(item.name);
+          this.logger.info('syncQueue:processed', { 
+            name: item.name,
+            queueLength: this.syncQueue.length
+          });
+        } catch (error) {
+          const isQuotaError = error instanceof Error && 
+            error.message.includes('MAX_WRITE_OPERATIONS_PER_HOUR');
+          
+          if (isQuotaError && (!item.retryCount || item.retryCount < this.MAX_RETRIES)) {
+            // Put back in queue with longer delay for quota errors
+            this.syncQueue.push({
+              ...item,
+              retryCount: (item.retryCount || 0) + 1,
+              timestamp: Date.now() + 60000 // Retry after 1 minute
+            });
+            this.logger.warn('syncQueue:quotaError', {
+              name: item.name,
+              retryCount: item.retryCount,
+              delay: '1 minute'
+            });
+            // Take a break when hitting quota
+            await new Promise(resolve => setTimeout(resolve, 60000));
+          } else {
+            this.logger.error('syncQueue:syncFailed', {
+              name: item.name,
+              error: error instanceof Error ? error.message : 'Unknown error',
+              retryCount: item.retryCount
+            });
+          }
+        }
+        
+        // Wait between syncs to avoid hitting quota
+        if (this.syncQueue.length > 0) {
+          await new Promise(resolve => setTimeout(resolve, this.SYNC_DELAY));
+        }
+      }
+    } finally {
+      this.processingQueue = false;
+    }
+  }
+
+  // Add to sync queue
+  private queueSync(name: string) {
+    // Don't queue duplicates
+    if (this.syncQueue.some(item => item.name === name)) return;
+    
+    // Limit queue size
+    if (this.syncQueue.length >= this.MAX_QUEUE_SIZE) {
+      this.logger.warn('syncQueue:full', {
+        dropped: name,
+        queueSize: this.syncQueue.length
+      });
+      return;
+    }
+    
+    this.syncQueue.push({
+      name,
+      timestamp: Date.now()
+    });
+    
+    this.logger.info('syncQueue:added', {
+      name,
+      queueLength: this.syncQueue.length
+    });
+    
+    // Start processing if not already running
+    if (!this.processingQueue) {
+      this.processSyncQueue();
+    }
+  }
+
+  // Queue multiple syncs with staggered delay
+  private queueSyncsWithDelay(names: string[]) {
+    names.forEach((name, index) => {
+      setTimeout(() => this.queueSync(name), index * this.SYNC_DELAY);
+    });
   }
 
   // Main sync methods
@@ -26,12 +127,15 @@ export class SyncEngine {
 
       // Start with tab groups
       const mappings = await this.storage.getAllMappings();
-      for (const [name, mapping] of Object.entries(mappings)) {
-        const groupSettings = await this.storage.getGroupSyncSettings(name);
-        if (groupSettings.enabled) {
-          await this.syncGroupToFolder(name);
-        }
-      }
+      const enabledGroups = Object.entries(mappings)
+        .filter(async ([name]) => {
+          const groupSettings = await this.storage.getGroupSyncSettings(name);
+          return groupSettings.enabled;
+        })
+        .map(([name]) => name);
+
+      // Queue syncs with delay
+      this.queueSyncsWithDelay(enabledGroups);
 
     }, ErrorType.SYNC);
   }
@@ -183,47 +287,62 @@ export class SyncEngine {
       throw new SyncError('Please select a location for your bookmarks first');
     }
 
-    // Get or create folder if enabling sync
-    let folderId = '';
-    if (enabled) {
-      const folder = await this.bookmarkManager.ensureGroupFolder(name);
-      folderId = folder.id;
-    } else {
-      const mapping = await this.storage.getMapping(name);
-      folderId = mapping?.folderId || '';
-    }
-
     try {
       const timestamp = Date.now();
       
-      // Batch all storage operations into a single update
-      await Promise.all([
-        // Update sync settings
-        this.storage.updateGroupSyncSettings(name, { 
-          enabled,
-          lastSynced: timestamp
-        }),
+      // First update the persisted preference
+      await this.storage.updateGroupSyncSettings(name, { 
+        enabled,
+        lastSynced: timestamp
+      });
+
+      // Then get or create folder if enabling sync
+      let folderId = '';
+      if (enabled) {
+        const folder = await this.bookmarkManager.ensureGroupFolder(name);
+        folderId = folder.id;
+      } else {
+        const mapping = await this.storage.getMapping(name);
+        folderId = mapping?.folderId || '';
+      }
+      
+      // Update runtime mapping
+      await this.storage.updateMapping(name, { 
+        name,
+        folderId,
+        syncEnabled: enabled,
+        status: {
+          lastSynced: timestamp,
+          inProgress: false,
+          error: undefined
+        }
+      });
+      
+      // Add history entry
+      await this.storage.addHistoryEntry({
+        timestamp,
+        type: 'group-to-folder',
+        folderId,
+        success: true
+      });
+
+      if (enabled) {
+        // Find current group with this name
+        const allGroups = await chrome.tabGroups.query({});
+        const group = allGroups.find(g => (g.title || 'Unnamed Group') === name);
         
-        // Update mapping
-        this.storage.updateMapping(name, { 
-          name,
-          folderId,
-          syncEnabled: enabled,
-          status: {
-            lastSynced: timestamp,
-            inProgress: false,
-            error: undefined // Clear any previous errors
-          }
-        }),
-        
-        // Add history entry
-        this.storage.addHistoryEntry({
-          timestamp,
-          type: 'group-to-folder',
-          folderId,
-          success: true
-        })
-      ]);
+        if (group) {
+          // Get current tabs
+          const tabs = await getTabsInGroup(group.id);
+          
+          // Queue sync instead of immediate sync
+          this.queueSync(name);
+        }
+
+        this.logger.info('sync:enabled', { name });
+      } else {
+        this.logger.info('sync:disabled', { name });
+      }
     } catch (error) {
       this.logger.error('setGroupSyncEnabled:failed', {
         name,
@@ -231,24 +350,6 @@ export class SyncEngine {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
       throw error;
-    }
-
-    if (enabled) {
-      // Find current group with this name
-      const allGroups = await chrome.tabGroups.query({});
-      const group = allGroups.find(g => (g.title || 'Unnamed Group') === name);
-      
-      if (group) {
-        // Get current tabs
-        const tabs = await getTabsInGroup(group.id);
-        
-        // Sync tabs to folder
-        await this.bookmarkManager.syncGroupToFolder(name, tabs, folderId);
-      }
-
-      this.logger.info('sync:enabled', { name });
-    } else {
-      this.logger.info('sync:disabled', { name });
     }
   }
 
@@ -274,39 +375,79 @@ export class SyncEngine {
     const settings = await this.storage.getSettings();
     const name = group.title || 'Unnamed Group';
 
-    // If autoSync is enabled, enable sync for this group
-    if (settings.autoSync && settings.containerFolderId) {
+    // Check if this group should be synced (either autoSync or previously enabled)
+    const groupSettings = await this.storage.getGroupSyncSettings(name);
+    if ((settings.autoSync && settings.containerFolderId) || groupSettings.enabled) {
+      // Ensure folder exists
+      const folder = await this.bookmarkManager.ensureGroupFolder(name);
+      
       // Create or update mapping
       await this.storage.updateMapping(name, {
         name,
         currentGroupId: group.id.toString(),
         color: group.color,
+        folderId: folder.id,
         syncEnabled: true,
         status: {
-          lastSynced: 0,
+          lastSynced: Date.now(),
           inProgress: false
         }
       });
 
-      // Enable sync and perform initial sync
-      await this.storage.updateGroupSyncSettings(name, { enabled: true });
-      await this.syncGroupToFolder(name);
+      // Enable sync settings if not already enabled
+      if (!groupSettings.enabled) {
+        await this.storage.updateGroupSyncSettings(name, { 
+          enabled: true,
+          lastSynced: Date.now()
+        });
+      }
+
+      // Queue sync instead of immediate sync
+      this.queueSync(name);
+      
+      this.logger.info('sync:groupCreated', { 
+        name,
+        autoSync: settings.autoSync,
+        previouslyEnabled: groupSettings.enabled
+      });
     }
   }
 
   async handleGroupUpdated(group: chrome.tabGroups.TabGroup): Promise<void> {
     const name = group.title || 'Unnamed Group';
-    const mapping = await this.storage.getMapping(name);
     const groupSettings = await this.storage.getGroupSyncSettings(name);
+    
+    // Only check groupSettings.enabled since it's the source of truth
+    if (groupSettings.enabled) {
+      let mapping = await this.storage.getMapping(name);
+      
+      // If mapping doesn't exist or sync is disabled but should be enabled
+      if (!mapping || !mapping.syncEnabled) {
+        // Create/update mapping with sync enabled
+        await this.storage.updateMapping(name, {
+          name,
+          currentGroupId: group.id.toString(),
+          color: group.color,
+          syncEnabled: true,
+          status: {
+            lastSynced: Date.now(),
+            inProgress: false
+          }
+        });
+        mapping = await this.storage.getMapping(name);
+      } else {
+        // Update existing mapping
+        await this.storage.updateMapping(name, {
+          currentGroupId: group.id.toString(),
+          color: group.color
+        });
+      }
 
-    if (mapping?.syncEnabled && groupSettings.enabled) {
-      // Update mapping with current group ID and color
-      await this.storage.updateMapping(name, {
-        currentGroupId: group.id.toString(),
-        color: group.color
-      });
-
-      await this.syncGroupToFolder(name);
+      // Ensure folder exists and queue sync
+      if (mapping) {
+        const folder = await this.bookmarkManager.ensureGroupFolder(name);
+        this.queueSync(name);
+      }
     }
   }
 
@@ -358,13 +499,10 @@ export class SyncEngine {
           }
         }
 
-        // Full resync with current tabs
-        await withRetry('fullResync',
-          () => this.bookmarkManager.syncGroupToFolder(name, tabs, mapping!.folderId),
-          { maxAttempts: 3, delayMs: 1000 }
-        );
+        // Queue full resync
+        this.queueSync(name);
 
-        this.logger.info('fullResyncGroup:success', { 
+        this.logger.info('fullResyncGroup:queued', { 
           name,
           tabCount: tabs.length
         });

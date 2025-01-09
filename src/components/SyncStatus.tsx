@@ -59,14 +59,34 @@ export default function SyncStatus({ storage }: SyncStatusProps) {
     const time = new Date(entry.timestamp).toLocaleTimeString();
     
     if (!entry.success) {
+      // More specific error messages based on error type
+      let errorMessage = 'Sync failed';
+      if (entry.error?.includes('Please select a location')) {
+        errorMessage = 'No backup location set';
+      } else if (entry.error?.includes('folder was deleted')) {
+        errorMessage = 'Backup folder missing';
+      } else if (entry.error?.includes('network')) {
+        errorMessage = 'Network error';
+      }
+
       return {
-        primary: 'Backup paused',
+        primary: errorMessage,
         secondary: `${time} - ${entry.error}`,
       };
     }
 
+    // More descriptive success messages based on sync type
+    let successMessage = 'Backup completed';
+    if (entry.type === 'group-to-folder') {
+      successMessage = 'Tab group backed up';
+    } else if (entry.type === 'folder-to-group') {
+      successMessage = 'Restored from backup';
+    } else if (entry.type === 'archived') {
+      successMessage = 'Group archived';
+    }
+
     return {
-      primary: 'Last synced',
+      primary: successMessage,
       secondary: time,
     };
   };

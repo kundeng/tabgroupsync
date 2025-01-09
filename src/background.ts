@@ -318,6 +318,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     });
   }
+  else if (message.type === 'GET_GROUP_SYNC_SETTINGS') {
+    if (!isReady) {
+      sendResponse({ error: 'Background service not ready' });
+      return true;
+    }
+    Promise.resolve().then(async () => {
+      try {
+        const settings = await storage.getGroupSyncSettings(message.name);
+        sendResponse({ settings });
+      } catch (error) {
+        logger.error('groupSyncSettings:get:failed', {
+          name: message.name,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+        sendResponse({ error: error instanceof Error ? error.message : 'Failed to get group sync settings' });
+      }
+    });
+  }
   else if (message.type === 'GET_HISTORY') {
     if (!isReady) {
       sendResponse({ error: 'Background service not ready' });
@@ -348,13 +366,76 @@ if (import.meta.env.DEV) {
   };
 }
 
-// Keep service worker alive
+// Service worker lifecycle management
 ctx.addEventListener('install', (event: ExtendableEvent) => {
   logger.info('serviceWorker:install', { timestamp: Date.now() });
+  // Skip waiting to become active immediately
   event.waitUntil(ctx.skipWaiting());
 });
 
 ctx.addEventListener('activate', (event: ExtendableEvent) => {
   logger.info('serviceWorker:activate', { timestamp: Date.now() });
-  event.waitUntil(ctx.clients.claim());
+  // Take control of all clients and reinitialize state
+  event.waitUntil((async () => {
+    await ctx.clients.claim();
+    
+    // Reinitialize managers and state
+    try {
+      await initializeManagers();
+      logger.info('serviceWorker:reinitialized', { timestamp: Date.now() });
+
+      // Get all preference keys
+      const allKeys = await new Promise<{ [key: string]: any }>(resolve => {
+        chrome.storage.sync.get(null, resolve);
+      });
+
+      // Extract enabled groups
+      const enabledGroups = Object.entries(allKeys)
+        .filter(([key, value]) => key.startsWith('pref:') && value.syncEnabled)
+        .map(([key]) => key.slice(5)); // Remove 'pref:' prefix
+
+      // Update runtime mappings first
+      await Promise.all(enabledGroups.map(name => 
+        storage.updateMapping(name, {
+          name,
+          syncEnabled: true,
+          status: {
+            lastSynced: 0, // Reset sync time on worker reload
+            inProgress: false
+          }
+        })
+      ));
+      
+      // Stagger syncs to avoid quota issues
+      if (enabledGroups.length > 0) {
+        enabledGroups.forEach((name, index) => {
+          setTimeout(() => {
+            syncEngine.syncGroupToFolder(name).catch(error => {
+              logger.error('serviceWorker:syncFailed', {
+                name,
+                error: error instanceof Error ? error.message : 'Unknown error'
+              });
+            });
+          }, index * 2000); // 2 second delay between syncs
+        });
+      }
+      
+      logger.info('serviceWorker:syncPreferencesRestored', {
+        preferences: enabledGroups.length,
+        delay: 2000
+      });
+    } catch (error) {
+      logger.error('serviceWorker:reinitializationFailed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  })());
+});
+
+// Handle worker updates
+ctx.addEventListener('message', (event) => {
+  if (event.data === 'SKIP_WAITING') {
+    logger.info('serviceWorker:skipWaiting', { timestamp: Date.now() });
+    ctx.skipWaiting();
+  }
 });

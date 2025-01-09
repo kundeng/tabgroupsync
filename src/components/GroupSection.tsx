@@ -29,7 +29,7 @@ interface GroupSectionProps {
   parentFolder: chrome.bookmarks.BookmarkTreeNode | null;
   onToggleSync: (name: string) => void;
   onFullResync: (group: GroupViewModel) => void;
-  disabled?: boolean;
+  readOnly?: boolean;
 }
 
 interface ErrorWithTimestamp {
@@ -44,7 +44,7 @@ export default function GroupSection({
   parentFolder,
   onToggleSync,
   onFullResync,
-  disabled = false
+  readOnly = false
 }: GroupSectionProps) {
   const [expanded, setExpanded] = React.useState(true);
   const [syncing, setSyncing] = React.useState<Record<string, boolean>>({});
@@ -120,7 +120,7 @@ export default function GroupSection({
                 bgcolor: 'background.paper',
                 mb: 1,
                 borderRadius: 1,
-                opacity: disabled ? 0.6 : 1,
+                opacity: readOnly ? 0.6 : 1,
                 py: 1.5,
                 px: 2,
                 '&:hover': {
@@ -167,7 +167,7 @@ export default function GroupSection({
                     </Box>
                   </Box>
                 </Grid>
-                {!disabled && (
+                {!readOnly ? (
                   <Grid item style={{ flexShrink: 0 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       {/* Primary Actions */}
@@ -262,6 +262,18 @@ export default function GroupSection({
                           </span>
                         </Tooltip>
                       </Box>
+                    </Box>
+                  </Grid>
+                ) : (
+                  <Grid item style={{ flexShrink: 0 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
+                      <Typography variant="caption">
+                        {group.syncEnabled ? (
+                          group.status.lastSynced ? 
+                            `Last backup: ${new Date(group.status.lastSynced).toLocaleTimeString()}` :
+                            'Not backed up yet'
+                        ) : 'Not configured for backup'}
+                      </Typography>
                     </Box>
                   </Grid>
                 )}

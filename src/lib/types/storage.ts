@@ -117,11 +117,11 @@ export interface CombinedState extends StorageState {
 
 // Default state
 export const DEFAULT_STATE: StorageState = {
-  version: 1,
+  version: 2, // Bump version for chunked storage format
   settings: {
     autoSync: false,
     keepRemoved: true,
-    syncInterval: 1, // Sync every minute by default
+    syncInterval: 5, // 5 minute minimum to avoid quota issues
     cleanup: {
       enabled: true,
       inactiveThreshold: 30,  // 30 days
