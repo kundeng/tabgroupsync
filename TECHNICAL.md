@@ -86,6 +86,165 @@ Key concepts:
 - Popup UI is defined in HTML
 - Background service runs separately
 
+### 3. React UI Development
+
+#### 3.1 Component Basics
+React components in our extension:
+```typescript
+// Basic component with props
+interface HeaderProps {
+  onHelpClick: () => void;
+}
+
+function Header({ onHelpClick }: HeaderProps) {
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+      <Typography>Tab Group Sync</Typography>
+      <IconButton onClick={onHelpClick}>
+        <HelpIcon />
+      </IconButton>
+    </Box>
+  );
+}
+
+// Component with state
+function GroupList() {
+  const [groups, setGroups] = useState<TabGroup[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadGroups().catch(err => setError(err.message));
+  }, []);
+
+  return (
+    <Box>
+      {error && <Alert severity="error">{error}</Alert>}
+      {groups.map(group => (
+        <GroupItem key={group.id} group={group} />
+      ))}
+    </Box>
+  );
+}
+```
+
+### 4. State and Data Flow
+
+#### 4.1 Component State
+```typescript
+// Local state
+const [isOpen, setIsOpen] = useState(false);
+
+// Derived state
+const isValid = useMemo(() => {
+  return validateInput(value);
+}, [value]);
+
+// Effect hooks
+useEffect(() => {
+  const handleStorageChange = (changes) => {
+    if (changes.settings) {
+      updateUI(changes.settings.newValue);
+    }
+  };
+  
+  chrome.storage.onChanged.addListener(handleStorageChange);
+  return () => chrome.storage.onChanged.removeListener(handleStorageChange);
+}, []);
+```
+
+#### 4.2 Props and Events
+```typescript
+interface GroupItemProps {
+  group: TabGroup;
+  onSync: (id: string) => void;
+}
+
+function GroupItem({ group, onSync }: GroupItemProps) {
+  const handleClick = () => {
+    onSync(group.id);
+  };
+
+  return (
+    <ListItem>
+      <ListItemText primary={group.name} />
+      <IconButton onClick={handleClick}>
+        <SyncIcon />
+      </IconButton>
+    </ListItem>
+  );
+}
+```
+
+### 5. Advanced Topics
+
+#### 5.1 Chrome Extension APIs
+```typescript
+// Working with tab groups
+const groups = await chrome.tabGroups.query({});
+const tabs = await chrome.tabs.query({ groupId: group.id });
+
+// Working with bookmarks
+const folder = await chrome.bookmarks.create({
+  parentId: '1',
+  title: 'My Group'
+});
+
+// Storage operations
+await chrome.storage.sync.set({ key: value });
+const result = await chrome.storage.sync.get('key');
+```
+
+#### 5.2 TypeScript Integration
+```typescript
+// Type definitions
+interface TabGroup {
+  id: number;
+  name: string;
+  color: chrome.tabGroups.Color;
+}
+
+// Generic types
+type Result<T> = {
+  data?: T;
+  error?: string;
+};
+
+// Type guards
+function isTabGroup(obj: any): obj is TabGroup {
+  return typeof obj === 'object'
+    && typeof obj.id === 'number'
+    && typeof obj.name === 'string';
+}
+```
+
+#### 5.3 Material-UI Patterns
+```typescript
+// Theme customization
+const theme = createTheme({
+  palette: {
+    primary: {
+      main: '#1a73e8'
+    }
+  },
+  components: {
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          textTransform: 'none'
+        }
+      }
+    }
+  }
+});
+
+// Styled components
+const StyledBox = styled(Box)(({ theme }) => ({
+  padding: theme.spacing(2),
+  borderRadius: theme.shape.borderRadius,
+  backgroundColor: theme.palette.background.paper
+}));
+```
+
 ## Part 2: Technical Reference
 
 ### 6. Architecture Overview
@@ -631,165 +790,6 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
 ```typescript
 // Cleanup on uninstall
 chrome.runtime.setUninstallURL('https://example.com/feedback');
-```
-
-### 3. React UI Development
-
-#### 3.1 Component Basics
-React components in our extension:
-```typescript
-// Basic component with props
-interface HeaderProps {
-  onHelpClick: () => void;
-}
-
-function Header({ onHelpClick }: HeaderProps) {
-  return (
-    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-      <Typography>Tab Group Sync</Typography>
-      <IconButton onClick={onHelpClick}>
-        <HelpIcon />
-      </IconButton>
-    </Box>
-  );
-}
-
-// Component with state
-function GroupList() {
-  const [groups, setGroups] = useState<TabGroup[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    loadGroups().catch(err => setError(err.message));
-  }, []);
-
-  return (
-    <Box>
-      {error && <Alert severity="error">{error}</Alert>}
-      {groups.map(group => (
-        <GroupItem key={group.id} group={group} />
-      ))}
-    </Box>
-  );
-}
-```
-
-### 4. State and Data Flow
-
-#### 4.1 Component State
-```typescript
-// Local state
-const [isOpen, setIsOpen] = useState(false);
-
-// Derived state
-const isValid = useMemo(() => {
-  return validateInput(value);
-}, [value]);
-
-// Effect hooks
-useEffect(() => {
-  const handleStorageChange = (changes) => {
-    if (changes.settings) {
-      updateUI(changes.settings.newValue);
-    }
-  };
-  
-  chrome.storage.onChanged.addListener(handleStorageChange);
-  return () => chrome.storage.onChanged.removeListener(handleStorageChange);
-}, []);
-```
-
-#### 4.2 Props and Events
-```typescript
-interface GroupItemProps {
-  group: TabGroup;
-  onSync: (id: string) => void;
-}
-
-function GroupItem({ group, onSync }: GroupItemProps) {
-  const handleClick = () => {
-    onSync(group.id);
-  };
-
-  return (
-    <ListItem>
-      <ListItemText primary={group.name} />
-      <IconButton onClick={handleClick}>
-        <SyncIcon />
-      </IconButton>
-    </ListItem>
-  );
-}
-```
-
-### 5. Advanced Topics
-
-#### 5.1 Chrome Extension APIs
-```typescript
-// Working with tab groups
-const groups = await chrome.tabGroups.query({});
-const tabs = await chrome.tabs.query({ groupId: group.id });
-
-// Working with bookmarks
-const folder = await chrome.bookmarks.create({
-  parentId: '1',
-  title: 'My Group'
-});
-
-// Storage operations
-await chrome.storage.sync.set({ key: value });
-const result = await chrome.storage.sync.get('key');
-```
-
-#### 5.2 TypeScript Integration
-```typescript
-// Type definitions
-interface TabGroup {
-  id: number;
-  name: string;
-  color: chrome.tabGroups.Color;
-}
-
-// Generic types
-type Result<T> = {
-  data?: T;
-  error?: string;
-};
-
-// Type guards
-function isTabGroup(obj: any): obj is TabGroup {
-  return typeof obj === 'object'
-    && typeof obj.id === 'number'
-    && typeof obj.name === 'string';
-}
-```
-
-#### 5.3 Material-UI Patterns
-```typescript
-// Theme customization
-const theme = createTheme({
-  palette: {
-    primary: {
-      main: '#1a73e8'
-    }
-  },
-  components: {
-    MuiButton: {
-      styleOverrides: {
-        root: {
-          textTransform: 'none'
-        }
-      }
-    }
-  }
-});
-
-// Styled components
-const StyledBox = styled(Box)(({ theme }) => ({
-  padding: theme.spacing(2),
-  borderRadius: theme.shape.borderRadius,
-  backgroundColor: theme.palette.background.paper
-}));
 ```
 
 ## Part 2: Technical Reference
