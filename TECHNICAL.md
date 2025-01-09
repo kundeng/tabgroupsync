@@ -871,3 +871,115 @@ This optimization significantly improves:
 - Storage: Reduced space usage
 - Reliability: Less chance of quota limits
 - Sync Speed: Faster cross-device sync
+
+### Help System Implementation
+
+#### HelpDialog Component
+The HelpDialog component provides in-app documentation:
+
+```typescript
+// src/components/HelpDialog.tsx
+interface HelpDialogProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export default function HelpDialog({ open, onClose }: HelpDialogProps) {
+  return (
+    <Dialog 
+      open={open} 
+      onClose={onClose}
+      maxWidth="md"
+      fullWidth
+    >
+      <DialogTitle>
+        Tab Group Sync Help
+      </DialogTitle>
+      <DialogContent>
+        <Stack spacing={3}>
+          {/* Core Concepts */}
+          <Section title="Core Concepts">
+            <Typography>
+              Tab Group Sync automatically backs up your Chrome tab groups to bookmark folders.
+              This ensures your groups persist even when Chrome is closed.
+            </Typography>
+          </Section>
+
+          {/* Container Folder */}
+          <Section title="Container Folder">
+            <Typography>
+              The container folder is where your tab groups are backed up as bookmark folders.
+              Each tab group gets its own folder within the container.
+            </Typography>
+          </Section>
+
+          {/* Sync Settings */}
+          <Section title="Sync Settings">
+            <Typography>
+              Enable sync for each tab group you want to back up. When enabled:
+              - Changes to the tab group update the bookmark folder
+              - Changes to the bookmark folder update the tab group
+              - Sync happens automatically in the background
+            </Typography>
+          </Section>
+
+          {/* Snapshots */}
+          <Section title="Snapshots">
+            <Typography>
+              Snapshots are point-in-time backups of your tab groups.
+              They help you restore previous versions of your groups.
+            </Typography>
+          </Section>
+
+          {/* Auto-Sync */}
+          <Section title="Auto-Sync">
+            <Typography>
+              New tab groups are automatically set to sync by default.
+              This ensures all your groups are backed up unless you explicitly disable sync.
+            </Typography>
+          </Section>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// Helper component for sections
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <Box>
+      <Typography variant="h6" gutterBottom>
+        {title}
+      </Typography>
+      {children}
+    </Box>
+  );
+}
+```
+
+#### Key Documentation Points
+1. **Core Concepts**
+   - Tab group to bookmark folder mapping
+   - Automatic background sync
+   - Persistence across browser sessions
+
+2. **Features**
+   - Container folder selection
+   - Per-group sync settings
+   - Snapshot management
+   - Auto-sync for new groups
+
+3. **User Guidance**
+   - Clear explanations
+   - Feature descriptions
+   - Usage instructions
+   - Best practices
+
+This help system ensures users understand:
+- How the extension works
+- Key features and concepts
+- How to use effectively
+- Common workflows
