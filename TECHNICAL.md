@@ -548,46 +548,97 @@ export class ErrorBoundary extends React.Component<
 
 #### 9.1 Storage Architecture
 
-The extension uses a layered storage approach:
+The extension uses a layered storage approach with persisted settings as the source of truth:
 
 ```typescript
-// Types of state
-interface RuntimeState {
-  syncInProgress: boolean;
-  errors: Record<string, Error>;
-  activeGroups: Set<string>;
+// Persisted settings (source of truth)
+interface GroupSyncSettings {
+  enabled: boolean;
+  lastSynced: number;
 }
 
-interface PersistedState {
-  settings: Settings;
-  groupSettings: Record<string, GroupSettings>;
-  history: SyncHistory;
+// Runtime state (reflects persisted settings)
+interface RuntimeMapping {
+  name: string;
+  folderId: string;
+  syncEnabled: boolean;  // Always matches persisted settings
+  status: {
+    lastSynced: number;
+    inProgress: boolean;
+    error?: string;
+  };
 }
 
-// Storage operations are chunked for performance
+// Storage operations
 class StorageManager {
-  private async saveChunked(key: string, data: any): Promise<void> {
-    const chunks = this.splitIntoChunks(data);
-    await Promise.all(
-      chunks.map((chunk, index) =>
-        chrome.storage.sync.set({
-          [`${key}_${index}`]: chunk
-        })
-      )
-    );
+  async getGroupSyncSettings(name: string): Promise<GroupSyncSettings> {
+    // Get persisted settings (source of truth)
+    const settings = await chrome.storage.sync.get(`pref:${name}`);
+    return settings[`pref:${name}`] || { enabled: false, lastSynced: 0 };
   }
 
-  private async loadChunked(key: string): Promise<any> {
-    const keys = await this.getChunkKeys(key);
-    const chunks = await Promise.all(
-      keys.map(k => chrome.storage.sync.get(k))
-    );
-    return this.reassembleChunks(chunks);
+  async updateMapping(name: string, update: RuntimeMappingUpdate): Promise<void> {
+    // Runtime state always reflects persisted settings
+    const groupSettings = await this.getGroupSyncSettings(name);
+    const mapping = {
+      ...this.runtimeMappings[name],
+      ...update,
+      syncEnabled: groupSettings.enabled
+    };
+    this.runtimeMappings[name] = mapping;
   }
 }
 ```
 
-#### 9.2 State Flow
+#### 9.2 Sync State Management
+
+The sync state follows a strict hierarchy:
+
+1. **Persisted Settings (Source of Truth)**
+   - Stored in chrome.storage.sync
+   - Controls whether sync is enabled for each group
+   - Updated through explicit user actions
+   - Survives browser restarts
+
+2. **Runtime Mappings (Temporary State)**
+   - Reflects the persisted settings
+   - Contains additional runtime information
+   - Always updated to match persisted settings
+   - Reset on browser restart
+
+Example of sync state management:
+
+```typescript
+// In SyncEngine
+async setGroupSyncEnabled(name: string, enabled: boolean): Promise<void> {
+  // First update the persisted settings (source of truth)
+  await this.storage.updateGroupSyncSettings(name, { 
+    enabled,
+    lastSynced: Date.now()
+  });
+  
+  // Then update runtime mapping to match
+  await this.storage.updateMapping(name, { 
+    syncEnabled: enabled,
+    userAction: true
+  });
+}
+
+// Always check persisted settings first
+async handleGroupUpdated(group: chrome.tabGroups.TabGroup): Promise<void> {
+  const name = group.title || 'Unnamed Group';
+  const groupSettings = await this.storage.getGroupSyncSettings(name);
+  
+  // Always update mapping to match persisted settings
+  await this.storage.updateMapping(name, {
+    currentGroupId: group.id.toString(),
+    color: group.color,
+    syncEnabled: groupSettings.enabled
+  });
+}
+```
+
+#### 9.3 State Flow and Synchronization
 
 1. **UI State Updates**
 
@@ -628,12 +679,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 ```
 
-#### 9.3 State Synchronization
-
-- Chrome storage events keep UI in sync
-- Background service maintains source of truth
-- Rate limiting prevents API abuse
-- Error states are propagated to UI
+3. **State Synchronization**
+   - Chrome storage events keep UI in sync
+   - Background service maintains source of truth
+   - Rate limiting prevents API abuse
+   - Error states are propagated to UI
 
 ### 10. Communication Patterns
 
@@ -741,10 +791,10 @@ async function withRetry<T>(
 
 #### 12.1 Storage Optimization
 
-- Chunk large data sets
+- Single atomic writes
 - Cache frequently accessed data
 - Clean up old data periodically
-- Use appropriate storage areas
+- Minimal data storage
 
 #### 12.2 Rate Limiting
 
@@ -847,89 +897,57 @@ chrome.runtime.setUninstallURL('https://example.com/feedback');
 
 ### 16. Storage Optimization Deep Dive
 
-#### 16.1 Storage Strategy Evolution
+#### 16.1 Storage Strategy
 
-The storage system has evolved to be more efficient:
-
-1. **Original Approach**
+The storage system uses a simple and efficient approach:
 
 ```typescript
-// Original implementation saved everything separately
+// Save all state in a single operation
 private async saveState(): Promise<void> {
-  // Save settings
-  await new Promise<void>((resolve) => {
-    chrome.storage.sync.set({ 
-      'state:settings': this.persistedState.settings 
-    }, resolve);
-  });
-
-  // Save each group's preferences separately
-  await Promise.all(
-    Object.entries(this.persistedState.syncPreferences)
-      .map(([name, pref]) =>
-        new Promise<void>((resolve) => {
-          chrome.storage.sync.set({
-            [`pref:${name}`]: {
-              syncEnabled: pref.syncEnabled
-            }
-          }, resolve);
-        })
-      )
-  );
-}
-```
-
-2. **Optimized Approach**
-
-```typescript
-// New implementation batches data and only saves essential fields
-private async saveState(): Promise<void> {
-  // Only save essential data
   const data: Record<string, any> = {
-    'state:settings': this.persistedState.settings
+    // Core settings and recent history
+    'state:settings': this.persistedState.settings,
+    'state:history': this.persistedState.syncHistory.slice(-50)
   };
 
-  // Only save sync preferences that have been explicitly set by user
+  // Only save preferences that user has explicitly set
   Object.entries(this.persistedState.syncPreferences)
     .forEach(([name, pref]) => {
-      if (pref.syncEnabled !== undefined) {
+      if (pref.userSet) {
         data[`pref:${name}`] = {
-          syncEnabled: pref.syncEnabled
+          syncEnabled: pref.syncEnabled,
+          lastSeen: pref.lastSeen,
+          lastSynced: pref.lastSynced
         };
       }
     });
 
-  // Single storage operation
-  await new Promise<void>((resolve) => {
-    chrome.storage.sync.set(data, resolve);
-  });
+  // Single atomic write
+  await chrome.storage.sync.set(data);
 }
 ```
 
-#### Key Improvements
+#### Key Features
 
-1. **Batched Operations**
+1. **Atomic Operations**
+   - Single storage write for all data
+   - Prevents partial updates
+   - Maintains data consistency
 
-   - Single storage.sync.set call instead of multiple
-   - Reduces Chrome API calls
-   - Better performance
 2. **Selective Storage**
+   - Only saves user-modified preferences
+   - Keeps storage usage minimal
+   - Clear data ownership
 
-   - Only saves explicitly set preferences
-   - Reduces storage space usage
-   - Faster sync operations
-3. **Data Optimization**
+3. **Data Organization**
+   - Namespaced keys (state:*, pref:*)
+   - Limited history retention
+   - Essential fields only
 
-   - Minimal data structure
-   - Only essential fields stored
-   - Efficient state restoration
-
-This optimization significantly improves:
-
-- Performance: Fewer API calls
-- Storage: Reduced space usage
-- Reliability: Less chance of quota limits
-- Sync Speed: Faster cross-device sync
+This approach provides:
+- Reliability: Atomic updates prevent inconsistency
+- Efficiency: Minimal storage usage
+- Simplicity: Easy to understand and maintain
 
 ### 17. Help System Implementation
 

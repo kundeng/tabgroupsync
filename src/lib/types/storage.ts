@@ -120,7 +120,7 @@ export interface CombinedState extends StorageState {
 
 // Default state
 export const DEFAULT_STATE: StorageState = {
-  version: 2, // Bump version for chunked storage format
+  version: 2, // Current storage format version
   settings: {
     autoSync: false,
     keepRemoved: true,

@@ -180,9 +180,11 @@ export class SyncEngine {
     const opId = this.tracker.startOperation('syncGroupToFolder', { name });
     
     return withErrorHandling(async () => {
-      // Get current sync state
+      // Get current sync state from persisted settings
+      const groupSettings = await this.storage.getGroupSyncSettings(name);
       const mapping = await this.storage.getMapping(name);
-      if (!mapping || !mapping.syncEnabled) {
+      
+      if (!groupSettings.enabled) {
         // Add history entry for disabled sync
         await this.storage.addHistoryEntry({
           timestamp: Date.now(),
@@ -198,13 +200,13 @@ export class SyncEngine {
       this.logger.debug('sync:starting', {
         name,
         mapping,
-        enabled: mapping?.syncEnabled,
+        enabled: groupSettings.enabled,
         lastSynced: mapping?.status.lastSynced
       });
 
       // Get current group
       let group = null;
-      if (mapping.currentGroupId) {
+      if (mapping?.currentGroupId) {
         group = await this.tabGroupManager.getGroup(parseInt(mapping.currentGroupId));
         this.logger.debug('sync:groupLookup', {
           name,
@@ -214,7 +216,7 @@ export class SyncEngine {
       }
 
       // If group not found but we have an ID, show error
-      if (mapping.currentGroupId && !group) {
+      if (mapping?.currentGroupId && !group) {
         // Try to find any group with this name
         const allGroups = await chrome.tabGroups.query({});
         const sameNameGroup = allGroups.find(g => (g.title || 'Unnamed Group') === name);
@@ -321,7 +323,7 @@ export class SyncEngine {
           timestamp: Date.now(),
           type: 'group-to-folder',
           groupId: `group:${name}`,
-          folderId: mapping.folderId,
+          folderId: mapping?.folderId,
           success: true,
           details: 'No changes detected'
         });
@@ -340,7 +342,6 @@ export class SyncEngine {
 
       try {
         // Only update runtime status, no storage write needed
-        const mapping = await this.storage.getMapping(name);
         if (mapping) {
           mapping.status.inProgress = true;
           mapping.status.error = undefined;
@@ -348,7 +349,7 @@ export class SyncEngine {
 
         // Try to sync to existing folder first
         try {
-          if (mapping.folderId) {
+          if (mapping?.folderId) {
             await withRetry('syncToFolder',
               () => this.bookmarkManager.syncGroupToFolder(name, tabs, mapping.folderId),
               { maxAttempts: 3, delayMs: 1000 }
@@ -368,7 +369,7 @@ export class SyncEngine {
         } catch (error) {
           this.logger.warn('sync:existingFolderFailed', {
             name,
-            folderId: mapping.folderId,
+            folderId: mapping?.folderId,
             error: error instanceof Error ? error.message : 'Unknown error'
           });
           // Continue to recreate folder
@@ -410,7 +411,6 @@ export class SyncEngine {
         }, error instanceof Error ? error : undefined);
 
         // Only update runtime status, no storage write needed
-        const mapping = await this.storage.getMapping(name);
         if (mapping) {
           mapping.status.inProgress = false;
           mapping.status.error = errorMessage;
@@ -421,7 +421,7 @@ export class SyncEngine {
           timestamp: Date.now(),
           type: 'group-to-folder',
           groupId: `group:${name}`,
-          folderId: mapping.folderId,
+          folderId: mapping?.folderId,
           success: false,
           error: errorMessage
         });
@@ -448,6 +448,12 @@ export class SyncEngine {
     try {
       const timestamp = Date.now();
       
+      // First update the persisted settings (source of truth)
+      await this.storage.updateGroupSyncSettings(name, { 
+        enabled,
+        lastSynced: timestamp
+      });
+      
       // Get or create folder if enabling sync
       let folderId = '';
       if (enabled) {
@@ -458,11 +464,12 @@ export class SyncEngine {
         folderId = mapping?.folderId || '';
       }
       
-      // Single storage write with essential data only
+      // Update runtime mapping to match persisted state
       await this.storage.updateMapping(name, { 
         name,
         folderId,
-        syncEnabled: enabled
+        syncEnabled: enabled,
+        userAction: true // Mark as user-initiated change
       });
       
       // Add history entry
@@ -481,9 +488,6 @@ export class SyncEngine {
         const group = allGroups.find(g => (g.title || 'Unnamed Group') === name);
         
         if (group) {
-          // Get current tabs
-          const tabs = await getTabsInGroup(group.id);
-          
           // Queue sync instead of immediate sync
           this.queueSync(name);
         }
@@ -509,10 +513,9 @@ export class SyncEngine {
         throw new SyncError('Please select a location for your bookmarks first');
       }
 
-      // Get current sync state
-      const mapping = await this.storage.getMapping(name);
-      const currentState = mapping?.syncEnabled ?? false;
-      const newSyncEnabled = !currentState;
+      // Get current sync state from persisted settings (source of truth)
+      const groupSettings = await this.storage.getGroupSyncSettings(name);
+      const newSyncEnabled = !groupSettings.enabled;
 
       // Use setGroupSyncEnabled to handle all the sync logic
       await this.setGroupSyncEnabled(name, newSyncEnabled);
@@ -533,20 +536,6 @@ export class SyncEngine {
       // Get current mapping if it exists
       const mapping = await this.storage.getMapping(name);
       
-      // Get previous sync state
-      const previousState = mapping?.syncEnabled;
-      const newState = mapping?.syncEnabled ?? true;
-
-      this.logger.info('sync:stateCheck', {
-        name,
-        event: 'groupCreated',
-        previousState,
-        newState,
-        hasMapping: !!mapping,
-        autoSync: settings.autoSync,
-        settingsEnabled: groupSettings.enabled
-      });
-
       // Only update settings if auto-sync is enabled
       if (settings.autoSync && !groupSettings.enabled) {
         this.logger.info('sync:autoSync', {
@@ -560,23 +549,21 @@ export class SyncEngine {
         });
       }
 
-      // Create or update mapping
+      // Create or update mapping to match persisted settings
       await this.storage.updateMapping(name, {
         name,
         currentGroupId: group.id.toString(),
         color: group.color,
         folderId: folder.id,
-        // For new groups with autoSync, ensure sync is enabled
-        syncEnabled: settings.autoSync ? true : (previousState ?? newState),
+        syncEnabled: groupSettings.enabled,
         status: {
-          // Keep existing lastSynced if available
           lastSynced: mapping?.status.lastSynced ?? Date.now(),
           inProgress: false,
-          error: undefined // Clear any previous errors
+          error: undefined
         }
       });
 
-      // Queue sync if enabled
+      // Queue sync if enabled in persisted settings
       if (groupSettings.enabled) {
         this.queueSync(name);
       }
@@ -593,33 +580,28 @@ export class SyncEngine {
   async handleGroupUpdated(group: chrome.tabGroups.TabGroup): Promise<void> {
     const name = group.title || 'Unnamed Group';
     const groupSettings = await this.storage.getGroupSyncSettings(name);
+    let mapping = await this.storage.getMapping(name);
     
-    // Only check groupSettings.enabled since it's the source of truth
-    if (groupSettings.enabled) {
-      let mapping = await this.storage.getMapping(name);
-      
-      // Log current state
-      this.logger.info('sync:stateCheck', {
-        name,
-        event: 'groupUpdated',
-        hasMapping: !!mapping,
-        mappingEnabled: mapping?.syncEnabled,
-        settingsEnabled: groupSettings.enabled
+    // Log current state
+    this.logger.info('sync:stateCheck', {
+      name,
+      event: 'groupUpdated',
+      hasMapping: !!mapping,
+      mappingEnabled: mapping?.syncEnabled,
+      settingsEnabled: groupSettings.enabled
+    });
+
+    // Always update mapping to match persisted settings
+    if (mapping) {
+      await this.storage.updateMapping(name, {
+        currentGroupId: group.id.toString(),
+        color: group.color,
+        // Always use the persisted settings as source of truth
+        syncEnabled: groupSettings.enabled
       });
 
-      // Only update if mapping exists
-      if (mapping) {
-        // Update existing mapping but keep sync state
-        await this.storage.updateMapping(name, {
-          currentGroupId: group.id.toString(),
-          color: group.color,
-          // Keep existing sync state
-          syncEnabled: mapping.syncEnabled
-        });
-      }
-
-      // Ensure folder exists and queue sync
-      if (mapping) {
+      // Only queue sync if enabled in persisted settings
+      if (groupSettings.enabled) {
         const folder = await this.bookmarkManager.ensureGroupFolder(name);
         this.queueSync(name);
       }
@@ -663,15 +645,18 @@ export class SyncEngine {
           { maxAttempts: 3, delayMs: 500 }
         );
 
+        // Get persisted settings first
+        const groupSettings = await this.storage.getGroupSyncSettings(name);
+        
         // Get or create mapping
         let mapping = await this.storage.getMapping(name);
         if (!mapping) {
-          // Create new mapping
+          // Create new mapping using persisted settings
           await this.storage.updateMapping(name, {
             name,
             currentGroupId: group.id.toString(),
             color: group.color,
-            syncEnabled: true,
+            syncEnabled: groupSettings.enabled,
             status: {
               lastSynced: 0,
               inProgress: false
@@ -683,12 +668,15 @@ export class SyncEngine {
           }
         }
 
-        // Queue full resync
-        this.queueSync(name);
+        // Queue full resync if enabled in persisted settings
+        if (groupSettings.enabled) {
+          this.queueSync(name);
+        }
 
         this.logger.info('fullResyncGroup:queued', { 
           name,
-          tabCount: tabs.length
+          tabCount: tabs.length,
+          syncEnabled: groupSettings.enabled
         });
       } catch (error) {
         this.logger.error('fullResyncGroup:failed', {

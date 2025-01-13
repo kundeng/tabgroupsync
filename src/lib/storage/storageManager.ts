@@ -418,67 +418,14 @@ export class StorageManager {
   }
 
   private async migrateStateIfNeeded(state: StorageState): Promise<StorageState> {
-    if (state.version === DEFAULT_STATE.version) return state;
-
-    // Migrate from v1 (monolithic) to v2 (chunked)
-    if (state.version === 1) {
-      try {
-        // Save settings chunk
-        // Batch all migration data into a single write
-        const migrationData = {
-          'state:settings': state.settings,
-          'state:history': state.syncHistory.slice(-50) // Keep last 50 entries
-        };
-
-        // Add preferences to the batch
-        Object.entries(state.syncPreferences).forEach(([name, pref]) => {
-          migrationData[`pref:${name}`] = {
-            syncEnabled: pref.syncEnabled,
-            lastSeen: Date.now(),
-            lastSynced: 0
-          };
-        });
-
-        await new Promise<void>((resolve) => {
-          chrome.storage.sync.set(migrationData, resolve);
-        });
-
-        // Remove old monolithic state
-        await new Promise<void>((resolve) => {
-          chrome.storage.sync.remove('state', resolve);
-        });
-
-        this.logger.info('storage:migrated', {
-          fromVersion: 1,
-          toVersion: 2,
-          preferences: Object.keys(state.syncPreferences).length
-        });
-
-        // Return migrated state
-        return {
-          version: 2,
-          settings: {
-            ...state.settings,
-            syncInterval: Math.max(state.settings.syncInterval || 5, 5) // Enforce 5 min minimum
-          },
-          syncPreferences: state.syncPreferences,
-          syncHistory: state.syncHistory.slice(-50) // Keep last 50 entries
-        };
-      } catch (error) {
-        this.logger.error('storage:migrationFailed', {
-          fromVersion: 1,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
-        // On error, return fresh v2 state
-        return DEFAULT_STATE;
-      }
+    // No migrations needed, we use a simple storage approach
+    if (state.version !== DEFAULT_STATE.version) {
+      this.logger.warn('storage:unknownVersion', {
+        version: state.version,
+        action: 'reset to default'
+      });
+      return DEFAULT_STATE;
     }
-
-    // For unknown versions, return fresh state
-    this.logger.warn('storage:unknownVersion', {
-      version: state.version,
-      action: 'reset to default'
-    });
-    return DEFAULT_STATE;
+    return state;
   }
 }
