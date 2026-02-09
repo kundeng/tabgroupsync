@@ -38,3 +38,9 @@ Thumbs.db
 *.zip
 *.crx
 *.pem
+
+# Generated documentation
+TECHNICAL.html
+TECHNICAL_files/
+docs/*.html
+docs/*_files/

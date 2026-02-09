@@ -4,11 +4,13 @@ A Chrome extension that syncs tab groups with bookmarks, allowing you to save an
 
 ## Features
 
-- Sync tab groups with bookmarks
-- Auto-sync option for automatic updates
-- Custom parent folder selection for organized storage
-- Visual folder picker with tree navigation
-- Material UI design
+- **Tab Group Backup**: Automatically backs up Chrome tab groups to bookmark folders
+- **Cross-Device Sync**: Syncs tab groups across devices using Chrome's bookmark sync
+- **Selective Sync**: Per-group sync control - enable/disable sync for individual groups
+- **Container Folder**: Organized storage in a user-selected bookmark folder
+- **Snapshots**: Point-in-time backups for tab group restoration
+- **Auto-Sync**: New tab groups automatically enabled for sync by default
+- **Material UI**: Clean, modern interface using Material-UI components
 
 ## Development
 
@@ -38,10 +40,15 @@ npm run build
 
 ### Development Commands
 
-- `npm run dev` - Start development server
 - `npm run build` - Build for production
+- `npm run watch` - Build and watch for changes (development)
 - `npm run lint` - Run ESLint
 - `npm run type-check` - Run TypeScript type checking
+
+## Documentation
+
+- See [Technical Documentation](docs/TECHNICAL.md) for detailed architecture and implementation details
+- Check `.kiro/steering/` for development guidelines and project structure
 
 ## License
 
