@@ -47,6 +47,36 @@ graph TB
 - **TabGroupManager**: Tab group lifecycle and event handling
 - **Logger**: Centralized logging for operations, errors, state changes, and automatic decisions
 
+### Chrome API Architecture
+
+**Promise-Based Design**: All Chrome API interactions use promise-based syntax with async/await for consistency and maintainability.
+
+Chrome Manifest V3 provides native promise support for most APIs. The extension uses this directly without callback wrappers:
+
+```typescript
+// ✅ Correct: Promise-based with async/await
+async function getTabGroup(groupId: number): Promise<chrome.tabGroups.TabGroup> {
+  return await chrome.tabGroups.get(groupId);
+}
+
+// ✅ Correct: Promise-based query
+async function getTabs(groupId: number): Promise<chrome.tabs.Tab[]> {
+  return await chrome.tabs.query({ groupId });
+}
+
+// ❌ Incorrect: Callback-based (avoid)
+function getTabGroupCallback(groupId: number, callback: (group: chrome.tabGroups.TabGroup) => void) {
+  chrome.tabGroups.get(groupId, callback);
+}
+```
+
+**Benefits:**
+- Cleaner, more readable code with async/await
+- Better error handling with try/catch
+- Easier testing with promise-based mocks
+- Consistent with modern JavaScript practices
+- Better TypeScript type inference
+
 ## Components and Interfaces
 
 ### SyncEngine Interface

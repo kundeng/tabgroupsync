@@ -167,3 +167,15 @@ Tab Group Sync is a Chrome extension that automatically synchronizes tab groups 
 2. WHEN a tab is removed from a group (ungrouped), THE Extension SHALL preserve the existing bookmark but not track the ungrouped tab
 3. WHEN displaying sync status, THE Extension SHALL only show grouped tabs in the UI
 4. WHEN querying tabs for sync operations, THE Extension SHALL filter out tabs with groupId of -1 (ungrouped indicator)
+
+
+### Requirement 14: Chrome API Promise-Based Architecture
+
+**User Story:** As a developer, I want consistent promise-based Chrome API usage throughout the codebase, so that the code is maintainable and follows modern JavaScript best practices.
+
+#### Acceptance Criteria
+
+1. WHEN calling Chrome APIs, THE Extension SHALL use promise-based syntax with async/await
+2. WHEN Chrome APIs are called, THE Extension SHALL NOT use callback-based syntax
+3. WHEN wrapping Chrome APIs, THE Extension SHALL use native promise support from Manifest V3
+4. WHEN testing Chrome APIs, THE Extension SHALL mock them as promises for consistency
