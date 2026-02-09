@@ -133,7 +133,7 @@ export const DEFAULT_STATE: StorageState = {
     }
   },
   syncHistory: [],
-  syncPreferences: {}  // Start with empty preferences
+  syncPreferences: Object.create(null)  // Start with empty preferences, avoid prototype pollution
 };
 
 // Storage events for observers

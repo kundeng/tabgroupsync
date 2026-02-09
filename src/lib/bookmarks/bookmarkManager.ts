@@ -1,5 +1,5 @@
 import { StorageManager } from '../storage/storageManager';
-import { createBookmark, removeBookmark } from './bookmarkMutations';
+import { createBookmark, removeBookmark, updateBookmark } from './bookmarkMutations';
 import { findBookmarksByTitle, getBookmark, getBookmarkChildren } from './bookmarkQueries';
 import { Logger } from '../utils/logger';
 import { RuntimeMapping } from '../types/storage';
@@ -11,7 +11,7 @@ export class BookmarkManager {
   constructor(private readonly storage: StorageManager) {}
 
   private async findFolderByPath(parentId: string, name: string): Promise<chrome.bookmarks.BookmarkTreeNode | null> {
-    const children = await chrome.bookmarks.getChildren(parentId);
+    const children = await getBookmarkChildren(parentId);
     return children.find(child => child.title === name && !child.url) || null;
   }
 
@@ -96,6 +96,50 @@ export class BookmarkManager {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
       return null;
+    }
+  }
+
+  // Ensure container folder exists with proper structure validation
+  async ensureContainerFolderExists(): Promise<chrome.bookmarks.BookmarkTreeNode> {
+    const container = await this.getContainerFolder();
+    
+    if (!container) {
+      throw new Error('Container folder not configured. Please select a location for your bookmarks.');
+    }
+
+    // Validate folder structure
+    try {
+      const children = await getBookmarkChildren(container.id);
+      const bookmarksFolder = children.find(c => !c.url && c.title === BOOKMARK_FOLDERS.BOOKMARKS);
+      const snapshotsFolder = children.find(c => !c.url && c.title === BOOKMARK_FOLDERS.SNAPSHOTS);
+
+      // If structure is incomplete, repair it
+      if (!bookmarksFolder || !snapshotsFolder) {
+        this.logger.logDecision(
+          'Repairing container folder structure',
+          'Container folder exists but intermediate folders are missing',
+          { 
+            containerId: container.id,
+            hasBookmarksFolder: !!bookmarksFolder,
+            hasSnapshotsFolder: !!snapshotsFolder
+          }
+        );
+
+        if (!bookmarksFolder) {
+          await createBookmark(container.id, BOOKMARK_FOLDERS.BOOKMARKS);
+        }
+        if (!snapshotsFolder) {
+          await createBookmark(container.id, BOOKMARK_FOLDERS.SNAPSHOTS);
+        }
+      }
+
+      return container;
+    } catch (error) {
+      this.logger.error('ensureContainerFolderExists:validation', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        containerId: container.id
+      });
+      throw error;
     }
   }
 
@@ -204,7 +248,7 @@ export class BookmarkManager {
       if (folder) {
         // Update folder name if it changed
         if (folder.title !== name) {
-          await chrome.bookmarks.update(folder.id, { title: name });
+          await updateBookmark(folder.id, { title: name });
           this.logger.info('groupFolder:renamed', {
             name,
             folderId: folder.id,
@@ -225,7 +269,7 @@ export class BookmarkManager {
     }
 
     // Check for existing folder with same name
-    const existingFolders = await chrome.bookmarks.getChildren(bookmarksFolder.id);
+    const existingFolders = await getBookmarkChildren(bookmarksFolder.id);
     const existingFolder = existingFolders.find(f => f.title === name);
     
     if (existingFolder) {
@@ -380,7 +424,60 @@ export class BookmarkManager {
     id: string,
     removeInfo: { parentId: string; index: number; node: chrome.bookmarks.BookmarkTreeNode }
   ): Promise<void> {
-    // Check if the removed bookmark was a group folder
+    const settings = await this.storage.getSettings();
+    
+    // Check if the deleted folder was our container
+    if (id === settings.containerFolderId) {
+      this.logger.info('containerFolder:deleted', {
+        folderId: id,
+        action: 'checking for tab groups'
+      });
+
+      // Check if any tab groups still exist
+      const tabGroups = await new Promise<chrome.tabGroups.TabGroup[]>((resolve) => {
+        chrome.tabGroups.query({}, resolve);
+      });
+      
+      if (tabGroups.length > 0) {
+        // Automatic recreation
+        this.logger.logDecision(
+          'Recreating container folder',
+          'Container folder was deleted but tab groups still exist',
+          { 
+            deletedFolderId: id, 
+            existingGroupCount: tabGroups.length,
+            groupNames: tabGroups.map(g => g.title || 'Untitled')
+          }
+        );
+        
+        try {
+          const newContainer = await this.createContainerFolder();
+          await this.storage.updateSettings({ containerFolderId: newContainer.id });
+          await this.setupTabGroupsFolder(newContainer);
+          
+          this.logger.info('containerFolder:recreated', {
+            oldFolderId: id,
+            newFolderId: newContainer.id,
+            groupCount: tabGroups.length
+          });
+        } catch (error) {
+          this.logger.error('containerFolder:recreationFailed', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            deletedFolderId: id
+          });
+        }
+      } else {
+        this.logger.logDecision(
+          'Not recreating container folder',
+          'Container folder was deleted and no tab groups exist',
+          { deletedFolderId: id }
+        );
+      }
+      
+      return;
+    }
+
+    // Check if the deleted bookmark was a group folder
     const mappings = await this.storage.getAllMappings();
     const mapping = Object.values(mappings).find(m => m.folderId === id);
     if (mapping) {

@@ -1,169 +1,42 @@
-export enum LogLevel {
-  DEBUG = 'DEBUG',
-  INFO = 'INFO',
-  WARN = 'WARN',
-  ERROR = 'ERROR'
+/**
+ * Operation details for structured logging
+ */
+export interface OperationDetails {
+  operation: 'sync' | 'create' | 'update' | 'delete' | 'restore';
+  target: {
+    type: 'group' | 'folder' | 'bookmark' | 'snapshot';
+    id?: string;
+    name?: string;
+  };
+  outcome: 'success' | 'failure' | 'partial';
+  duration?: number;
+  error?: string;
+  metadata?: Record<string, any>;
 }
 
-export interface LogEntry {
-  timestamp: number;
-  level: LogLevel;
-  operation: string;
-  details: any;
-  error?: Error;
-}
-
-export class Logger {
-  private static instance: Logger;
-  private logs: LogEntry[] = [];
-  private readonly MAX_LOGS = 1000;
-
-  private constructor() {}
-
-  static getInstance(): Logger {
-    if (!Logger.instance) {
-      Logger.instance = new Logger();
-    }
-    return Logger.instance;
-  }
-
-  private addEntry(level: LogLevel, operation: string, details: any, error?: Error) {
-    const entry: LogEntry = {
-      timestamp: Date.now(),
-      level,
-      operation,
-      details,
-      error
-    };
-
-    console.log(`[${level}] ${operation}:`, details, error || '');
-    
-    this.logs.unshift(entry);
-    if (this.logs.length > this.MAX_LOGS) {
-      this.logs.pop();
-    }
-
-    // For errors, also report to extension's error tracking
-    if (level === LogLevel.ERROR) {
-      chrome.runtime.sendMessage({
-        type: 'SYNC_ERROR',
-        payload: {
-          operation,
-          details,
-          error: error?.message || 'Unknown error',
-          stack: error?.stack
-        }
-      }).catch(() => {
-        // Ignore message sending errors
-      });
-    }
-  }
-
-  debug(operation: string, details: any) {
-    this.addEntry(LogLevel.DEBUG, operation, details);
-  }
-
-  info(operation: string, details: any) {
-    this.addEntry(LogLevel.INFO, operation, details);
-  }
-
-  warn(operation: string, details: any) {
-    this.addEntry(LogLevel.WARN, operation, details);
-  }
-
-  error(operation: string, details: any, error?: Error) {
-    this.addEntry(LogLevel.ERROR, operation, details, error);
-  }
-
-  getRecentLogs(count: number = 100): LogEntry[] {
-    return this.logs.slice(0, count);
-  }
-
-  getLogsByLevel(level: LogLevel, count: number = 100): LogEntry[] {
-    return this.logs.filter(log => log.level === level).slice(0, count);
-  }
-
-  getLogsByOperation(operation: string, count: number = 100): LogEntry[] {
-    return this.logs.filter(log => log.operation.includes(operation)).slice(0, count);
-  }
-
-  clearLogs() {
-    this.logs = [];
-  }
-
-  exportLogs(): string {
-    return JSON.stringify(this.logs, null, 2);
-  }
-}
-
-// Retry mechanism
-export interface RetryOptions {
-  maxAttempts?: number;
-  delayMs?: number;
-  backoffFactor?: number;
-}
-
-const defaultRetryOptions: Required<RetryOptions> = {
-  maxAttempts: 3,
-  delayMs: 1000,
-  backoffFactor: 2
-};
-
+/**
+ * Retry an async operation with exponential backoff
+ * Wrapper around retryWithBackoff for backward compatibility
+ */
 export async function withRetry<T>(
-  operation: string,
-  fn: () => Promise<T>,
-  options: RetryOptions = {}
+  operationName: string,
+  operation: () => Promise<T>,
+  options: { maxAttempts?: number; delayMs?: number } = {}
 ): Promise<T> {
-  const logger = Logger.getInstance();
-  const opts = { ...defaultRetryOptions, ...options };
-  let lastError: Error | undefined;
-
-  for (let attempt = 1; attempt <= opts.maxAttempts; attempt++) {
-    try {
-      logger.debug(operation, { attempt, status: 'starting' });
-      const result = await fn();
-      logger.debug(operation, { attempt, status: 'success' });
-      return result;
-    } catch (error) {
-      lastError = error as Error;
-      logger.warn(operation, { 
-        attempt, 
-        status: 'failed',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-
-      if (attempt === opts.maxAttempts) {
-        break;
-      }
-
-      const delay = opts.delayMs * Math.pow(opts.backoffFactor, attempt - 1);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-
-  if (lastError) {
-    logger.error(operation, { 
-      attempts: opts.maxAttempts,
-      status: 'exhausted'
-    }, lastError);
-    
-    throw lastError;
-  }
-
-  // This should never happen since we always set lastError in catch
-  throw new Error(`${operation} failed after ${opts.maxAttempts} attempts`);
+  const { retryWithBackoff } = await import('./promiseUtils');
+  return retryWithBackoff(operation, {
+    maxAttempts: options.maxAttempts || 3,
+    baseDelay: options.delayMs || 1000,
+  });
 }
 
-// Operation tracking
-export interface OperationTimer {
-  start: number;
-  operation: string;
-}
-
+/**
+ * Operation tracker for managing operation lifecycle and timing
+ */
 export class OperationTracker {
   private static instance: OperationTracker;
-  private activeOperations = new Map<string, OperationTimer>();
-  private logger = Logger.getInstance();
+  private operations: Map<string, { name: string; context: any; startTime: number }> = new Map();
+  private operationCounter = 0;
 
   private constructor() {}
 
@@ -174,41 +47,166 @@ export class OperationTracker {
     return OperationTracker.instance;
   }
 
-  startOperation(operation: string, details: any = {}): string {
-    const id = `${operation}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    this.activeOperations.set(id, {
-      start: Date.now(),
-      operation
+  startOperation(name: string, context?: any): string {
+    const opId = `${name}-${this.operationCounter++}-${Date.now()}`;
+    this.operations.set(opId, {
+      name,
+      context,
+      startTime: Date.now(),
     });
-    
-    this.logger.debug(`${operation}:start`, { 
-      operationId: id,
-      ...details
-    });
-
-    return id;
+    return opId;
   }
 
-  endOperation(operationId: string, details: any = {}) {
-    const timer = this.activeOperations.get(operationId);
-    if (timer) {
-      const duration = Date.now() - timer.start;
-      this.activeOperations.delete(operationId);
+  endOperation(opId: string): void {
+    const op = this.operations.get(opId);
+    if (op) {
+      const duration = Date.now() - op.startTime;
+      this.operations.delete(opId);
       
-      this.logger.info(`${timer.operation}:end`, {
-        operationId,
-        durationMs: duration,
-        ...details
+      // Log operation completion
+      Logger.getInstance().debug(`operation:completed:${op.name}`, {
+        opId,
+        duration,
+        context: op.context,
       });
     }
   }
+}
 
-  getActiveOperations(): Array<{ id: string; operation: string; durationMs: number }> {
-    const now = Date.now();
-    return Array.from(this.activeOperations.entries()).map(([id, timer]) => ({
-      id,
-      operation: timer.operation,
-      durationMs: now - timer.start
-    }));
+/**
+ * Logger singleton class with structured logging and performance tracking
+ * Integrates with Chrome DevTools Console and Performance API
+ */
+export class Logger {
+  private static instance: Logger;
+
+  private constructor() {}
+
+  static getInstance(): Logger {
+    if (!Logger.instance) {
+      Logger.instance = new Logger();
+    }
+    return Logger.instance;
+  }
+
+  /**
+   * Log a sync operation with structured details
+   * Integrates with Performance API for timing analysis
+   */
+  logOperation(type: string, details: OperationDetails): void {
+    const timestamp = new Date().toISOString();
+    const operationId = `${type}-${Date.now()}`;
+
+    // Console logging for operational visibility
+    console.log(`[${timestamp}] [OPERATION] ${type}`, {
+      target: details.target,
+      outcome: details.outcome,
+      duration: details.duration,
+      metadata: details.metadata,
+    });
+
+    // Performance API for timing analysis
+    if (details.duration !== undefined) {
+      try {
+        performance.mark(`${operationId}-start`);
+        performance.mark(`${operationId}-end`);
+        performance.measure(`operation:${type}`, `${operationId}-start`, `${operationId}-end`);
+      } catch (e) {
+        // Performance API may not be available in all contexts
+      }
+    }
+  }
+
+  /**
+   * Log an error with full context and stack trace
+   */
+  error(context: string, error: Error | unknown, additionalContext?: Record<string, any>): void {
+    const timestamp = new Date().toISOString();
+
+    // Console error logging with full context
+    console.error(`[${timestamp}] [ERROR] ${context}`, {
+      error:
+        error instanceof Error
+          ? {
+              message: error.message,
+              stack: error.stack,
+              name: error.name,
+            }
+          : error,
+      context: additionalContext,
+    });
+  }
+
+  /**
+   * Log a state change with before/after states
+   */
+  logStateChange(component: string, before: any, after: any, reason: string): void {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [STATE_CHANGE] ${component}`, {
+      before,
+      after,
+      reason,
+    });
+  }
+
+  /**
+   * Log an automatic decision with reasoning
+   */
+  logDecision(decision: string, reasoning: string, context: Record<string, any>): void {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [DECISION] ${decision}`, {
+      reasoning,
+      context,
+    });
+  }
+
+  /**
+   * General info logging
+   */
+  info(message: string, context?: Record<string, any>): void {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [INFO] ${message}`, context || {});
+  }
+
+  /**
+   * General warning logging
+   */
+  warn(message: string, context?: Record<string, any>): void {
+    const timestamp = new Date().toISOString();
+    console.warn(`[${timestamp}] [WARN] ${message}`, context || {});
+  }
+
+  /**
+   * General debug logging
+   */
+  debug(message: string, context?: Record<string, any>): void {
+    const timestamp = new Date().toISOString();
+    console.debug(`[${timestamp}] [DEBUG] ${message}`, context || {});
+  }
+
+  /**
+   * Start timing an operation using Performance API
+   * Returns a mark name to be used with endTiming
+   */
+  startTiming(operationName: string): string {
+    const markName = `${operationName}-${Date.now()}`;
+    try {
+      performance.mark(`${markName}-start`);
+    } catch (e) {
+      // Performance API may not be available in all contexts
+    }
+    return markName;
+  }
+
+  /**
+   * End timing an operation and create a performance measure
+   */
+  endTiming(markName: string, operationName: string): void {
+    try {
+      performance.mark(`${markName}-end`);
+      performance.measure(operationName, `${markName}-start`, `${markName}-end`);
+    } catch (e) {
+      // Performance API may not be available in all contexts
+    }
   }
 }

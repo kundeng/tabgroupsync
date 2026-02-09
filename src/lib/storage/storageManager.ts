@@ -22,9 +22,10 @@ export class StorageManager {
 
   constructor() {
     this.persistedState = DEFAULT_STATE;
+    // Use Object.create(null) to avoid prototype pollution
     this.runtimeState = {
-      mappings: {},
-      groupSettings: {}
+      mappings: Object.create(null),
+      groupSettings: Object.create(null)
     };
   }
 
@@ -86,17 +87,21 @@ export class StorageManager {
             chrome.storage.sync.get(null, resolve);
           });
 
-          // Extract group preferences
-          const preferences: GroupSyncPreferences = {};
+          // Extract group preferences - use Object.create(null) to avoid prototype pollution
+          const preferences: GroupSyncPreferences = Object.create(null);
           for (const [key, value] of Object.entries(allKeys)) {
             if (key.startsWith('pref:')) {
               const name = key.slice(5); // Remove 'pref:' prefix
-              preferences[name] = {
-                syncEnabled: value.syncEnabled,
-                userSet: true,  // If it's in storage, it was user-set
-                lastSeen: value.lastSeen ?? Date.now(),
-                lastSynced: value.lastSynced ?? 0
-              };
+              
+              // Validate preference data before using it
+              if (value && typeof value === 'object' && typeof value.syncEnabled === 'boolean') {
+                preferences[name] = {
+                  syncEnabled: value.syncEnabled,
+                  userSet: true,  // If it's in storage, it was user-set
+                  lastSeen: value.lastSeen ?? Date.now(),
+                  lastSynced: value.lastSynced ?? 0
+                };
+              }
             }
           }
 
@@ -120,9 +125,13 @@ export class StorageManager {
           await this.saveState();
         }
       } catch (error) {
+        // Log the error but recover gracefully
+        this.logger.error('storage:loadState:failed', error, {
+          action: 'resetting to default state'
+        });
         this.persistedState = DEFAULT_STATE;
         await this.saveState();
-        throw new StorageError('Failed to validate stored state, reset to default', error);
+        // Don't throw - recover gracefully
       }
     }, ErrorType.STORAGE);
   }
@@ -351,7 +360,7 @@ export class StorageManager {
     this.runtimeState.mappings[name] = newMapping;
 
     // Only persist if sync enabled state was explicitly changed by user
-    if (update.syncEnabled !== undefined && update.userAction) {
+    if (update.syncEnabled !== undefined && update.userAction === true) {
       this.persistedState.syncPreferences[name] = {
         syncEnabled: update.syncEnabled,
         userSet: true,  // Mark as explicitly set by user
@@ -367,7 +376,12 @@ export class StorageManager {
   async removeMapping(name: string): Promise<void> {
     delete this.runtimeState.mappings[name];
     delete this.persistedState.syncPreferences[name];
-    await this.saveState();
+    
+    // Remove from Chrome storage
+    await new Promise<void>((resolve) => {
+      chrome.storage.sync.remove(`pref:${name}`, resolve);
+    });
+    
     this.notify('mapping-changed', {});
   }
 
@@ -410,8 +424,8 @@ export class StorageManager {
   async clearAllData(): Promise<void> {
     this.persistedState = DEFAULT_STATE;
     this.runtimeState = {
-      mappings: {},
-      groupSettings: {}
+      mappings: Object.create(null),
+      groupSettings: Object.create(null)
     };
     await this.saveState();
     this.notify('settings-changed', this.persistedState);

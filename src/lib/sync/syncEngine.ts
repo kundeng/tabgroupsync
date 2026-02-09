@@ -3,7 +3,7 @@ import { BookmarkManager } from '../bookmarks/bookmarkManager';
 import { TabGroupManager } from '../tabGroupManager';
 import { getTabsInGroup } from '../utils/tabUtils';
 import { SyncError, ErrorType, withErrorHandling } from '../utils/errors';
-import { Logger, withRetry, OperationTracker } from '../utils/logger';
+import { Logger, OperationTracker, withRetry } from '../utils/logger';
 import { BookmarkFolderId, RuntimeMapping, RuntimeMappingUpdate } from '../types/storage';
 
 // Sync queue to prevent hitting Chrome storage quota
