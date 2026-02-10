@@ -156,11 +156,11 @@ This implementation plan breaks down the Tab Group Sync extension into discrete 
     - Add tab filtering to exclude ungrouped tabs (groupId === -1)
     - _Requirements: 1.1, 1.4, 13.1, 13.4_
 
-  - [ ] 6.2 Write property test for ungrouped tab exclusion
+  - [x] 6.2 Write property test for ungrouped tab exclusion
     - **Property 11: Ungrouped Tab Exclusion**
     - **Validates: Requirements 13.1, 13.4**
 
-  - [ ] 6.3 Write property test for ungrouped tab bookmark preservation
+  - [x] 6.3 Write property test for ungrouped tab bookmark preservation
     - **Property 12: Ungrouped Tab Bookmark Preservation**
     - **Validates: Requirements 13.2**
 
@@ -179,15 +179,15 @@ This implementation plan breaks down the Tab Group Sync extension into discrete 
     - Implement snapshot cleanup with oldest-first removal
     - _Requirements: 5.1, 5.2, 5.3, 5.4_
 
-  - [ ] 7.2 Write property test for snapshot creation and storage
+  - [x] 7.2 Write property test for snapshot creation and storage
     - **Property 17: Snapshot Creation and Storage**
     - **Validates: Requirements 5.1, 5.3**
 
-  - [ ] 7.3 Write property test for snapshot restoration round-trip
+  - [x] 7.3 Write property test for snapshot restoration round-trip
     - **Property 18: Snapshot Restoration Round-Trip**
     - **Validates: Requirements 5.2**
 
-  - [ ] 7.4 Write property test for snapshot cleanup policy
+  - [x] 7.4 Write property test for snapshot cleanup policy
     - **Property 19: Snapshot Cleanup Policy**
     - **Validates: Requirements 5.4**
 
