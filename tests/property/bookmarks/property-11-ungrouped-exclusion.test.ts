@@ -66,8 +66,8 @@ describe('Property 11: Ungrouped Tab Exclusion', () => {
     storageManager = new StorageManager();
     
     // Setup container folder
-    vi.mocked(chrome.storage.sync.get).mockImplementation((keys: any, callback: any) => {
-      callback({
+    vi.mocked(chrome.storage.sync.get).mockImplementation((keys: any, callback?: any) => {
+      const result = {
         'state:settings': {
           containerFolderId: 'container-1',
           autoSync: true,
@@ -79,39 +79,44 @@ describe('Property 11: Ungrouped Tab Exclusion', () => {
             deleteThreshold: 90
           }
         }
-      });
+      };
+      if (callback) callback(result);
+      return Promise.resolve(result);
     });
 
     vi.mocked(chrome.storage.sync.set).mockImplementation((items: any, callback?: any) => {
       if (callback) callback();
+      return Promise.resolve();
     });
 
     // Mock bookmark operations
-    vi.mocked(chrome.bookmarks.get).mockImplementation((id: string, callback: any) => {
+    vi.mocked(chrome.bookmarks.get).mockImplementation((id: string, callback?: any) => {
+      let result: chrome.bookmarks.BookmarkTreeNode[] = [];
       if (id === 'container-1') {
-        callback([{
+        result = [{
           id: 'container-1',
           title: 'Tab Groups',
           parentId: '1',
           index: 0,
           dateAdded: Date.now(),
-        }]);
+        }];
       } else if (id === 'bookmarks-folder-1') {
-        callback([{
+        result = [{
           id: 'bookmarks-folder-1',
           title: 'Tab Group Bookmarks',
           parentId: 'container-1',
           index: 0,
           dateAdded: Date.now(),
-        }]);
-      } else {
-        callback([]);
+        }];
       }
+      if (callback) callback(result);
+      return Promise.resolve(result);
     });
 
-    vi.mocked(chrome.bookmarks.getChildren).mockImplementation((id: string, callback: any) => {
+    vi.mocked(chrome.bookmarks.getChildren).mockImplementation((id: string, callback?: any) => {
+      let result: chrome.bookmarks.BookmarkTreeNode[] = [];
       if (id === 'container-1') {
-        callback([
+        result = [
           {
             id: 'bookmarks-folder-1',
             title: 'Tab Group Bookmarks',
@@ -119,12 +124,12 @@ describe('Property 11: Ungrouped Tab Exclusion', () => {
             index: 0,
             dateAdded: Date.now(),
           }
-        ]);
+        ];
       } else if (id.startsWith('group-folder-')) {
-        callback(createdBookmarks.filter(b => b.parentId === id));
-      } else {
-        callback([]);
+        result = createdBookmarks.filter(b => b.parentId === id);
       }
+      if (callback) callback(result);
+      return Promise.resolve(result);
     });
 
     let bookmarkIdCounter = 1;
@@ -142,9 +147,7 @@ describe('Property 11: Ungrouped Tab Exclusion', () => {
         createdBookmarks.push(newBookmark);
       }
       
-      if (callback) {
-        callback(newBookmark);
-      }
+      if (callback) callback(newBookmark);
       return Promise.resolve(newBookmark);
     });
 
@@ -156,20 +159,16 @@ describe('Property 11: Ungrouped Tab Exclusion', () => {
         index: 0,
         dateAdded: Date.now(),
       };
-      if (callback) {
-        callback(result);
-      }
+      if (callback) callback(result);
       return Promise.resolve(result);
     });
 
     // Mock tab queries
-    vi.mocked(chrome.tabs.query).mockImplementation((queryInfo: any, callback: any) => {
+    vi.mocked(chrome.tabs.query).mockImplementation((queryInfo: any, callback?: any) => {
+      const result: chrome.tabs.Tab[] = [];
       // Return empty array for ungrouped tabs
-      if (queryInfo.groupId === -1 || queryInfo.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) {
-        callback([]);
-      } else {
-        callback([]);
-      }
+      if (callback) callback(result);
+      return Promise.resolve(result);
     });
 
     // Initialize managers
@@ -260,13 +259,14 @@ describe('Property 11: Ungrouped Tab Exclusion', () => {
           }));
 
           // Mock chrome.tabs.query to return ungrouped tabs
-          vi.mocked(chrome.tabs.query).mockImplementation((queryInfo: any, callback: any) => {
+          vi.mocked(chrome.tabs.query).mockImplementation((queryInfo: any, callback?: any) => {
+            let result: chrome.tabs.Tab[] = [];
             if (queryInfo.groupId === -1 || queryInfo.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) {
               // Return only ungrouped tabs
-              callback(validUngroupedTabs);
-            } else {
-              callback([]);
+              result = validUngroupedTabs;
             }
+            if (callback) callback(result);
+            return Promise.resolve(result);
           });
 
           // Query ungrouped tabs

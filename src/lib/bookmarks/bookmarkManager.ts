@@ -359,32 +359,31 @@ export class BookmarkManager {
         urls: validTabs.map(t => t.url)
       });
 
-      // Create bookmarks only for new tabs
+      // Create bookmarks only for new tabs using promise-based API
       const results = await Promise.all(
-        validTabs.map(tab =>
-          new Promise<chrome.bookmarks.BookmarkTreeNode>((resolve, reject) => {
-            chrome.bookmarks.create({
+        validTabs.map(async (tab) => {
+          try {
+            const result = await chrome.bookmarks.create({
               parentId: groupFolder.id,
               title: tab.title,
               url: tab.url
-            }, (result) => {
-              if (chrome.runtime.lastError) {
-                this.logger.error('sync:createBookmarkFailed', {
-                  url: tab.url,
-                  error: chrome.runtime.lastError.message
-                });
-                reject(new Error(chrome.runtime.lastError.message));
-              } else {
-                this.logger.debug('sync:bookmarkCreated', {
-                  bookmarkId: result.id,
-                  title: result.title,
-                  url: result.url
-                });
-                resolve(result);
-              }
             });
-          })
-        )
+            
+            this.logger.debug('sync:bookmarkCreated', {
+              bookmarkId: result.id,
+              title: result.title,
+              url: result.url
+            });
+            
+            return result;
+          } catch (error) {
+            this.logger.error('sync:createBookmarkFailed', {
+              url: tab.url,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+            throw error;
+          }
+        })
       );
 
       // Update sync status

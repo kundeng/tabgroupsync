@@ -82,9 +82,9 @@ describe('Property 19: Snapshot Cleanup Policy', () => {
     vi.spyOn(storageManager, 'getAllMappings').mockResolvedValue({});
 
     // Mock bookmark operations
-    vi.mocked(chrome.bookmarks.get).mockImplementation((id: string, callback: any) => {
+    vi.mocked(chrome.bookmarks.get).mockImplementation((id: string) => {
       if (id === 'container-1') {
-        callback([{
+        return Promise.resolve([{
           id: 'container-1',
           title: 'Tab Groups',
           parentId: '1',
@@ -92,7 +92,7 @@ describe('Property 19: Snapshot Cleanup Policy', () => {
           dateAdded: Date.now(),
         }]);
       } else if (id === 'snapshots-folder-1') {
-        callback([{
+        return Promise.resolve([{
           id: 'snapshots-folder-1',
           title: 'Tab Group Snapshots',
           parentId: 'container-1',
@@ -102,14 +102,14 @@ describe('Property 19: Snapshot Cleanup Policy', () => {
       } else {
         const bookmark = [...createdBookmarks, ...snapshotFolders].find(b => b.id === id && !deletedSnapshotIds.has(b.id));
         if (bookmark) {
-          callback([bookmark]);
+          return Promise.resolve([bookmark]);
         } else {
-          callback([]);
+          return Promise.resolve([]);
         }
       }
     });
 
-    vi.mocked(chrome.bookmarks.getChildren).mockImplementation((id: string, callback?: any) => {
+    vi.mocked(chrome.bookmarks.getChildren).mockImplementation((id: string) => {
       const result = (() => {
         if (id === 'container-1') {
           return [
@@ -137,15 +137,12 @@ describe('Property 19: Snapshot Cleanup Policy', () => {
         }
       })();
       
-      if (callback) {
-        callback(result);
-      }
       return Promise.resolve(result);
     });
 
     let bookmarkIdCounter = 1;
     let snapshotIdCounter = 1;
-    vi.mocked(chrome.bookmarks.create).mockImplementation((bookmark: any, callback?: any) => {
+    vi.mocked(chrome.bookmarks.create).mockImplementation((bookmark: any) => {
       const isSnapshotFolder = bookmark.parentId === 'snapshots-folder-1' && !bookmark.url;
       const newBookmark: chrome.bookmarks.BookmarkTreeNode = {
         id: bookmark.url 
@@ -166,13 +163,10 @@ describe('Property 19: Snapshot Cleanup Policy', () => {
         createdBookmarks.push(newBookmark);
       }
       
-      if (callback) {
-        callback(newBookmark);
-      }
       return Promise.resolve(newBookmark);
     });
 
-    vi.mocked(chrome.bookmarks.update).mockImplementation((id: string, changes: any, callback?: any) => {
+    vi.mocked(chrome.bookmarks.update).mockImplementation((id: string, changes: any) => {
       const result = {
         id,
         title: changes.title || 'Updated',
@@ -180,17 +174,11 @@ describe('Property 19: Snapshot Cleanup Policy', () => {
         index: 0,
         dateAdded: Date.now(),
       };
-      if (callback) {
-        callback(result);
-      }
       return Promise.resolve(result);
     });
 
-    vi.mocked(chrome.bookmarks.removeTree).mockImplementation((id: string, callback?: any) => {
+    vi.mocked(chrome.bookmarks.removeTree).mockImplementation((id: string) => {
       deletedSnapshotIds.add(id);
-      if (callback) {
-        callback();
-      }
       return Promise.resolve();
     });
 

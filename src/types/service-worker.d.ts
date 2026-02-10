@@ -20,13 +20,10 @@ interface ServiceWorkerGlobalScope extends WorkerGlobalScope {
 }
 
 interface DebugTools {
-  getLogs: () => any[];
-  getErrorLogs: () => any[];
-  getSyncLogs: () => any[];
-  clearLogs: () => void;
-  exportLogs: () => string;
-  syncEngine: any;
-  storage: any;
+  logger: any;
+  storage: () => any;
+  bookmarkManager: () => any;
+  syncEngine: () => any;
 }
 
 declare global {

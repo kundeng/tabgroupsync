@@ -4,7 +4,7 @@ import { initializeBookmarkListeners } from './listeners/bookmarkListeners';
 import { BookmarkManager } from './lib/bookmarks/bookmarkManager';
 import { TabGroupManager } from './lib/tabGroupManager';
 import { StorageManager } from './lib/storage/storageManager';
-import { Logger, LogLevel } from './lib/utils/logger';
+import { Logger } from './lib/utils/logger';
 import { SyncEngine } from './lib/sync/syncEngine';
 import { SnapshotManager } from './lib/bookmarks/snapshotManager';
 
@@ -164,9 +164,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   else if (message.type === 'GET_DEBUG_INFO') {
     sendResponse({
-      logs: logger.getRecentLogs(),
-      errorLogs: logger.getLogsByLevel(LogLevel.ERROR),
-      syncLogs: logger.getLogsByOperation('sync')
+      message: 'Debug info available in console logs'
     });
   }
   // Storage operations
@@ -381,11 +379,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 if (import.meta.env.DEV) {
   // @ts-ignore
   ctx.debugTools = {
-    getLogs: () => logger.getRecentLogs(),
-    getErrorLogs: () => logger.getLogsByLevel(LogLevel.ERROR),
-    getSyncLogs: () => logger.getLogsByOperation('sync'),
-    clearLogs: () => logger.clearLogs(),
-    exportLogs: () => logger.exportLogs()
+    logger: logger,
+    storage: () => storage,
+    bookmarkManager: () => bookmarkManager,
+    syncEngine: () => syncEngine
   };
 }
 

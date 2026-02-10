@@ -49,8 +49,8 @@ describe('Property 1: Tab Group to Bookmark Folder Synchronization', () => {
     storageManager = new StorageManager();
     
     // Setup container folder
-    vi.mocked(chrome.storage.sync.get).mockImplementation((keys: any, callback: any) => {
-      callback({
+    vi.mocked(chrome.storage.sync.get).mockImplementation((keys: any, callback?: any) => {
+      const result = {
         'state:settings': {
           containerFolderId: 'container-1',
           autoSync: true,
@@ -62,11 +62,14 @@ describe('Property 1: Tab Group to Bookmark Folder Synchronization', () => {
             deleteThreshold: 90
           }
         }
-      });
+      };
+      if (callback) callback(result);
+      return Promise.resolve(result);
     });
 
     vi.mocked(chrome.storage.sync.set).mockImplementation((items: any, callback?: any) => {
       if (callback) callback();
+      return Promise.resolve();
     });
 
     vi.mocked(chrome.bookmarks.update).mockImplementation((id: string, changes: any, callback?: any) => {
@@ -77,46 +80,46 @@ describe('Property 1: Tab Group to Bookmark Folder Synchronization', () => {
         index: 0,
         dateAdded: Date.now(),
       };
-      if (callback) {
-        callback(result);
-      }
+      if (callback) callback(result);
       return Promise.resolve(result);
     });
 
     // Mock bookmark operations
-    vi.mocked(chrome.bookmarks.get).mockImplementation((id: string, callback: any) => {
+    vi.mocked(chrome.bookmarks.get).mockImplementation((id: string, callback?: any) => {
+      let result: chrome.bookmarks.BookmarkTreeNode[] = [];
       if (id === 'container-1') {
-        callback([{
+        result = [{
           id: 'container-1',
           title: 'Tab Groups',
           parentId: '1',
           index: 0,
           dateAdded: Date.now(),
-        }]);
+        }];
       } else if (id === 'bookmarks-folder-1') {
-        callback([{
+        result = [{
           id: 'bookmarks-folder-1',
           title: 'Tab Group Bookmarks',
           parentId: 'container-1',
           index: 0,
           dateAdded: Date.now(),
-        }]);
+        }];
       } else if (id.startsWith('group-folder-')) {
-        callback([{
+        result = [{
           id,
           title: 'Test Group',
           parentId: 'bookmarks-folder-1',
           index: 0,
           dateAdded: Date.now(),
-        }]);
-      } else {
-        callback([]);
+        }];
       }
+      if (callback) callback(result);
+      return Promise.resolve(result);
     });
 
-    vi.mocked(chrome.bookmarks.getChildren).mockImplementation((id: string, callback: any) => {
+    vi.mocked(chrome.bookmarks.getChildren).mockImplementation((id: string, callback?: any) => {
+      let result: chrome.bookmarks.BookmarkTreeNode[] = [];
       if (id === 'container-1') {
-        callback([
+        result = [
           {
             id: 'bookmarks-folder-1',
             title: 'Tab Group Bookmarks',
@@ -131,15 +134,15 @@ describe('Property 1: Tab Group to Bookmark Folder Synchronization', () => {
             index: 1,
             dateAdded: Date.now(),
           }
-        ]);
+        ];
       } else if (id === 'bookmarks-folder-1') {
-        callback([]);
+        result = [];
       } else if (id.startsWith('group-folder-')) {
         // Return previously created bookmarks for this folder
-        callback(createdBookmarks.filter(b => b.parentId === id));
-      } else {
-        callback([]);
+        result = createdBookmarks.filter(b => b.parentId === id);
       }
+      if (callback) callback(result);
+      return Promise.resolve(result);
     });
 
     let bookmarkIdCounter = 1;
@@ -157,9 +160,7 @@ describe('Property 1: Tab Group to Bookmark Folder Synchronization', () => {
         createdBookmarks.push(newBookmark);
       }
       
-      if (callback) {
-        callback(newBookmark);
-      }
+      if (callback) callback(newBookmark);
       return Promise.resolve(newBookmark);
     });
 
