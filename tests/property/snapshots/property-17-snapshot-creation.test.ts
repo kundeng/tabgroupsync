@@ -53,8 +53,8 @@ describe('Property 17: Snapshot Creation and Storage', () => {
     storageManager = new StorageManager();
     
     // Setup container folder
-    vi.mocked(chrome.storage.sync.get).mockImplementation((keys: any, callback: any) => {
-      callback({
+    vi.mocked(chrome.storage.sync.get).mockImplementation((keys: any, callback?: any) => {
+      const result = {
         'state:settings': {
           containerFolderId: 'container-1',
           autoSync: true,
@@ -66,44 +66,49 @@ describe('Property 17: Snapshot Creation and Storage', () => {
             deleteThreshold: 90
           }
         }
-      });
+      };
+      if (callback) callback(result);
+      return Promise.resolve(result);
     });
 
     vi.mocked(chrome.storage.sync.set).mockImplementation((items: any, callback?: any) => {
       if (callback) callback();
+      return Promise.resolve();
     });
 
     // Mock bookmark operations
-    vi.mocked(chrome.bookmarks.get).mockImplementation((id: string, callback: any) => {
+    vi.mocked(chrome.bookmarks.get).mockImplementation((id: string, callback?: any) => {
+      let result: chrome.bookmarks.BookmarkTreeNode[] = [];
       if (id === 'container-1') {
-        callback([{
+        result = [{
           id: 'container-1',
           title: 'Tab Groups',
           parentId: '1',
           index: 0,
           dateAdded: Date.now(),
-        }]);
+        }];
       } else if (id === 'snapshots-folder-1') {
-        callback([{
+        result = [{
           id: 'snapshots-folder-1',
           title: 'Tab Group Snapshots',
           parentId: 'container-1',
           index: 1,
           dateAdded: Date.now(),
-        }]);
+        }];
       } else {
         const bookmark = [...createdBookmarks, ...snapshotFolders].find(b => b.id === id);
         if (bookmark) {
-          callback([bookmark]);
-        } else {
-          callback([]);
+          result = [bookmark];
         }
       }
+      if (callback) callback(result);
+      return Promise.resolve(result);
     });
 
-    vi.mocked(chrome.bookmarks.getChildren).mockImplementation((id: string) => {
+    vi.mocked(chrome.bookmarks.getChildren).mockImplementation((id: string, callback?: any) => {
+      let result: chrome.bookmarks.BookmarkTreeNode[] = [];
       if (id === 'container-1') {
-        return Promise.resolve([
+        result = [
           {
             id: 'bookmarks-folder-1',
             title: 'Tab Group Bookmarks',
@@ -118,15 +123,15 @@ describe('Property 17: Snapshot Creation and Storage', () => {
             index: 1,
             dateAdded: Date.now(),
           }
-        ]);
+        ];
       } else if (id === 'snapshots-folder-1') {
-        return Promise.resolve(snapshotFolders);
+        result = snapshotFolders;
       } else if (id.startsWith('snapshot-folder-')) {
         // Return bookmarks in this snapshot folder
-        return Promise.resolve(createdBookmarks.filter(b => b.parentId === id));
-      } else {
-        return Promise.resolve([]);
+        result = createdBookmarks.filter(b => b.parentId === id);
       }
+      if (callback) callback(result);
+      return Promise.resolve(result);
     });
 
     let bookmarkIdCounter = 1;
@@ -152,9 +157,7 @@ describe('Property 17: Snapshot Creation and Storage', () => {
         createdBookmarks.push(newBookmark);
       }
       
-      if (callback) {
-        callback(newBookmark);
-      }
+      if (callback) callback(newBookmark);
       return Promise.resolve(newBookmark);
     });
 
@@ -166,20 +169,21 @@ describe('Property 17: Snapshot Creation and Storage', () => {
         index: 0,
         dateAdded: Date.now(),
       };
-      if (callback) {
-        callback(result);
-      }
+      if (callback) callback(result);
       return Promise.resolve(result);
     });
 
-    // Mock tab groups query
-    vi.mocked(chrome.tabGroups.query).mockImplementation((queryInfo: any) => {
-      return Promise.resolve([]);
+    vi.mocked(chrome.tabGroups.query).mockImplementation((queryInfo: any, callback?: any) => {
+      const result: chrome.tabGroups.TabGroup[] = [];
+      if (callback) callback(result);
+      return Promise.resolve(result);
     });
 
     // Mock tabs query
-    vi.mocked(chrome.tabs.query).mockImplementation((queryInfo: any) => {
-      return Promise.resolve([]);
+    vi.mocked(chrome.tabs.query).mockImplementation((queryInfo: any, callback?: any) => {
+      const result: chrome.tabs.Tab[] = [];
+      if (callback) callback(result);
+      return Promise.resolve(result);
     });
 
     bookmarkManager = new BookmarkManager(storageManager);
@@ -208,17 +212,17 @@ describe('Property 17: Snapshot Creation and Storage', () => {
           }));
 
           // Mock tab groups query to return our group
-          vi.mocked(chrome.tabGroups.query).mockImplementation((queryInfo: any) => {
-            return Promise.resolve([group]);
+          vi.mocked(chrome.tabGroups.query).mockImplementation((queryInfo: any, callback?: any) => {
+            const result = [group];
+            if (callback) callback(result);
+            return Promise.resolve(result);
           });
 
           // Mock tabs query to return tabs in the group
-          vi.mocked(chrome.tabs.query).mockImplementation((queryInfo: any) => {
-            if (queryInfo.groupId === group.id) {
-              return Promise.resolve(validTabs);
-            } else {
-              return Promise.resolve([]);
-            }
+          vi.mocked(chrome.tabs.query).mockImplementation((queryInfo: any, callback?: any) => {
+            const result = queryInfo.groupId === group.id ? validTabs : [];
+            if (callback) callback(result);
+            return Promise.resolve(result);
           });
 
           const beforeTimestamp = Date.now();
@@ -287,17 +291,17 @@ describe('Property 17: Snapshot Creation and Storage', () => {
           }));
 
           // Mock tab groups query to return our group
-          vi.mocked(chrome.tabGroups.query).mockImplementation((queryInfo: any) => {
-            return Promise.resolve([group]);
+          vi.mocked(chrome.tabGroups.query).mockImplementation((queryInfo: any, callback?: any) => {
+            const result = [group];
+            if (callback) callback(result);
+            return Promise.resolve(result);
           });
 
           // Mock tabs query to return tabs in the group
-          vi.mocked(chrome.tabs.query).mockImplementation((queryInfo: any) => {
-            if (queryInfo.groupId === group.id) {
-              return Promise.resolve(validTabs);
-            } else {
-              return Promise.resolve([]);
-            }
+          vi.mocked(chrome.tabs.query).mockImplementation((queryInfo: any, callback?: any) => {
+            const result = queryInfo.groupId === group.id ? validTabs : [];
+            if (callback) callback(result);
+            return Promise.resolve(result);
           });
 
           // Create multiple snapshots
