@@ -11,6 +11,10 @@ build/
 
 # Testing
 coverage/
+test-results/
+playwright-report/
+playwright/.cache/
+.playwright-chrome-data/
 
 # Environment files
 .env
@@ -19,9 +23,12 @@ coverage/
 .env.test.local
 .env.production.local
 
-# IDE files
+# IDE and tool files
 .idea/
 .vscode/
+.windsurf/
+.bolt/
+.cursor/
 *.swp
 *.swo
 
