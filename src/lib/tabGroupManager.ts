@@ -121,6 +121,7 @@ export class TabGroupManager {
       });
 
       // If title changed, notify sync engine with old title for cleanup
+      // Per Req 1.4: title changes create a new folder, old folder preserved
       if (lastTitle) {
         await this.syncEngine.handleGroupRemoved(lastTitle);
       }
