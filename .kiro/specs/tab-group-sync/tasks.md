@@ -148,8 +148,8 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - **Property 2: Bookmark Preservation During Tab Operations**
     - **Validates: Requirements 1.3**
 
-  - [ ]* 4.5 Write property test for title synchronization consistency
-    - **Property 3: Title Synchronization Consistency**
+  - [ ]* 4.5 Write property test for title change creates new folder
+    - **Property 3: Title Change Creates New Folder**
     - **Validates: Requirements 1.4**
 
   - [ ]* 4.6 Write property test for group deletion preservation
@@ -524,7 +524,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - **REMOVE** afterEach that calls `chrome.bookmarks.removeTree` — fresh profiles handle cleanup
     - Test creating tab group and verifying bookmark creation (via auto-sync, not message)
     - Test adding tabs to group and verifying bookmark updates (via auto-sync)
-    - Test group title changes and folder name updates
+    - Test group title changes create new folder (old folder preserved)
     - Test group deletion and bookmark preservation
     - **Depends**: 16.2
     - _Requirements: 1.1, 1.2, 1.4, 1.5, 12.4_
@@ -605,7 +605,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
   - E2E tests should verify the complete user experience from setup to sync
   - **KNOWN ISSUE**: E2E tests reveal a race condition where tab group creation triggers sync before title is set
     - This causes groups to sync as "Unnamed Group" initially
-    - The extension then updates the folder name when the title change event fires
+    - When the title change event fires, the extension creates a new folder under the new name (old folder preserved per Req 1.4)
     - E2E tests need to account for this timing by waiting for title updates to propagate
     - This is a real user-facing issue that should be addressed in future iterations
   - **Depends**: 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8, 16.9, 16.10

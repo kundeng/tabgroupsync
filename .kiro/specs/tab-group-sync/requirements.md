@@ -28,7 +28,7 @@ Tab Group Sync is a Chrome extension that automatically synchronizes tab groups 
 1. WHEN a tab group is created, THE Sync_Engine SHALL automatically create a corresponding bookmark folder
 2. WHEN tabs are added to a synced group, THE Sync_Engine SHALL create bookmarks for those tabs in the corresponding folder
 3. WHEN tabs are removed from a synced group, THE Sync_Engine SHALL preserve existing bookmarks (no automatic deletion)
-4. WHEN a tab group title changes, THE Sync_Engine SHALL update the corresponding bookmark folder name
+4. WHEN a tab group title changes, THE Sync_Engine SHALL start syncing to a new bookmark folder under the new name, preserving the old folder as-is
 5. WHEN a tab group is deleted, THE Sync_Engine SHALL preserve the bookmark folder and its contents
 
 ### Requirement 2: Cross-Device Synchronization

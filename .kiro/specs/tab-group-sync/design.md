@@ -464,8 +464,8 @@ logger.debug('groupName:resolved', {
 *For any* synced tab group, when tabs are removed from the group, the existing bookmarks in the corresponding folder should remain unchanged (no automatic deletion)
 **Validates: Requirements 1.3**
 
-**Property 3: Title Synchronization Consistency**
-*For any* synced tab group, when the group title changes, the corresponding bookmark folder name should be updated to match the new title
+**Property 3: Title Change Creates New Folder**
+*For any* synced tab group, when the group title changes, the Sync_Engine should start syncing to a new bookmark folder under the new name, preserving the old folder and its contents as-is
 **Validates: Requirements 1.4**
 
 **Property 4: Group Deletion Preservation**
