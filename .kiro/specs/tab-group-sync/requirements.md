@@ -142,22 +142,20 @@ Tab Group Sync is a Chrome extension that automatically synchronizes tab groups 
 4. WHEN the extension makes automatic decisions (auto-sync, folder recreation), THE Extension SHALL log the reasoning behind those decisions
 
 
-### Requirement 12: Automated Testing and Quality Assurance
+### Non-Functional
 
-**User Story:** As a developer, I want comprehensive automated tests that verify correctness properties and system behavior in isolated environments, so that I can confidently deploy changes without regressions.
-
-#### Acceptance Criteria
+**NF 1: Automated Testing and Quality Assurance**
 
 1. WHEN unit tests are executed, THE Test Suite SHALL verify manager class functionality using mocked Chrome APIs with fast-check property-based testing
 2. WHEN integration tests are executed, THE Test Suite SHALL use Playwright to load the extension in isolated Chrome profiles and verify end-to-end functionality
 3. WHEN property-based tests are executed, THE Test Suite SHALL validate all correctness properties defined in the design document across randomized inputs
-4. WHEN E2E tests are executed, THE Test Suite SHALL verify real Chrome extension behavior including tab group operations, bookmark synchronization, and UI interactions
+4. WHEN E2E tests are executed, THE Test Suite SHALL verify real Chrome extension behavior including tab group operations, bookmark synchronization, and UI interactions through the popup UI only (no direct storage manipulation or internal message passing)
 5. WHEN tests run, THE Test Suite SHALL use isolated browser profiles to prevent interference with user data or other tests
 6. WHEN cross-device sync is tested, THE Test Suite SHALL simulate multiple browser contexts to verify sync behavior across devices
 7. WHEN the test suite completes, THE Test Suite SHALL generate coverage reports showing property validation coverage and code coverage
 
 
-### Requirement 13: Ungrouped Tab Handling
+### Requirement 12: Ungrouped Tab Handling
 
 **User Story:** As a user, I want the extension to only sync tabs that are in groups, so that my ungrouped tabs remain separate from my organized work.
 
@@ -169,13 +167,28 @@ Tab Group Sync is a Chrome extension that automatically synchronizes tab groups 
 4. WHEN querying tabs for sync operations, THE Extension SHALL filter out tabs with groupId of -1 (ungrouped indicator)
 
 
-### Requirement 14: Chrome API Promise-Based Architecture
+### Requirement 13: Group Name Handling
 
-**User Story:** As a developer, I want consistent promise-based Chrome API usage throughout the codebase, so that the code is maintainable and follows modern JavaScript best practices.
+**User Story:** As a user, I want the extension to handle edge cases in group names gracefully, so that sync works reliably without unexpected behavior.
 
 #### Acceptance Criteria
+
+1. WHEN a tab group has no title (undefined or null), THE Extension SHALL treat it as "Unnamed Group"
+2. WHEN a tab group has a whitespace-only title, THE Extension SHALL NOT manage or sync that group
+3. WHEN multiple tab groups have no title, THE Extension SHALL map them all to a single "Unnamed Group" bookmark folder
+4. WHEN checking if a group should be synced, THE Extension SHALL skip groups with whitespace-only titles
+5. WHEN logging group operations, THE Extension SHALL indicate when a group is skipped due to whitespace-only title
+
+**NF 2: Chrome API Promise-Based Architecture**
 
 1. WHEN calling Chrome APIs, THE Extension SHALL use promise-based syntax with async/await
 2. WHEN Chrome APIs are called, THE Extension SHALL NOT use callback-based syntax
 3. WHEN wrapping Chrome APIs, THE Extension SHALL use native promise support from Manifest V3
 4. WHEN testing Chrome APIs, THE Extension SHALL mock them as promises for consistency
+
+**NF 3: Repository Hygiene**
+
+1. Source files SHALL reside in `src/` — no source HTML, CSS, or JS at the project root
+2. Build output SHALL reside in `dist/` only
+3. Stale or duplicate files (e.g., root-level `popup.html`, `index.html`) SHALL be removed
+4. The project structure SHALL match the layout defined in `.kiro/steering/structure.md`

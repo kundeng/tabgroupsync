@@ -1,0 +1,53 @@
+# Progress Log: tab-group-sync
+# Auto-updated by spec-go workflow
+# Format: [TIMESTAMP] [STATUS] [TASK_ID] - [DESCRIPTION]
+# STATUS: DONE | BLOCKED | SKIPPED | IN_PROGRESS
+# SUMMARY: 42/54 done | next: 16.2 or 18.1
+
+[2026-02-12T18:19:00Z] DONE 1.1 - TypeScript configuration and build setup
+[2026-02-12T18:19:00Z] DONE 1.2 - Logger utility with console and performance tracking
+[2026-02-12T18:19:00Z] DONE 1.3 - Property test for operation logging completeness
+[2026-02-12T18:19:00Z] DONE 1.4 - Property test for error logging with context
+[2026-02-12T18:19:00Z] DONE 1.5 - Property test for state change logging
+[2026-02-12T18:19:00Z] DONE 1.6 - Property test for automatic decision logging
+[2026-02-12T18:19:00Z] DONE 1.7 - Utility functions (validators, rate limiter, promise helpers)
+[2026-02-12T18:19:00Z] DONE 1.8 - Group name resolution utility
+[2026-02-12T18:19:00Z] DONE 1.9 - Unit tests for group name resolution
+[2026-02-12T18:19:00Z] DONE 2.1 - StorageManager class with Chrome storage integration
+[2026-02-12T18:19:00Z] DONE 3 - Checkpoint: all tests pass
+[2026-02-12T18:19:00Z] DONE 4.1 - BookmarkManager class with folder management
+[2026-02-12T18:19:00Z] DONE 4.2 - Automatic folder recovery in handleBookmarkRemoved
+[2026-02-12T18:19:00Z] DONE 4.3 - Group name resolution in BookmarkManager
+[2026-02-12T18:19:00Z] DONE 5.1 - TabGroupManager class
+[2026-02-12T18:19:00Z] DONE 6.1 - SnapshotManager class
+[2026-02-12T18:19:00Z] DONE 7 - Checkpoint: all tests pass
+[2026-02-12T18:19:00Z] DONE 8.1 - SyncEngine class with sync coordination
+[2026-02-12T18:19:00Z] DONE 8.2 - Event handlers in SyncEngine
+[2026-02-12T18:19:00Z] DONE 8.2a - Group name resolution in SyncEngine
+[2026-02-12T18:19:00Z] DONE 8.3 - Folder management in SyncEngine
+[2026-02-12T18:19:00Z] DONE 8.4 - Error handling and retry logic
+[2026-02-12T18:19:00Z] DONE 8.5 - Sync operation queuing and debouncing
+[2026-02-12T18:19:00Z] DONE 8.6 - Property test for sync state transitions
+[2026-02-12T18:19:00Z] DONE 8.7 - Property test for auto-sync behavior
+[2026-02-12T18:19:00Z] DONE 8.8 - Property test for auto-sync preconditions
+[2026-02-12T18:19:00Z] DONE 8.8a - Property test for whitespace-only group names
+[2026-02-12T18:19:00Z] DONE 8.9 - Property test for sync operation error handling
+[2026-02-12T18:19:00Z] DONE 8.10 - Property test for permission and quota management
+[2026-02-12T18:19:00Z] DONE 8.11 - Property test for sync operation queuing
+[2026-02-12T18:19:00Z] DONE 8.12 - Property test for change debouncing
+[2026-02-12T18:19:00Z] DONE 9.1 - Bookmark event listeners
+[2026-02-12T18:19:00Z] DONE 9.2 - Tab group event listeners
+[2026-02-12T18:19:00Z] DONE 9.3 - Tab event listeners
+[2026-02-12T18:19:00Z] DONE 10 - Checkpoint: all tests pass
+[2026-02-12T18:19:00Z] DONE 11.1 - Background service worker
+[2026-02-12T18:19:00Z] DONE 11.2 - Message passing between UI and background
+[2026-02-12T18:19:00Z] DONE 12.1-12.7 - React UI components
+[2026-02-12T18:19:00Z] DONE 13.1-13.2 - Popup entry point and integration
+[2026-02-12T18:19:00Z] DONE 14 - Checkpoint: all tests pass
+[2026-02-12T18:19:00Z] DONE 15.1 - fast-check property-based testing infrastructure
+[2026-02-12T18:19:00Z] DONE 15.2 - All remaining property tests
+[2026-02-12T18:19:00Z] DONE 16.1 - Playwright configuration
+[2026-02-12T18:19:00Z] IN_PROGRESS 16.2 - E2E test utilities rewrite (internal API helpers must be removed)
+# NOTE: Tasks 16.2-16.10 need rewriting — all E2E tests currently bypass UI by calling
+# chrome.runtime.sendMessage, chrome.storage.sync.set/get/clear directly.
+# See design.md "E2E Testing Constraints (CRITICAL)" section.

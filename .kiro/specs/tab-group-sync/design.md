@@ -281,6 +281,175 @@ interface SyncHistoryEntry {
 }
 ```
 
+## Group Name Handling
+
+### Overview
+
+The extension uses group names (titles) as primary identifiers for storage keys, mappings, and bookmark folders. This design choice enables cross-device sync since group IDs are local to each browser instance.
+
+### Name Resolution Strategy
+
+```typescript
+/**
+ * Resolves a tab group title to a usable group name
+ * 
+ * Rules:
+ * 1. undefined/null/empty → "Unnamed Group"
+ * 2. Whitespace-only → null (skip this group)
+ * 3. Valid name → use as-is
+ */
+function resolveGroupName(title: string | undefined): string | null {
+  // Handle undefined, null, or empty
+  if (!title) {
+    return 'Unnamed Group';
+  }
+  
+  // Check if whitespace-only
+  if (title.trim().length === 0) {
+    return null; // Signal to skip this group
+  }
+  
+  // Use title as-is (no trimming to preserve user intent)
+  return title;
+}
+```
+
+### Behavior Specifications
+
+**Unnamed Groups:**
+- All groups without titles map to a single "Unnamed Group" folder
+- Multiple unnamed groups share the same bookmark folder
+- This is intentional - unnamed groups are treated as a single logical group
+
+**Whitespace-Only Groups:**
+- Groups with whitespace-only titles (e.g., " ", "  ") are NOT managed
+- These groups are skipped during sync operations
+- No bookmark folders are created for them
+- Auto-sync does not enable for these groups
+
+**Valid Named Groups:**
+- Group names are used as-is without modification
+- Leading/trailing whitespace is preserved (user intent)
+- Each unique name gets its own bookmark folder
+
+### Implementation Points
+
+**SyncEngine:**
+```typescript
+async handleGroupCreated(group: chrome.tabGroups.TabGroup): Promise<void> {
+  const name = resolveGroupName(group.title);
+  
+  // Skip whitespace-only groups
+  if (name === null) {
+    this.logger.info('sync:groupSkipped', {
+      reason: 'whitespace-only title',
+      groupId: group.id
+    });
+    return;
+  }
+  
+  // Continue with sync logic using resolved name
+  // ...
+}
+```
+
+**BookmarkManager:**
+```typescript
+async ensureGroupFolder(title: string | undefined): Promise<chrome.bookmarks.BookmarkTreeNode | null> {
+  const name = resolveGroupName(title);
+  
+  // Return null for whitespace-only groups
+  if (name === null) {
+    return null;
+  }
+  
+  // Continue with folder creation using resolved name
+  // ...
+}
+```
+
+**StorageManager:**
+```typescript
+async getGroupSyncSettings(title: string | undefined): Promise<GroupSyncSettings> {
+  const name = resolveGroupName(title);
+  
+  // Return disabled settings for whitespace-only groups
+  if (name === null) {
+    return { enabled: false, lastSynced: 0 };
+  }
+  
+  // Continue with settings lookup using resolved name
+  // ...
+}
+```
+
+### Edge Cases
+
+**Multiple Unnamed Groups:**
+- All unnamed groups sync to the same "Unnamed Group" folder
+- Last-write-wins for bookmark content
+- This is acceptable behavior - users should name important groups
+
+**Whitespace Variations:**
+- " " (single space) → skipped
+- "  " (multiple spaces) → skipped
+- "\t" (tab) → skipped
+- "\n" (newline) → skipped
+- Any combination of whitespace → skipped
+
+**Name Conflicts:**
+- Two groups with identical names share the same bookmark folder
+- This is a known limitation due to using names as identifiers
+- Users should ensure unique names for important groups
+
+### Logging
+
+All name resolution decisions are logged:
+
+```typescript
+// Unnamed group
+logger.info('groupName:resolved', {
+  original: undefined,
+  resolved: 'Unnamed Group',
+  reason: 'no title provided'
+});
+
+// Whitespace-only group
+logger.info('groupName:skipped', {
+  original: '   ',
+  resolved: null,
+  reason: 'whitespace-only title'
+});
+
+// Valid name
+logger.debug('groupName:resolved', {
+  original: 'Work Tabs',
+  resolved: 'Work Tabs',
+  reason: 'valid title'
+});
+```
+
+### Testing Considerations
+
+**Property-Based Tests:**
+- Test with undefined titles
+- Test with whitespace-only titles
+- Test with valid names
+- Verify unnamed groups map to single folder
+- Verify whitespace groups are skipped
+
+**Unit Tests:**
+- Test `resolveGroupName()` with all edge cases
+- Verify null return for whitespace-only
+- Verify "Unnamed Group" for undefined/null/empty
+
+**E2E Tests:**
+- Create unnamed groups and verify single folder
+- Create whitespace-only groups and verify no sync
+- Verify logging for all scenarios
+}
+```
+
 ## Correctness Properties
 
 *A property is a characteristic or behavior that should hold true across all valid executions of a system—essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
@@ -863,6 +1032,22 @@ describe('Property 1: Tab Group to Bookmark Folder Synchronization', () => {
 **Browser**: Chromium with extension support
 **Isolation**: Each test runs in a fresh browser profile
 
+#### E2E Testing Constraints (CRITICAL)
+
+E2E tests must simulate real user behavior. The following rules are **non-negotiable**:
+
+1. **NO direct storage manipulation**: Tests MUST NOT call `chrome.storage.sync.set/get/clear` to configure the extension. All settings (container folder, auto-sync, etc.) must be configured through the popup UI.
+2. **NO `chrome.runtime.sendMessage`**: Tests MUST NOT send internal messages to the background service worker. All actions (toggle sync, create snapshot, restore snapshot) must be triggered through popup UI clicks.
+3. **NO `setExtensionStorage()` / `clearExtensionStorage()` / `sendMessageToBackground()` helpers**: These utility functions bypass the UI and must be removed from E2E test utils.
+4. **Browser-level actions are acceptable**: `chrome.tabs.create`, `chrome.tabs.group`, `chrome.tabGroups.update` are acceptable because these simulate browser-level user actions (creating tabs, grouping tabs) that have no extension UI equivalent.
+5. **Read-only Chrome API assertions are acceptable**: `chrome.bookmarks.getChildren`, `chrome.bookmarks.search`, `chrome.tabGroups.query` are acceptable for verifying outcomes since bookmark state is the ground truth.
+6. **UI-based helpers MUST be used**: The existing `toggleGroupSync()`, `setContainerFolder()`, `createSnapshot()` helpers in utils.ts interact with the popup UI and should be the primary way tests trigger extension actions.
+7. **Setup flow**: Every test that needs the extension configured must follow the real user workflow:
+   - Open popup → navigate to Settings → pick container folder → enable auto-sync
+   - NOT: write directly to chrome.storage.sync
+
+**Rationale**: E2E tests that bypass the UI provide false confidence. They test internal wiring, not user experience. Bugs in the UI layer, message passing, and state hydration are invisible to tests that skip the UI.
+
 #### Playwright Configuration
 
 ```typescript
@@ -1032,42 +1217,38 @@ test.describe('Tab Group Sync E2E', () => {
 
 ```
 tests/
-├── unit/                           # Unit tests (Vitest/Jest)
-│   ├── managers/
-│   │   ├── storageManager.test.ts
-│   │   ├── bookmarkManager.test.ts
-│   │   ├── syncEngine.test.ts
-│   │   └── snapshotManager.test.ts
-│   ├── utils/
-│   │   ├── logger.test.ts
-│   │   ├── rateLimiter.test.ts
-│   │   └── validators.test.ts
-│   └── components/
-│       ├── GroupList.test.tsx
-│       └── Settings.test.tsx
-├── property/                       # Property-based tests (fast-check)
-│   ├── sync/
-│   │   ├── property-01-sync.test.ts
-│   │   ├── property-02-preservation.test.ts
-│   │   └── property-03-title-sync.test.ts
+├── setup.ts                        # Shared Chrome API mocks
+├── unit/                           # Unit tests (Vitest)
+│   ├── bookmarks/
+│   │   └── bookmarkManager.test.ts
 │   ├── storage/
-│   │   ├── property-05-persistence.test.ts
-│   │   └── property-06-consistency.test.ts
-│   └── bookmarks/
-│       ├── property-11-folder-creation.test.ts
-│       └── property-12-folder-recovery.test.ts
+│   │   └── storageManager.test.ts
+│   └── utils/
+│       └── *.test.ts               # Utility function tests
+├── property/                       # Property-based tests (fast-check)
+│   ├── arbitraries.ts              # Shared generators
+│   ├── testUtils.ts                # Shared test utilities
+│   ├── PROPERTY_COVERAGE.md        # Coverage tracking
+│   ├── bookmarks/                  # Bookmark property tests
+│   ├── errors/                     # Error handling property tests
+│   ├── logging/                    # Logging property tests
+│   ├── performance/                # Performance property tests
+│   ├── snapshots/                  # Snapshot property tests
+│   ├── storage/                    # Storage property tests
+│   ├── sync/                       # Sync property tests
+│   └── ui/                         # UI property tests
 ├── e2e/                            # End-to-end tests (Playwright)
-│   ├── fixtures/
-│   │   └── extension.ts            # Extension loading fixture
-│   ├── sync.spec.ts                # Core sync functionality
-│   ├── ui.spec.ts                  # UI interactions
-│   ├── snapshots.spec.ts           # Snapshot system
-│   ├── error-handling.spec.ts      # Error scenarios
-│   └── cross-device.spec.ts        # Multi-context sync
-└── fixtures/                       # Shared test data
-    ├── chrome-mocks/               # Chrome API mocks
-    ├── test-data/                  # Sample data
-    └── test-extensions/            # Test extension builds
+│   ├── fixtures.ts                 # Extension loading fixture
+│   ├── utils.ts                    # E2E test helpers (UI-based only)
+│   ├── smoke.test.ts               # Infrastructure smoke tests
+│   ├── tab-group-sync.test.ts      # Core sync functionality
+│   ├── container-folder.test.ts    # Container folder management
+│   ├── snapshot-system.test.ts     # Snapshot system
+│   ├── sync-control.test.ts        # Sync toggle and auto-sync
+│   ├── cross-device-sync.test.ts   # Multi-context sync
+│   ├── error-scenarios.test.ts     # Error scenarios
+│   ├── ungrouped-tabs.test.ts      # Ungrouped tab handling
+│   └── ui-interactions.test.ts     # UI interactions
 ```
 
 ### Test Execution
@@ -1105,5 +1286,5 @@ Tests should run in CI/CD pipeline:
 ### Coverage Requirements
 
 - **Code Coverage**: Minimum 80% line coverage
-- **Property Coverage**: All 27 correctness properties must have corresponding tests
+- **Property Coverage**: All 30 correctness properties must have corresponding tests
 - **E2E Coverage**: All user-facing features must have E2E tests

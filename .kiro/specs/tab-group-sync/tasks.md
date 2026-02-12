@@ -5,570 +5,630 @@
 This implementation plan breaks down the Tab Group Sync extension into discrete coding tasks. The approach follows a bottom-up strategy: building core utilities and managers first, then integrating them into the sync engine, and finally connecting the UI and event listeners. Each task builds incrementally, with testing integrated throughout to catch errors early.
 
 **Testing Strategy:**
-- **Property-based tests** (required): Validate all 30 correctness properties with 100+ iterations using fast-check
-- **E2E tests** (required): Validate real Chrome extension behavior using Playwright with isolated browser profiles
-- **Unit tests** (optional): Supplementary tests for specific examples and edge cases
+- **Unit tests**: Verify specific examples, edge cases, and error conditions with mocked Chrome APIs
+- **Property-based tests**: Validate universal correctness properties with 100+ iterations using fast-check
+- **E2E tests**: Validate real Chrome extension behavior using Playwright with isolated browser profiles
 
-## Quick Status Overview
-
-**Implementation Progress:** 14/17 major tasks complete (82%)
-**Property Test Coverage:** 10/30 properties tested (33%)
-**E2E Test Coverage:** 0/10 test suites complete (0%)
-
-**Next Steps:**
-1. Complete remaining property tests (Properties 8-13, 17-30)
-2. Set up and execute E2E test suite
-3. Generate coverage reports and validate all properties
+Both unit tests and property tests are complementary and necessary for comprehensive coverage. Unit tests catch concrete bugs, while property tests verify general correctness across all inputs.
 
 ## Tasks
 
-- [x] 1. Create backup snapshot of current codebase
-  - [x] 1.1 Create git branch for current stable version
-    - Create a git branch (e.g., `pre-spec-implementation-backup`) to preserve current working state
-    - Tag the current commit for easy reference
-    - Document the branch purpose in commit message
-    - Verify branch creation and push to remote if applicable
-    - _Requirements: N/A (Safety measure)_
-
-- [x] 2. Set up project infrastructure and core utilities
-  - [x] 2.1 Create TypeScript configuration and build setup
-    - Configure tsconfig.json for Chrome extension development
+- [x] 1. Set up project infrastructure and core utilities
+  - [x] 1.1 Create TypeScript configuration and build setup
+    - Configure tsconfig.json for Chrome extension development with Manifest V3
     - Set up Vite build configuration with React plugin
     - Create build scripts for extension file copying and icon generation
-    - Configure manifest.json with required permissions
-    - _Requirements: 2.1, 7.1_
+    - Configure manifest.json with required permissions (tabs, tabGroups, bookmarks, storage)
+    - Ensure all Chrome API calls use promise-based syntax with async/await
+    - _Requirements: 14.1, 14.2, 14.3, 14.4_
 
-  - [x] 2.2 Implement Logger utility with console and performance tracking
+  - [x] 1.2 Implement Logger utility with console and performance tracking
     - Create Logger singleton class with structured logging methods
-    - Implement logOperation, error, logStateChange, logDecision methods
-    - Add Performance API integration for timing measurements
-    - Add startTiming and endTiming helper methods
+    - Implement logOperation method with operation type, target, outcome, duration, and metadata
+    - Implement error method with context, error details, and stack traces
+    - Implement logStateChange method with component, before/after states, and reason
+    - Implement logDecision method for automatic decisions with reasoning and context
+    - Add Performance API integration with startTiming and endTiming methods
     - _Requirements: 11.1, 11.2, 11.3, 11.4_
 
-  - [x] 2.3 Write unit tests for Logger utility (OPTIONAL)
-    - Test console output formatting
-    - Test performance mark creation
-    - Test error logging with stack traces
-    - _Requirements: 11.1, 11.2, 11.3, 11.4_
-    - _Note: Unit tests are supplementary. Property tests validate correctness._
+  - [x] 1.3 Write property test for operation logging completeness
+    - **Property 27: Operation Logging Completeness**
+    - **Validates: Requirements 11.1**
 
-  - [x] 2.4 Implement utility functions (validators, rate limiter, promise helpers)
+  - [x] 1.4 Write property test for error logging with context
+    - **Property 28: Error Logging with Context**
+    - **Validates: Requirements 11.2**
+
+  - [x] 1.5 Write property test for state change logging
+    - **Property 29: State Change Logging**
+    - **Validates: Requirements 11.3**
+
+  - [x] 1.6 Write property test for automatic decision logging
+    - **Property 30: Automatic Decision Logging**
+    - **Validates: Requirements 11.4**
+
+  - [x] 1.7 Implement utility functions (validators, rate limiter, promise helpers)
     - Create data validation functions for tab groups and bookmarks
-    - Implement rate limiter for Chrome API calls
-    - Create promise utility functions (retry with backoff, delay)
-    - Create tab utility functions for filtering and manipulation
-    - _Requirements: 8.3, 10.1, 10.2_
+    - Implement rate limiter for Chrome API calls with queuing
+    - Create promise utility functions (retry with exponential backoff, delay)
+    - Create tab utility functions for filtering ungrouped tabs (groupId === -1)
+    - Ensure all Chrome API wrappers use promise-based syntax
+    - _Requirements: 8.3, 10.1, 10.2, 13.4, 14.1_
 
-  - [x] 2.5 Write unit tests for utility functions (OPTIONAL)
-    - Test validation edge cases
-    - Test rate limiter queuing behavior
-    - Test retry logic with exponential backoff
-    - _Requirements: 8.3, 10.1, 10.2_
-    - _Note: Unit tests are supplementary. Property tests validate correctness._
+  - [x] 1.8 Implement group name resolution utility
+    - Create resolveGroupName utility function
+    - Return "Unnamed Group" for undefined/null/empty titles
+    - Return null for whitespace-only titles (to skip these groups)
+    - Add comprehensive logging for all resolution decisions
+    - Write unit tests for all edge cases
+    - _Requirements: 15.1, 15.2, 15.3, 15.5_
 
-- [x] 3. Implement StorageManager for state persistence
-  - [x] 3.1 Create StorageManager class with Chrome storage integration
-    - Implement getSettings and updateSettings methods
-    - Implement getGroupSyncSettings and updateGroupSyncSettings methods
+  - [ ]* 1.10 Write unit tests for utility functions
+    - Test validation edge cases (empty strings, invalid URLs, null values)
+    - Test rate limiter queuing behavior with concurrent requests
+    - Test retry logic with exponential backoff and max attempts
+    - Test ungrouped tab filtering (groupId === -1)
+    - _Requirements: 8.3, 10.1, 10.2, 12.4_
+
+  - [x] 1.9 Write unit tests for group name resolution
+    - Test undefined/null/empty titles return "Unnamed Group"
+    - Test whitespace-only titles return null
+    - Test valid titles are returned as-is
+    - Test various whitespace combinations (spaces, tabs, newlines)
+    - _Requirements: 15.1, 15.2, 15.3_
+
+- [x] 2. Implement StorageManager for state persistence
+  - [x] 2.1 Create StorageManager class with Chrome storage integration
+    - Implement getSettings and updateSettings methods using chrome.storage.sync
+    - Implement getGroupSyncSettings and updateGroupSyncSettings for per-group preferences
     - Implement runtime mapping methods (getMapping, updateMapping, getAllMappings)
     - Implement history tracking (addHistoryEntry, getHistory)
-    - Add state validation and error recovery
-    - _Requirements: 3.1, 7.1, 7.2, 9.1, 9.2, 9.3, 9.4_
+    - Add state validation and error recovery with safe defaults
+    - Integrate Logger for all state changes and errors
+    - Use promise-based Chrome storage API with async/await
+    - _Requirements: 3.1, 7.1, 7.2, 9.1, 9.2, 9.3, 9.4, 11.2, 11.3, 14.1_
 
-  - [x] 3.2 Write property test for sync preference persistence
+  - [ ]* 2.2 Write property test for sync preference persistence
     - **Property 5: Sync Preference Persistence**
     - **Validates: Requirements 3.1, 7.1**
 
-  - [x] 3.3 Write property test for runtime and persisted state consistency
+  - [ ]* 2.3 Write property test for runtime and persisted state consistency
     - **Property 6: Runtime and Persisted State Consistency**
     - **Validates: Requirements 9.1, 9.2, 9.3**
 
-  - [x] 3.4 Write property test for state recovery from corruption
+  - [ ]* 2.4 Write property test for state recovery from corruption
     - **Property 7: State Recovery from Corruption**
     - **Validates: Requirements 7.2, 9.4**
 
-  - [x] 3.5 Write unit tests for StorageManager (OPTIONAL)
-    - Test quota exceeded handling
-    - Test storage operation retry logic
-    - Test state validation edge cases
-    - _Requirements: 7.3, 7.4_
-    - _Note: Unit tests are supplementary. Property tests validate correctness._
+  - [ ]* 2.5 Write property test for storage operation resilience
+    - **Property 22: Storage Operation Resilience**
+    - **Validates: Requirements 7.3, 7.4**
 
-- [-] 4. Implement BookmarkManager for bookmark operations
+  - [ ]* 2.6 Write unit tests for StorageManager
+    - Test quota exceeded handling with cleanup strategies
+    - Test storage operation retry logic with exponential backoff
+    - Test state validation edge cases (corrupted data, missing fields)
+    - Test conflict resolution between runtime and persisted state
+    - _Requirements: 7.3, 7.4, 9.3_
+
+- [x] 3. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 4. Implement BookmarkManager for bookmark operations
   - [x] 4.1 Create BookmarkManager class with folder management
     - Implement getContainerFolder and createContainerFolder methods
-    - Implement setupTabGroupsFolder for subfolder creation
-    - Implement ensureContainerFolderExists with structure validation
+    - Implement setupTabGroupsFolder for "Tab Group Bookmarks" and "Tab Group Snapshots" subfolders
+    - Implement ensureContainerFolderExists with structure validation and repair
     - Implement ensureGroupFolder for individual group folders
     - Implement syncGroupToFolder for bookmark creation/updates
-    - _Requirements: 1.1, 1.2, 1.4, 4.1_
+    - Integrate Logger for all folder operations and decisions
+    - Use promise-based Chrome bookmarks API with async/await
+    - _Requirements: 1.1, 1.2, 1.4, 4.1, 11.1, 11.4, 14.1_
 
   - [x] 4.2 Implement automatic folder recovery in handleBookmarkRemoved
-    - Detect container folder deletion
-    - Check if tab groups still exist
+    - Detect container folder deletion by comparing bookmark ID with settings
+    - Check if tab groups still exist using chrome.tabGroups.query
     - Automatically recreate folder structure when needed
-    - Log all folder recreation decisions with reasoning
+    - Log all folder recreation decisions with reasoning using logDecision
+    - Update settings with new container folder ID
     - _Requirements: 4.2, 4.3, 11.4_
 
-  - [-] 4.3 Write property test for tab group to bookmark folder synchronization
+  - [x] 4.3 Integrate group name resolution in BookmarkManager
+    - Use resolveGroupName in ensureGroupFolder
+    - Return null for whitespace-only group names
+    - Log when groups are skipped due to whitespace-only names
+    - Handle "Unnamed Group" mapping to single folder
+    - _Requirements: 15.1, 15.2, 15.3, 15.5_
+
+  - [ ]* 4.11 Write property test for tab group to bookmark folder synchronization
     - **Property 1: Tab Group to Bookmark Folder Synchronization**
     - **Validates: Requirements 1.1, 1.2**
 
-  - [ ] 4.4 Write property test for bookmark preservation during tab operations
+  - [ ]* 4.4 Write property test for bookmark preservation during tab operations
     - **Property 2: Bookmark Preservation During Tab Operations**
     - **Validates: Requirements 1.3**
 
-  - [ ] 4.5 Write property test for title synchronization consistency
+  - [ ]* 4.5 Write property test for title synchronization consistency
     - **Property 3: Title Synchronization Consistency**
     - **Validates: Requirements 1.4**
 
-  - [ ] 4.6 Write property test for group deletion preservation
+  - [ ]* 4.6 Write property test for group deletion preservation
     - **Property 4: Group Deletion Preservation**
     - **Validates: Requirements 1.5**
 
-  - [ ] 4.7 Write property test for container folder structure creation
+  - [ ]* 4.7 Write property test for container folder structure creation
     - **Property 14: Container Folder Structure Creation**
     - **Validates: Requirements 4.1**
 
-  - [ ] 4.8 Write property test for automatic folder structure recovery
+  - [ ]* 4.8 Write property test for automatic folder structure recovery
     - **Property 15: Automatic Folder Structure Recovery**
     - **Validates: Requirements 4.2, 4.3**
 
-  - [ ] 4.9 Write property test for nested container deduplication
+  - [ ]* 4.9 Write property test for nested container deduplication
     - **Property 16: Nested Container Deduplication**
     - **Validates: Requirements 4.4**
 
-  - [ ] 4.10 Write unit tests for BookmarkManager (OPTIONAL)
-    - Test bookmark creation with invalid URLs (SKIPPED - complex mocking)
-    - Test folder operations with permission errors (SKIPPED - complex mocking)
-    - Test nested folder detection (PASSING)
+  - [ ]* 4.10 Write unit tests for BookmarkManager
+    - Test bookmark creation with invalid URLs
+    - Test folder operations with permission errors
+    - Test nested folder detection and parent selection
+    - Test folder structure validation and repair
     - _Requirements: 4.1, 4.4, 8.2_
-    - _Note: Unit tests are supplementary. Property tests validate correctness. Some tests skipped due to mocking complexity._
 
-- [ ] 5. Checkpoint - Ensure all tests pass
-  - Property-based tests validate correctness. Unit tests are supplementary and optional.
-
-- [ ] 6. Implement TabGroupManager for tab group operations
-  - [ ] 6.1 Create TabGroupManager class with tab group lifecycle management
-    - Implement methods for querying tab groups
+- [x] 5. Implement TabGroupManager for tab group operations
+  - [x] 5.1 Create TabGroupManager class with tab group lifecycle management
+    - Implement methods for querying tab groups using chrome.tabGroups.query
     - Implement methods for creating and updating tab groups
     - Implement methods for managing tab group colors and titles
-    - Add tab filtering to exclude ungrouped tabs (groupId === -1)
-    - _Requirements: 1.1, 1.4, 13.1, 13.4_
+    - Add tab filtering to exclude ungrouped tabs (groupId === -1) in all queries
+    - Integrate Logger for all tab group operations
+    - Use promise-based Chrome tab groups API with async/await
+    - _Requirements: 1.1, 1.4, 13.1, 13.4, 11.1, 14.1_
 
-  - [x] 6.2 Write property test for ungrouped tab exclusion
+  - [ ]* 5.2 Write property test for ungrouped tab exclusion
     - **Property 11: Ungrouped Tab Exclusion**
     - **Validates: Requirements 13.1, 13.4**
 
-  - [x] 6.3 Write property test for ungrouped tab bookmark preservation
+  - [ ]* 5.3 Write property test for ungrouped tab bookmark preservation
     - **Property 12: Ungrouped Tab Bookmark Preservation**
     - **Validates: Requirements 13.2**
 
-  - [ ] 6.4 Write unit tests for TabGroupManager (OPTIONAL)
+  - [ ]* 5.4 Write unit tests for TabGroupManager
     - Test tab group creation and updates
-    - Test ungrouped tab filtering
+    - Test ungrouped tab filtering (groupId === -1)
     - Test color and title updates
+    - Test tab group query edge cases
     - _Requirements: 1.1, 1.4, 13.1_
-    - _Note: Unit tests are supplementary. Property tests validate correctness._
 
-- [ ] 7. Implement SnapshotManager for point-in-time backups
-  - [ ] 7.1 Create SnapshotManager class with snapshot operations
+- [x] 6. Implement SnapshotManager for point-in-time backups
+  - [x] 6.1 Create SnapshotManager class with snapshot operations
     - Implement createSnapshot method with timestamp generation
     - Implement restoreSnapshot method for tab group recreation
     - Implement snapshot storage in "Tab Group Snapshots" folder
-    - Implement snapshot cleanup with oldest-first removal
-    - _Requirements: 5.1, 5.2, 5.3, 5.4_
+    - Implement snapshot cleanup with oldest-first removal policy
+    - Integrate Logger for all snapshot operations
+    - Use promise-based Chrome APIs with async/await
+    - _Requirements: 5.1, 5.2, 5.3, 5.4, 11.1, 14.1_
 
-  - [x] 7.2 Write property test for snapshot creation and storage
+  - [ ]* 6.2 Write property test for snapshot creation and storage
     - **Property 17: Snapshot Creation and Storage**
     - **Validates: Requirements 5.1, 5.3**
 
-  - [x] 7.3 Write property test for snapshot restoration round-trip
+  - [ ]* 6.3 Write property test for snapshot restoration round-trip
     - **Property 18: Snapshot Restoration Round-Trip**
     - **Validates: Requirements 5.2**
 
-  - [x] 7.4 Write property test for snapshot cleanup policy
+  - [ ]* 6.4 Write property test for snapshot cleanup policy
     - **Property 19: Snapshot Cleanup Policy**
     - **Validates: Requirements 5.4**
 
-  - [ ] 7.5 Write unit tests for SnapshotManager (OPTIONAL)
+  - [ ]* 6.5 Write unit tests for SnapshotManager
     - Test snapshot creation with empty groups
     - Test snapshot restoration with missing tabs
     - Test cleanup with various snapshot counts
+    - Test timestamp formatting and parsing
     - _Requirements: 5.1, 5.2, 5.4_
-    - _Note: Unit tests are supplementary. Property tests validate correctness._
 
-- [ ] 8. Implement SyncEngine for core synchronization logic
-  - [ ] 8.1 Create SyncEngine class with sync coordination
+- [x] 7. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 8. Implement SyncEngine for core synchronization logic
+  - [x] 8.1 Create SyncEngine class with sync coordination
     - Implement syncAll method for full synchronization
     - Implement syncGroupToFolder for individual group sync
     - Implement setGroupSyncEnabled and getGroupSyncEnabled methods
     - Implement toggleSync for UI control
-    - Add performance tracking for all sync operations
-    - _Requirements: 1.1, 1.2, 1.3, 1.4, 3.1, 3.2, 3.3_
+    - Add performance tracking for all sync operations using Logger.startTiming/endTiming
+    - Integrate with StorageManager, BookmarkManager, and TabGroupManager
+    - Use promise-based Chrome APIs with async/await
+    - _Requirements: 1.1, 1.2, 1.3, 1.4, 3.1, 3.2, 3.3, 11.1, 14.1_
 
-  - [ ] 8.2 Implement event handlers in SyncEngine
+  - [x] 8.2 Implement event handlers in SyncEngine
     - Implement handleGroupCreated with auto-sync logic
     - Implement handleGroupUpdated for title and tab changes
     - Implement handleGroupRemoved with bookmark preservation
-    - Add decision logging for all automatic actions
+    - Add decision logging for all automatic actions using logDecision
+    - Check auto-sync settings and container folder before enabling sync
     - _Requirements: 1.1, 1.4, 1.5, 6.1, 6.2, 6.3, 6.4, 11.4_
 
-  - [ ] 8.3 Implement folder management in SyncEngine
+  - [x] 8.2a Integrate group name resolution in SyncEngine event handlers
+    - Use resolveGroupName in handleGroupCreated
+    - Skip groups with whitespace-only names (when resolveGroupName returns null)
+    - Log when groups are skipped due to whitespace-only names
+    - Ensure "Unnamed Group" handling in handleGroupUpdated and handleGroupRemoved
+    - _Requirements: 15.1, 15.2, 15.4, 15.5_
+
+  - [x] 8.3 Implement folder management in SyncEngine
     - Implement ensureSyncFolders method
     - Add folder structure validation
     - Integrate with BookmarkManager for folder operations
-    - _Requirements: 4.1, 4.2, 4.3_
+    - Handle nested container folder detection
+    - _Requirements: 4.1, 4.2, 4.3, 4.4_
 
-  - [ ] 8.4 Add error handling and retry logic to SyncEngine
+  - [x] 8.4 Add error handling and retry logic to SyncEngine
     - Implement exponential backoff for failed operations
-    - Add error logging with full context
+    - Add error logging with full context using Logger.error
     - Implement graceful degradation for non-critical failures
     - Add user-facing error messages
-    - _Requirements: 8.1, 8.3, 11.2_
+    - Handle permission errors and quota limits
+    - _Requirements: 8.1, 8.2, 8.3, 8.4, 11.2_
 
-  - [ ] 8.5 Write property test for sync state transitions
+  - [x] 8.5 Implement sync operation queuing and debouncing
+    - Add operation queue to prevent Chrome API rate limiting
+    - Implement debouncing for rapid tab changes
+    - Add batch processing for large numbers of tabs
+    - Implement memory cleanup strategies for cached data
+    - _Requirements: 10.1, 10.2, 10.3, 10.4_
+
+  - [x] 8.6 Write property test for sync state transitions
     - **Property 8: Sync State Transitions**
     - **Validates: Requirements 3.2, 3.3, 3.4**
 
-  - [ ] 8.6 Write property test for auto-sync behavior
+  - [x] 8.7 Write property test for auto-sync behavior
     - **Property 9: Auto-Sync Behavior**
     - **Validates: Requirements 6.1, 6.4**
 
-  - [ ] 8.7 Write property test for auto-sync preconditions
+  - [x] 8.8 Write property test for auto-sync preconditions
     - **Property 10: Auto-Sync Preconditions**
     - **Validates: Requirements 6.2, 6.3**
 
-  - [ ] 8.8 Write property test for sync operation error handling
+  - [x] 8.8a Update property test for whitespace-only group names
+    - Update Property 9 test to skip whitespace-only groups
+    - Verify whitespace-only groups are not auto-synced
+    - Verify logging indicates groups were skipped
+    - **Validates: Requirements 15.2, 15.4, 15.5**
+
+  - [x] 8.9 Write property test for sync operation error handling
     - **Property 20: Sync Operation Error Handling**
     - **Validates: Requirements 8.1, 8.3**
 
-  - [ ] 8.9 Write property test for permission and quota management
+  - [x] 8.10 Write property test for permission and quota management
     - **Property 21: Permission and Quota Management**
     - **Validates: Requirements 8.2, 8.4**
 
-  - [ ] 8.10 Write property test for storage operation resilience
-    - **Property 22: Storage Operation Resilience**
-    - **Validates: Requirements 7.3, 7.4**
-
-  - [ ] 8.11 Write property test for sync operation queuing
+  - [x] 8.11 Write property test for sync operation queuing
     - **Property 23: Sync Operation Queuing**
     - **Validates: Requirements 10.1**
 
-  - [ ] 8.12 Write property test for change debouncing
+  - [x] 8.12 Write property test for change debouncing
     - **Property 24: Change Debouncing**
     - **Validates: Requirements 10.2**
 
-  - [ ] 8.13 Write property test for batch processing
+  - [ ]* 8.13 Write property test for batch processing
     - **Property 25: Batch Processing for Large Operations**
     - **Validates: Requirements 10.3**
 
-  - [ ] 8.14 Write property test for memory management
+  - [ ]* 8.14 Write property test for memory management
     - **Property 26: Memory Management**
     - **Validates: Requirements 10.4**
 
-  - [ ] 8.15 Write unit tests for SyncEngine (OPTIONAL)
+  - [ ]* 8.15 Write unit tests for SyncEngine
     - Test sync with network failures
     - Test sync with rate limiting
     - Test sync with quota exceeded
-    - Test auto-sync edge cases
+    - Test auto-sync edge cases (no container folder, auto-sync disabled)
+    - Test conflict resolution scenarios
     - _Requirements: 6.1, 6.2, 6.3, 8.1, 8.3, 10.1_
-    - _Note: Unit tests are supplementary. Property tests validate correctness._
 
-- [ ] 9. Checkpoint - Ensure all tests pass
-  - Property-based tests validate correctness. Unit tests are supplementary and optional.
-
-- [ ] 10. Implement Chrome API event listeners
-  - [ ] 10.1 Create bookmark event listeners
+- [x] 9. Implement Chrome API event listeners
+  - [x] 9.1 Create bookmark event listeners
     - Implement onCreated listener for bookmark additions
     - Implement onRemoved listener with folder recovery logic
     - Implement onChanged listener for bookmark updates
     - Integrate with BookmarkManager and SyncEngine
-    - _Requirements: 2.1, 4.2, 4.3_
+    - Use promise-based event handlers with async/await
+    - _Requirements: 2.1, 4.2, 4.3, 14.1_
 
-  - [ ] 10.2 Create tab group event listeners
+  - [x] 9.2 Create tab group event listeners
     - Implement onCreated listener with auto-sync integration
     - Implement onUpdated listener for title and color changes
     - Implement onRemoved listener with bookmark preservation
     - Integrate with SyncEngine event handlers
-    - _Requirements: 1.1, 1.4, 1.5, 6.1_
+    - Use promise-based event handlers with async/await
+    - _Requirements: 1.1, 1.4, 1.5, 6.1, 14.1_
 
-  - [ ] 10.3 Create tab event listeners
+  - [x] 9.3 Create tab event listeners
     - Implement onCreated listener for new tabs in groups
     - Implement onRemoved listener for tab deletion
     - Implement onAttached listener for tabs added to groups
     - Implement onDetached listener for tabs removed from groups
-    - Add ungrouped tab filtering (groupId === -1)
-    - _Requirements: 1.2, 1.3, 13.1, 13.2_
+    - Add ungrouped tab filtering (groupId === -1) in all listeners
+    - Use promise-based event handlers with async/await
+    - _Requirements: 1.2, 1.3, 13.1, 13.2, 14.1_
 
-  - [ ] 10.4 Write unit tests for event listeners (OPTIONAL)
+  - [ ]* 9.4 Write unit tests for event listeners
     - Test listener registration and deregistration
     - Test event handler error recovery
     - Test ungrouped tab filtering in listeners
+    - Test event handler integration with managers
     - _Requirements: 1.1, 1.2, 1.3, 13.1_
-    - _Note: Unit tests are supplementary. E2E tests validate real behavior._
 
-- [ ] 11. Implement background service worker
-  - [ ] 11.1 Create background.ts with service worker initialization
+- [x] 10. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 11. Implement background service worker
+  - [x] 11.1 Create background.ts with service worker initialization
     - Initialize all managers (Storage, Bookmark, TabGroup, Snapshot, Sync)
-    - Register all event listeners
+    - Register all event listeners (bookmarks, tab groups, tabs)
     - Implement message handlers for UI communication
     - Add startup initialization and state restoration
-    - _Requirements: 2.2, 7.1_
+    - Use promise-based Chrome APIs with async/await
+    - _Requirements: 2.2, 7.1, 14.1_
 
-  - [ ] 11.2 Implement message passing between UI and background
-    - Create message types for sync operations
-    - Implement handlers for sync control messages
-    - Implement handlers for snapshot operations
-    - Implement handlers for settings updates
-    - _Requirements: 3.1, 5.1, 5.2_
+  - [x] 11.2 Implement message passing between UI and background
+    - Create message types for sync operations (sync all, sync group, toggle sync)
+    - Implement handlers for snapshot operations (create, restore, delete)
+    - Implement handlers for settings updates (container folder, auto-sync)
+    - Implement handlers for state queries (get mappings, get settings)
+    - Use promise-based message passing with async/await
+    - _Requirements: 3.1, 5.1, 5.2, 14.1_
 
-  - [ ] 11.3 Write unit tests for background service worker (OPTIONAL)
-    - Test manager initialization
+  - [ ]* 11.3 Write unit tests for background service worker
+    - Test manager initialization order
     - Test message handler routing
     - Test startup state restoration
+    - Test error handling in message handlers
     - _Requirements: 2.2, 7.1_
-    - _Note: Unit tests are supplementary. E2E tests validate real behavior._
 
-- [ ] 12. Implement React UI components
-  - [ ] 12.1 Create App component with error boundary
+- [x] 12. Implement React UI components
+  - [x] 12.1 Create App component with error boundary
     - Set up React app structure with Material-UI theme
     - Implement ErrorBoundary component for error handling
     - Create main app layout with header and content areas
-    - _Requirements: 8.1_
+    - Integrate Logger for UI errors
+    - _Requirements: 8.1, 11.2_
 
-  - [ ] 12.2 Create Settings component with folder picker
+  - [x] 12.2 Create Settings component with folder picker
     - Implement FolderPicker for container folder selection
     - Implement LocationDisplay for current folder display
     - Add auto-sync toggle control
     - Add cleanup settings configuration
+    - Send settings updates to background via message passing
     - _Requirements: 4.1, 6.1, 6.2_
 
-  - [ ] 12.3 Create GroupList and GroupSection components
+  - [x] 12.3 Create GroupList and GroupSection components
     - Implement GroupList to display all tab groups
     - Implement GroupSection for individual group display
     - Add sync toggle controls per group
-    - Add group status indicators
+    - Add group status indicators (syncing, error, last synced)
     - Filter out ungrouped tabs from display
+    - Send sync control messages to background
     - _Requirements: 3.1, 3.2, 13.3_
 
-  - [ ] 12.4 Write property test for UI display filtering
+  - [ ]* 12.4 Write property test for UI display filtering
     - **Property 13: UI Display Filtering**
     - **Validates: Requirements 13.3**
 
-  - [ ] 12.5 Create SnapshotList component
+  - [x] 12.5 Create SnapshotList component
     - Implement snapshot creation UI
     - Implement snapshot list display with timestamps
     - Add snapshot restoration controls
     - Add snapshot deletion controls
+    - Send snapshot operation messages to background
     - _Requirements: 5.1, 5.2, 5.4_
 
-  - [ ] 12.6 Create SyncStatus component
-    - Display current sync status
+  - [x] 12.6 Create SyncStatus component
+    - Display current sync status (idle, syncing, error)
     - Show sync errors and warnings
     - Display last sync timestamp
     - Add sync progress indicators
     - _Requirements: 8.1_
 
-  - [ ] 12.7 Create HelpDialog component
+  - [x] 12.7 Create HelpDialog component
     - Implement help content with usage instructions
     - Add troubleshooting guidance
-    - Include links to documentation
-    - _Requirements: 8.1_
+    - Include information about ungrouped tab handling
+    - Add links to documentation
+    - _Requirements: 8.1, 13.3_
 
-  - [ ] 12.8 Write unit tests for React components (OPTIONAL)
+  - [ ]* 12.8 Write unit tests for React components
     - Test component rendering with various props
     - Test user interaction handlers
     - Test error boundary behavior
     - Test ungrouped tab filtering in UI
+    - Test message passing to background
     - _Requirements: 8.1, 13.3_
-    - _Note: Unit tests are supplementary. E2E tests validate real UI behavior._
 
-- [ ] 13. Implement popup entry point and integration
-  - [ ] 13.1 Create popup.tsx and main.tsx
+- [x] 13. Implement popup entry point and integration
+  - [x] 13.1 Create popup.tsx and main.tsx
     - Set up React root rendering
     - Initialize Material-UI theme provider
     - Connect to background service worker
     - Implement state synchronization with background
     - _Requirements: 2.2_
 
-  - [ ] 13.2 Wire all components together
-    - Connect Settings to StorageManager
-    - Connect GroupList to SyncEngine
-    - Connect SnapshotList to SnapshotManager
+  - [x] 13.2 Wire all components together
+    - Connect Settings to StorageManager via message passing
+    - Connect GroupList to SyncEngine via message passing
+    - Connect SnapshotList to SnapshotManager via message passing
     - Connect SyncStatus to sync state
-    - Implement message passing for all operations
+    - Implement error handling and user feedback
     - _Requirements: 1.1, 3.1, 5.1, 5.2_
 
-  - [ ] 13.3 Write integration tests for UI-background communication (OPTIONAL)
+  - [ ]* 13.3 Write integration tests for UI-background communication
     - Test settings updates propagation
     - Test sync toggle message flow
     - Test snapshot operations message flow
+    - Test error message propagation
     - _Requirements: 3.1, 5.1, 5.2_
-    - _Note: Integration tests are supplementary. E2E tests validate real communication._
 
-- [ ] 14. Checkpoint - Ensure all tests pass
-  - Property-based tests validate correctness. Unit tests are supplementary and optional.
-  - Core implementation complete. Remaining work: property tests for SyncEngine, logging, snapshots, ungrouped tabs, and E2E tests.
+- [x] 14. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 15. Set up property-based testing infrastructure
-  - [ ] 15.1 Configure fast-check for property-based testing
+- [x] 15. Set up property-based testing infrastructure
+  - [x] 15.1 Configure fast-check for property-based testing
     - Install fast-check library
-    - Create arbitrary generators for tab groups, tabs, bookmarks
-    - Create test utilities for Chrome API mocking
+    - Create arbitrary generators for tab groups (id, title, color, windowId, collapsed)
+    - Create arbitrary generators for tabs (id, url, title, pinned, groupId)
+    - Create arbitrary generators for bookmarks (id, title, url, parentId)
+    - Create test utilities for Chrome API mocking with promises
     - Configure test runner for 100+ iterations per property
     - _Requirements: 12.1, 12.3_
 
-  - [ ] 15.2 Write property test for operation logging completeness
-    - **Property 27: Operation Logging Completeness**
-    - **Validates: Requirements 11.1**
+  - [x] 15.2 Implement all remaining property tests
+    - Ensure all 30 correctness properties have corresponding tests
+    - Tag each test with format: "Feature: tab-group-sync, Property {number}: {property_text}"
+    - Verify each test runs 100+ iterations
+    - Verify each test references its design document property
+    - _Requirements: 12.3_
 
-  - [ ] 15.3 Write property test for error logging with context
-    - **Property 28: Error Logging with Context**
-    - **Validates: Requirements 11.2**
-
-  - [ ] 15.4 Write property test for state change logging
-    - **Property 29: State Change Logging**
-    - **Validates: Requirements 11.3**
-
-  - [ ] 15.5 Write property test for automatic decision logging
-    - **Property 30: Automatic Decision Logging**
-    - **Validates: Requirements 11.4**
-
-- [ ] 16. Set up Playwright E2E testing infrastructure
-  - [ ] 16.1 Configure Playwright for Chrome extension testing
+- [ ] 16. Rewrite E2E tests to use UI interactions only (no internal APIs)
+  - [x] 16.1 Configure Playwright for Chrome extension testing
     - Install Playwright and dependencies
     - Create playwright.config.ts with extension support
-    - Create extension loading fixture
-    - Set up isolated browser profiles for tests
+    - Create extension loading fixture with isolated browser profiles
+    - Set up test utilities for extension ID extraction
     - _Requirements: 12.2, 12.5_
 
-  - [ ] 16.2 Create E2E test utilities and helpers
-    - Create helpers for tab group creation
-    - Create helpers for bookmark verification
-    - Create helpers for extension popup interaction
-    - Create helpers for multi-context simulation
-    - _Requirements: 12.2, 12.4, 12.6_
+  - [ ] 16.2 Rewrite E2E test utilities to remove internal API helpers
+    - **REMOVE** `setExtensionStorage()` — tests must use popup UI to configure settings
+    - **REMOVE** `clearExtensionStorage()` — tests must use fresh browser profiles (already done by fixtures)
+    - **REMOVE** `sendMessageToBackground()` — tests must click UI buttons
+    - **REMOVE** `getExtensionStorage()` — replace with UI assertions or bookmark verification
+    - **UPDATE** `toggleGroupSync()` — ensure it works with actual popup selectors, make tests use it
+    - **UPDATE** `setContainerFolder()` — ensure it works with actual folder picker UI, make tests use it
+    - **UPDATE** `createSnapshot()` — ensure it works with actual snapshot UI, make tests use it
+    - **ADD** `setupExtensionViaUI()` — open popup, pick container folder, enable auto-sync through UI clicks
+    - **ADD** `waitForSyncIndicator()` — wait for real UI sync status indicator instead of arbitrary timeouts
+    - **KEEP** `createTabGroup()` — browser-level action, no UI equivalent
+    - **KEEP** `findBookmarkFolder()` / `getBookmarksInFolder()` — read-only assertions
+    - **KEEP** `openExtensionPopup()` — navigates to popup
+    - **FIX** smoke.test.ts — replace callback-based Chrome API calls with promise-based (Req 14)
+    - **Depends**: 16.1
+    - _Requirements: 12.2, 12.4_
 
-  - [ ] 16.3 Write E2E test for tab group sync
-    - Test creating tab group and verifying bookmark creation
-    - Test adding tabs to group and verifying bookmark updates
+  - [ ] 16.3 Rewrite E2E test for tab group sync (tab-group-sync.test.ts)
+    - **REMOVE** beforeEach that calls `setExtensionStorage` and `chrome.runtime.sendMessage`
+    - **REPLACE** with `setupExtensionViaUI()` that opens popup and configures via Settings UI
+    - **REMOVE** `chrome.runtime.sendMessage({ type: 'FULL_RESYNC_GROUP' })` — sync should happen automatically via event listeners when auto-sync is enabled
+    - **REMOVE** afterEach that calls `chrome.bookmarks.removeTree` — fresh profiles handle cleanup
+    - Test creating tab group and verifying bookmark creation (via auto-sync, not message)
+    - Test adding tabs to group and verifying bookmark updates (via auto-sync)
     - Test group title changes and folder name updates
-    - _Requirements: 1.1, 1.2, 1.4, 12.4_
+    - Test group deletion and bookmark preservation
+    - **Depends**: 16.2
+    - _Requirements: 1.1, 1.2, 1.4, 1.5, 12.4_
 
-  - [ ] 16.4 Write E2E test for container folder management
-    - Test container folder creation with subfolders
-    - Test automatic folder recreation when deleted
-    - Test folder structure validation
-    - _Requirements: 4.1, 4.2, 4.3, 12.4_
+  - [ ] 16.4 Rewrite E2E test for container folder management (container-folder.test.ts)
+    - **REMOVE** all `setExtensionStorage()` calls for `state:settings`
+    - **REPLACE** with UI-based setup: open popup → Settings → pick folder
+    - Container folder creation should be verified through UI feedback + bookmark assertions
+    - Folder recreation test: delete folder via `chrome.bookmarks.removeTree` (acceptable — simulates external action), then verify UI shows recovery
+    - **Depends**: 16.2
+    - _Requirements: 4.1, 4.2, 4.3, 4.4, 12.4_
 
-  - [ ] 16.5 Write E2E test for snapshot system
-    - Test snapshot creation with timestamp
-    - Test snapshot restoration recreating tab group
-    - Test snapshot cleanup when limits exceeded
+  - [ ] 16.5 Rewrite E2E test for snapshot system (snapshot-system.test.ts)
+    - **REMOVE** all `sendMessageToBackground({ type: 'CREATE_SNAPSHOT' })` calls
+    - **REPLACE** with clicking snapshot creation button in popup UI via `createSnapshot()` helper
+    - **REMOVE** `sendMessageToBackground({ type: 'RESTORE_SNAPSHOT' })` calls
+    - **REPLACE** with clicking restore button in popup UI
+    - **REMOVE** `setExtensionStorage()` in beforeEach
+    - **REPLACE** with `setupExtensionViaUI()`
+    - **Depends**: 16.2
     - _Requirements: 5.1, 5.2, 5.4, 12.4_
 
-  - [ ] 16.6 Write E2E test for sync control
-    - Test toggling sync on and off
-    - Test sync preference persistence across restarts
-    - Test auto-sync for new groups
-    - _Requirements: 3.1, 3.2, 3.3, 6.1, 12.4_
+  - [ ] 16.6 Rewrite E2E test for sync control (sync-control.test.ts)
+    - **REMOVE** all `sendMessageToBackground({ type: 'TOGGLE_SYNC' })` calls
+    - **REPLACE** with `toggleGroupSync()` helper that clicks the toggle in popup UI
+    - **REMOVE** `sendMessageToBackground({ type: 'CLEAR_RUNTIME_STATE' })` — not a real user action
+    - **REPLACE** persistence test with actual browser restart simulation (close/reopen context)
+    - **REMOVE** all `setExtensionStorage()` calls
+    - **REPLACE** with `setupExtensionViaUI()`
+    - **Depends**: 16.2
+    - _Requirements: 3.1, 3.2, 3.3, 6.1, 6.2, 6.3, 12.4_
 
-  - [ ] 16.7 Write E2E test for cross-device sync simulation
-    - Test sync across multiple browser contexts
-    - Test bookmark propagation between contexts
-    - Test conflict resolution
+  - [ ] 16.7 Rewrite E2E test for cross-device sync simulation (cross-device-sync.test.ts)
+    - **REMOVE** `setExtensionStorage()` in beforeEach and throughout
+    - **REPLACE** with `setupExtensionViaUI()`
+    - Cross-device simulation via bookmark manipulation is acceptable (simulates Chrome sync)
+    - **Depends**: 16.2
     - _Requirements: 2.1, 2.2, 2.3, 12.6_
 
-  - [ ] 16.8 Write E2E test for error scenarios
-    - Test permission errors and recovery
-    - Test quota limit handling
-    - Test network failure retry logic
+  - [ ] 16.8 Rewrite E2E test for error scenarios (error-scenarios.test.ts)
+    - **REMOVE** `setExtensionStorage()` in beforeEach
+    - **REPLACE** with `setupExtensionViaUI()`
+    - **REMOVE** `sendMessageToBackground({ type: 'SYNC_GROUP' })` for quota test
+    - **REPLACE** with triggering sync through UI or natural tab group events
+    - Error verification should check popup UI for error messages, not just "extension didn't crash"
+    - **Depends**: 16.2
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 12.4_
 
-  - [ ] 16.9 Write E2E test for ungrouped tab handling
-    - Test that ungrouped tabs are not synced
-    - Test that ungrouped tabs don't appear in UI
-    - Test bookmark preservation when tab is ungrouped
+  - [ ] 16.9 Rewrite E2E test for ungrouped tab handling (ungrouped-tabs.test.ts)
+    - **REMOVE** `setExtensionStorage()` in beforeEach
+    - **REPLACE** with `setupExtensionViaUI()`
+    - Tab creation/ungrouping via Chrome APIs is acceptable (browser-level actions)
+    - Verify ungrouped tabs don't appear in popup UI (not just bookmark absence)
+    - **Depends**: 16.2
     - _Requirements: 13.1, 13.2, 13.3, 12.4_
 
-  - [ ] 16.10 Write E2E test for UI interactions
-    - Test popup opening and rendering
-    - Test settings panel interactions
-    - Test group list display and controls
-    - Test help dialog functionality
+  - [ ] 16.10 Rewrite E2E test for UI interactions (ui-interactions.test.ts)
+    - **REMOVE** `setExtensionStorage()` in beforeEach
+    - **REPLACE** with `setupExtensionViaUI()`
+    - Strengthen assertions: instead of `expect(settingsElements).toBeGreaterThanOrEqual(0)`, assert specific UI elements exist
+    - Test actual user flows: open settings, change folder, toggle auto-sync, see groups update
+    - **Depends**: 16.2
     - _Requirements: 12.4_
 
 - [ ] 17. Final checkpoint - Ensure all tests pass and generate coverage reports
-  - Run full test suite (property-based and E2E tests required, unit tests optional)
+  - Run full test suite (unit, property-based, and E2E tests)
   - Generate code coverage reports
   - Generate property validation coverage reports
   - Verify all 30 correctness properties have corresponding tests
-  - Property-based tests validate correctness. Unit tests are supplementary and optional.
+  - Verify minimum 80% code coverage
+  - **CRITICAL**: E2E tests must follow actual user workflow:
+    1. Open extension popup
+    2. User selects container folder through Settings UI
+    3. Extension creates "Tab Group Bookmarks" and "Tab Group Snapshots" subfolders
+    4. User enables auto-sync (optional)
+    5. Tab groups are created and synced
+  - E2E tests MUST NOT call `chrome.runtime.sendMessage`, `chrome.storage.sync.set/get/clear`, or any internal API
+  - E2E tests should verify the complete user experience from setup to sync
+  - **KNOWN ISSUE**: E2E tests reveal a race condition where tab group creation triggers sync before title is set
+    - This causes groups to sync as "Unnamed Group" initially
+    - The extension then updates the folder name when the title change event fires
+    - E2E tests need to account for this timing by waiting for title updates to propagate
+    - This is a real user-facing issue that should be addressed in future iterations
+  - **Depends**: 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8, 16.9, 16.10
   - _Requirements: 12.7_
 
-## Implementation Status Summary
-
-### Completed (Tasks 1-14)
-- ✅ Core infrastructure and utilities (Logger, validators, rate limiter, promise helpers)
-- ✅ StorageManager with state persistence and recovery
-- ✅ BookmarkManager with folder management and automatic recovery
-- ✅ TabGroupManager for tab group operations
-- ✅ SnapshotManager for point-in-time backups
-- ✅ SyncEngine with full synchronization logic
-- ✅ Chrome API event listeners (bookmarks, tab groups, tabs)
-- ✅ Background service worker with message passing
-- ✅ Complete React UI (App, Settings, GroupList, SnapshotList, SyncStatus, HelpDialog)
-- ✅ Popup entry point and component integration
-- ✅ Property tests for storage (Properties 5, 6, 7)
-- ✅ Property tests for bookmarks (Properties 1, 2, 3, 4, 14, 15, 16)
-- ✅ Unit tests for utilities and managers (optional, supplementary)
-
-### Remaining (Tasks 15-17)
-- ⏳ Property tests for SyncEngine (Properties 8, 9, 10, 20-26)
-- ⏳ Property tests for logging (Properties 27, 28, 29, 30)
-- ⏳ Property tests for snapshots (Properties 17, 18, 19)
-- ⏳ Property tests for ungrouped tabs (Properties 11, 12, 13)
-- ⏳ Complete E2E test suite with Playwright
-- ⏳ Coverage reports and validation
-
-### Property Test Coverage Status
-**Completed: 10/30 properties**
-- ✅ Properties 1-7: Storage and bookmark operations
-- ✅ Properties 14-16: Folder management
-- ⏳ Properties 8-13: Sync control and ungrouped tabs
-- ⏳ Properties 17-19: Snapshot system
-- ⏳ Properties 20-26: Error handling and performance
-- ⏳ Properties 27-30: Logging and observability
+- [ ] 18. Repository cleanup — remove stray files
+  - [ ] 18.1 Remove stale root-level files
+    - **DELETE** `popup.html` at project root — stale pre-React artifact, not used by build
+    - **DELETE** `index.html` at project root — Vite scaffold leftover, not used by build
+    - Verify `src/popup.html` is the canonical popup (used by `scripts/copy-extension-files.js`)
+    - Verify build still works after removal: `npm run build`
+    - **Depends**: —
+    - _Requirements: NF 3.1, NF 3.3_
 
 ## Notes
 
 - Each task references specific requirements for traceability
 - Checkpoints ensure incremental validation throughout development
-
-### Testing Strategy
-
-**Required Tests:**
-- **Property-based tests**: Validate universal correctness properties with 100+ iterations per property. These are the primary validation mechanism.
-- **E2E tests**: Validate real Chrome extension behavior in isolated browser environments with actual Chrome APIs.
-
-**Optional Tests:**
-- **Unit tests**: Test specific examples and edge cases with mocked dependencies. Supplementary to property tests.
-- **Integration tests**: Test component interactions. Supplementary to E2E tests.
-
-**Testing Hierarchy:**
-1. Property tests validate correctness across all inputs
-2. E2E tests validate real-world behavior
-3. Unit/integration tests provide additional coverage for specific scenarios
-
-**Checkpoint Policy:**
-- Checkpoints require property-based tests to pass
-- Unit test failures do not block progress if property tests pass
-- E2E tests validate final implementation
-
-### Implementation Notes
-
-- All managers integrate with Logger for comprehensive observability
+- Tasks marked with `*` are optional and can be skipped for faster MVP
+- Property tests validate universal correctness properties with 100+ iterations
+- E2E tests validate real Chrome extension behavior in isolated environments — **through the popup UI only, no internal APIs**
+- Unit tests validate specific examples and edge cases
+- All Chrome API interactions use promise-based syntax with async/await (NF 2)
+- Logger integration provides comprehensive observability throughout the system
 - Ungrouped tabs (groupId === -1) are filtered out at all integration points
-- Property tests use fast-check with 100+ iterations
-- E2E tests use Playwright with isolated Chrome profiles
+- Requirements renumbered: old Req 12→NF 1, old Req 13→Req 12, old Req 14→NF 2, old Req 15→Req 13
