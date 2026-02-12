@@ -492,7 +492,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - Verify each test references its design document property
     - _Requirements: 12.3_
 
-- [ ] 16. Rewrite E2E tests to use UI interactions only (no internal APIs)
+- [x] 16. Rewrite E2E tests to use UI interactions only (no internal APIs)
   - [x] 16.1 Configure Playwright for Chrome extension testing
     - Install Playwright and dependencies
     - Create playwright.config.ts with extension support
@@ -500,7 +500,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - Set up test utilities for extension ID extraction
     - _Requirements: 12.2, 12.5_
 
-  - [ ] 16.2 Rewrite E2E test utilities to remove internal API helpers
+  - [x] 16.2 Rewrite E2E test utilities to remove internal API helpers
     - **REMOVE** `setExtensionStorage()` — tests must use popup UI to configure settings
     - **REMOVE** `clearExtensionStorage()` — tests must use fresh browser profiles (already done by fixtures)
     - **REMOVE** `sendMessageToBackground()` — tests must click UI buttons
@@ -517,7 +517,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - **Depends**: 16.1
     - _Requirements: 12.2, 12.4_
 
-  - [ ] 16.3 Rewrite E2E test for tab group sync (tab-group-sync.test.ts)
+  - [x] 16.3 Rewrite E2E test for tab group sync (tab-group-sync.test.ts)
     - **REMOVE** beforeEach that calls `setExtensionStorage` and `chrome.runtime.sendMessage`
     - **REPLACE** with `setupExtensionViaUI()` that opens popup and configures via Settings UI
     - **REMOVE** `chrome.runtime.sendMessage({ type: 'FULL_RESYNC_GROUP' })` — sync should happen automatically via event listeners when auto-sync is enabled
@@ -529,7 +529,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - **Depends**: 16.2
     - _Requirements: 1.1, 1.2, 1.4, 1.5, 12.4_
 
-  - [ ] 16.4 Rewrite E2E test for container folder management (container-folder.test.ts)
+  - [x] 16.4 Rewrite E2E test for container folder management (container-folder.test.ts)
     - **REMOVE** all `setExtensionStorage()` calls for `state:settings`
     - **REPLACE** with UI-based setup: open popup → Settings → pick folder
     - Container folder creation should be verified through UI feedback + bookmark assertions
@@ -537,7 +537,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - **Depends**: 16.2
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 12.4_
 
-  - [ ] 16.5 Rewrite E2E test for snapshot system (snapshot-system.test.ts)
+  - [x] 16.5 Rewrite E2E test for snapshot system (snapshot-system.test.ts)
     - **REMOVE** all `sendMessageToBackground({ type: 'CREATE_SNAPSHOT' })` calls
     - **REPLACE** with clicking snapshot creation button in popup UI via `createSnapshot()` helper
     - **REMOVE** `sendMessageToBackground({ type: 'RESTORE_SNAPSHOT' })` calls
@@ -547,7 +547,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - **Depends**: 16.2
     - _Requirements: 5.1, 5.2, 5.4, 12.4_
 
-  - [ ] 16.6 Rewrite E2E test for sync control (sync-control.test.ts)
+  - [x] 16.6 Rewrite E2E test for sync control (sync-control.test.ts)
     - **REMOVE** all `sendMessageToBackground({ type: 'TOGGLE_SYNC' })` calls
     - **REPLACE** with `toggleGroupSync()` helper that clicks the toggle in popup UI
     - **REMOVE** `sendMessageToBackground({ type: 'CLEAR_RUNTIME_STATE' })` — not a real user action
@@ -557,14 +557,14 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - **Depends**: 16.2
     - _Requirements: 3.1, 3.2, 3.3, 6.1, 6.2, 6.3, 12.4_
 
-  - [ ] 16.7 Rewrite E2E test for cross-device sync simulation (cross-device-sync.test.ts)
+  - [x] 16.7 Rewrite E2E test for cross-device sync simulation (cross-device-sync.test.ts)
     - **REMOVE** `setExtensionStorage()` in beforeEach and throughout
     - **REPLACE** with `setupExtensionViaUI()`
     - Cross-device simulation via bookmark manipulation is acceptable (simulates Chrome sync)
     - **Depends**: 16.2
     - _Requirements: 2.1, 2.2, 2.3, 12.6_
 
-  - [ ] 16.8 Rewrite E2E test for error scenarios (error-scenarios.test.ts)
+  - [x] 16.8 Rewrite E2E test for error scenarios (error-scenarios.test.ts)
     - **REMOVE** `setExtensionStorage()` in beforeEach
     - **REPLACE** with `setupExtensionViaUI()`
     - **REMOVE** `sendMessageToBackground({ type: 'SYNC_GROUP' })` for quota test
@@ -573,7 +573,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - **Depends**: 16.2
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 12.4_
 
-  - [ ] 16.9 Rewrite E2E test for ungrouped tab handling (ungrouped-tabs.test.ts)
+  - [x] 16.9 Rewrite E2E test for ungrouped tab handling (ungrouped-tabs.test.ts)
     - **REMOVE** `setExtensionStorage()` in beforeEach
     - **REPLACE** with `setupExtensionViaUI()`
     - Tab creation/ungrouping via Chrome APIs is acceptable (browser-level actions)
@@ -581,7 +581,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - **Depends**: 16.2
     - _Requirements: 13.1, 13.2, 13.3, 12.4_
 
-  - [ ] 16.10 Rewrite E2E test for UI interactions (ui-interactions.test.ts)
+  - [x] 16.10 Rewrite E2E test for UI interactions (ui-interactions.test.ts)
     - **REMOVE** `setExtensionStorage()` in beforeEach
     - **REPLACE** with `setupExtensionViaUI()`
     - Strengthen assertions: instead of `expect(settingsElements).toBeGreaterThanOrEqual(0)`, assert specific UI elements exist
@@ -611,8 +611,8 @@ Both unit tests and property tests are complementary and necessary for comprehen
   - **Depends**: 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8, 16.9, 16.10
   - _Requirements: 12.7_
 
-- [ ] 18. Repository cleanup — remove stray files
-  - [ ] 18.1 Remove stale root-level files
+- [x] 18. Repository cleanup — remove stray files
+  - [x] 18.1 Remove stale root-level files
     - **DELETE** `popup.html` at project root — stale pre-React artifact, not used by build
     - **DELETE** `index.html` at project root — Vite scaffold leftover, not used by build
     - Verify `src/popup.html` is the canonical popup (used by `scripts/copy-extension-files.js`)
