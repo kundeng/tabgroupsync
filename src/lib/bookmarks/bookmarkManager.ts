@@ -438,19 +438,25 @@ export class BookmarkManager {
       });
       
       if (tabGroups.length > 0) {
-        // Automatic recreation
+        // Automatic recreation — use removeInfo since the folder is already deleted
+        // Do NOT call createContainerFolder() here — it calls getBookmark on the
+        // deleted folder ID which will fail. Use removeInfo for parent and title.
         this.logger.logDecision(
           'Recreating container folder',
           'Container folder was deleted but tab groups still exist',
           { 
             deletedFolderId: id, 
             existingGroupCount: tabGroups.length,
-            groupNames: tabGroups.map(g => g.title || 'Untitled')
+            groupNames: tabGroups.map(g => g.title || 'Untitled'),
+            parentId: removeInfo.parentId,
+            folderTitle: removeInfo.node.title
           }
         );
         
         try {
-          const newContainer = await this.createContainerFolder();
+          const parentId = removeInfo.parentId;
+          const title = removeInfo.node.title || 'Tab Groups';
+          const newContainer = await createBookmark(parentId, title);
           await this.storage.updateSettings({ containerFolderId: newContainer.id });
           await this.setupTabGroupsFolder(newContainer);
           
