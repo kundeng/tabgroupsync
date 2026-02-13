@@ -339,6 +339,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     });
   }
+  else if (message.type === 'RESTORE_SNAPSHOT') {
+    if (!isReady) {
+      sendResponse({ error: 'Background service not ready' });
+      return true;
+    }
+    Promise.resolve().then(async () => {
+      try {
+        const result = await snapshotManager.restoreSnapshot(message.snapshotId);
+        sendResponse({ result });
+      } catch (error) {
+        logger.error('snapshot:restore:failed', { error });
+        sendResponse({ error: error instanceof Error ? error.message : 'Failed to restore snapshot' });
+      }
+    });
+  }
   else if (message.type === 'GET_GROUP_SYNC_SETTINGS') {
     if (!isReady) {
       sendResponse({ error: 'Background service not ready' });

@@ -661,7 +661,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - _Requirements: 5.2_
     - _Properties: 18_
 
-  - [ ] 20.2 Add `RESTORE_SNAPSHOT` message handler in background service worker
+  - [x] 20.2 Add `RESTORE_SNAPSHOT` message handler in background service worker
     - Handle `{ type: 'RESTORE_SNAPSHOT', snapshotId }` message, call `snapshotManager.restoreSnapshot()`, return result
     - **File**: `src/listeners/messageListener.ts` (or wherever message handlers live)
     - **Depends**: 20.1
