@@ -49,14 +49,17 @@ describe('StorageSyncLimiter', () => {
       ];
 
       const promises = operations.map((op) => limiter.enqueue(op));
+
+      // Attach rejection/resolution expectations BEFORE advancing timers
+      const p0 = expect(promises[0]).rejects.toThrow('Operation 1 failed');
+      const p1 = expect(promises[1]).resolves.toBeUndefined();
+      const p2 = expect(promises[2]).resolves.toBeUndefined();
+
       await vi.runAllTimersAsync();
 
-      // First operation should reject
-      await expect(promises[0]).rejects.toThrow('Operation 1 failed');
-
-      // Other operations should succeed
-      await expect(promises[1]).resolves.toBeUndefined();
-      await expect(promises[2]).resolves.toBeUndefined();
+      await p0;
+      await p1;
+      await p2;
 
       // All operations should have been called
       operations.forEach((op) => {
@@ -145,9 +148,9 @@ describe('StorageSyncLimiter', () => {
       });
 
       const promise = limiter.enqueue(operation);
+      const assertion = expect(promise).rejects.toThrow('Synchronous error');
       await vi.runAllTimersAsync();
-
-      await expect(promise).rejects.toThrow('Synchronous error');
+      await assertion;
       expect(operation).toHaveBeenCalledTimes(1);
     });
 
@@ -159,11 +162,16 @@ describe('StorageSyncLimiter', () => {
       ];
 
       const promises = operations.map(op => limiter.enqueue(op));
+
+      const p0 = expect(promises[0]).rejects.toThrow('Error 1');
+      const p1 = expect(promises[1]).rejects.toThrow('Error 2');
+      const p2 = expect(promises[2]).resolves.toBeUndefined();
+
       await vi.runAllTimersAsync();
 
-      await expect(promises[0]).rejects.toThrow('Error 1');
-      await expect(promises[1]).rejects.toThrow('Error 2');
-      await expect(promises[2]).resolves.toBeUndefined();
+      await p0;
+      await p1;
+      await p2;
     });
   });
 
