@@ -68,6 +68,9 @@ describe('Property 5: Sync Preference Persistence', () => {
           { minLength: 1, maxLength: 10 }
         ),
         async (groups) => {
+          // Reset storage between iterations
+          storageData = {};
+
           // Create first storage manager instance
           const manager1 = new StorageManager();
           await manager1.initialize();
@@ -106,6 +109,9 @@ describe('Property 5: Sync Preference Persistence', () => {
         ),
         fc.array(fc.boolean(), { minLength: 1, maxLength: 20 }),
         async (groupName, toggleSequence) => {
+          // Reset storage between iterations
+          storageData = {};
+
           const manager = new StorageManager();
           await manager.initialize();
 
@@ -149,6 +155,9 @@ describe('Property 5: Sync Preference Persistence', () => {
           { minLength: 2, maxLength: 5 }
         ),
         async (groups) => {
+          // Reset storage between iterations
+          storageData = {};
+
           const manager = new StorageManager();
           await manager.initialize();
 

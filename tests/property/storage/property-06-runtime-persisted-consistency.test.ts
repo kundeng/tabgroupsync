@@ -77,6 +77,9 @@ describe('Property 6: Runtime and Persisted State Consistency', () => {
           { minLength: 1, maxLength: 10 }
         ),
         async (groups) => {
+          // Reset storage between iterations
+          storageData = {};
+
           const manager = new StorageManager();
           await manager.initialize();
 
@@ -121,6 +124,9 @@ describe('Property 6: Runtime and Persisted State Consistency', () => {
         fc.boolean(),
         fc.string({ minLength: 1, maxLength: 20 }),
         async (groupName, persistedEnabled, runtimeEnabled, folderId) => {
+          // Reset storage between iterations
+          storageData = {};
+
           // First manager: set persisted preference
           const manager1 = new StorageManager();
           await manager1.initialize();
@@ -161,6 +167,9 @@ describe('Property 6: Runtime and Persisted State Consistency', () => {
           { minLength: 1, maxLength: 5 }
         ),
         async (groups) => {
+          // Reset storage between iterations
+          storageData = {};
+
           const manager = new StorageManager();
           await manager.initialize();
 
@@ -202,6 +211,9 @@ describe('Property 6: Runtime and Persisted State Consistency', () => {
         fc.boolean(),
         fc.boolean(),
         async (groupName, initialEnabled, newEnabled) => {
+          // Reset storage between iterations
+          storageData = {};
+
           const manager = new StorageManager();
           await manager.initialize();
 

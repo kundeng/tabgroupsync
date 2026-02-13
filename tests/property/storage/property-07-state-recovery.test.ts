@@ -83,6 +83,9 @@ describe('Property 7: State Recovery from Corruption', () => {
           })
         ),
         async (corruptedSettings) => {
+          // Reset storage between iterations
+          storageData = {};
+
           // Set corrupted settings in storage
           storageData['state:settings'] = corruptedSettings;
 
@@ -121,6 +124,9 @@ describe('Property 7: State Recovery from Corruption', () => {
           ))
         ),
         async (corruptedHistory) => {
+          // Reset storage between iterations
+          storageData = {};
+
           // Set valid settings but corrupted history
           storageData['state:settings'] = DEFAULT_STATE.settings;
           storageData['state:history'] = corruptedHistory;
@@ -176,6 +182,9 @@ describe('Property 7: State Recovery from Corruption', () => {
           { minLength: 1, maxLength: 5 }
         ),
         async (validGroups) => {
+          // Reset storage between iterations
+          storageData = {};
+
           // Set valid settings
           storageData['state:settings'] = DEFAULT_STATE.settings;
 
@@ -214,18 +223,21 @@ describe('Property 7: State Recovery from Corruption', () => {
         fc.string({ minLength: 1, maxLength: 50 }).filter(s => s !== '__proto__' && s !== 'constructor'),
         fc.boolean(),
         async (groupName, syncEnabled) => {
+          // Reset storage between iterations
+          storageData = {};
+
           // Mock storage.set to simulate quota exceeded
           let callCount = 0;
           vi.mocked(chrome.storage.sync.set).mockImplementation((data: any, callback?: any) => {
             callCount++;
             if (callCount === 1) {
               // First call fails with quota exceeded
-              if (callback) callback();
-              throw new Error('QUOTA_BYTES_PER_ITEM quota exceeded');
+              return Promise.reject(new Error('QUOTA_BYTES_PER_ITEM quota exceeded'));
             } else {
               // Subsequent calls succeed
               Object.assign(storageData, data);
               if (callback) callback();
+              return Promise.resolve();
             }
           });
 
@@ -256,6 +268,9 @@ describe('Property 7: State Recovery from Corruption', () => {
       fc.asyncProperty(
         fc.constant(true),
         async () => {
+          // Reset storage between iterations
+          storageData = {};
+
           // Set corrupted data
           storageData['state:settings'] = 'invalid-data';
 
