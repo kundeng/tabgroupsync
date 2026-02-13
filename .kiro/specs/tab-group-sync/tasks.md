@@ -667,7 +667,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - **Depends**: 20.1
     - _Requirements: 5.2_
 
-  - [ ] 20.3 Add restore button to `SnapshotList.tsx` UI
+  - [x] 20.3 Add restore button to `SnapshotList.tsx` UI
     - Add a "Restore" icon button next to each snapshot's delete button. On click, send `RESTORE_SNAPSHOT` message and show success/error feedback.
     - **File**: `src/components/SnapshotList.tsx`
     - **Depends**: 20.2

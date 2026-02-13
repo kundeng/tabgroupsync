@@ -18,6 +18,7 @@ import {
   Delete as DeleteIcon,
   History as HistoryIcon,
   Camera as CameraIcon,
+  Restore as RestoreIcon,
 } from '@mui/icons-material';
 import { SnapshotManager, SnapshotMetadata } from '../lib/bookmarks/snapshotManager';
 import { StorageManager } from '../lib/storage/storageManager';
@@ -130,6 +131,32 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
       }, 3000);
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleRestoreSnapshot = async (snapshotId: string) => {
+    setError(null);
+    try {
+      await new Promise<{ result: { groupId: number; tabCount: number; groupName: string } }>((resolve, reject) => {
+        chrome.runtime.sendMessage(
+          { type: 'RESTORE_SNAPSHOT', snapshotId },
+          response => {
+            if (chrome.runtime.lastError) {
+              reject(chrome.runtime.lastError);
+            } else if (response.error) {
+              reject(new Error(response.error));
+            } else {
+              resolve(response);
+            }
+          }
+        );
+      });
+      logger.info('snapshot:restored', { snapshotId });
+      setShowHistory(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to restore snapshot';
+      setError(message);
+      logger.error('snapshot:restoreFailed', { snapshotId, error: message });
     }
   };
 
@@ -255,20 +282,36 @@ export default function SnapshotList({ storage, groupId, groupName, onSnapshotCr
                     }
                   }}
                   secondaryAction={
-                    <Tooltip title="Delete snapshot">
-                      <IconButton
-                        onClick={() => handleDeleteSnapshot(snapshot.id)}
-                        size="small"
-                        sx={{ 
-                          padding: '6px',
-                          '& .MuiSvgIcon-root': {
-                            fontSize: '1.2rem'
-                          }
-                        }}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+                    <Box sx={{ display: 'flex', gap: 0.5 }}>
+                      <Tooltip title="Restore snapshot">
+                        <IconButton
+                          onClick={() => handleRestoreSnapshot(snapshot.id)}
+                          size="small"
+                          sx={{ 
+                            padding: '6px',
+                            '& .MuiSvgIcon-root': {
+                              fontSize: '1.2rem'
+                            }
+                          }}
+                        >
+                          <RestoreIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Delete snapshot">
+                        <IconButton
+                          onClick={() => handleDeleteSnapshot(snapshot.id)}
+                          size="small"
+                          sx={{ 
+                            padding: '6px',
+                            '& .MuiSvgIcon-root': {
+                              fontSize: '1.2rem'
+                            }
+                          }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
                   }
                 >
                   <ListItemText
