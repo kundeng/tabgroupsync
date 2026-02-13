@@ -63,11 +63,12 @@ describe('promiseUtils', () => {
       const operation = vi.fn().mockRejectedValue(error);
 
       const promise = retryWithBackoff(operation, { maxAttempts: 2, baseDelay: 100 });
+      const assertion = expect(promise).rejects.toThrow('Operation failed');
 
       // Advance timers for retry
       await vi.advanceTimersByTimeAsync(100);
 
-      await expect(promise).rejects.toThrow('Operation failed');
+      await assertion;
       expect(operation).toHaveBeenCalledTimes(2);
     });
 
@@ -164,9 +165,10 @@ describe('promiseUtils', () => {
       const operation = vi.fn().mockRejectedValue('string error');
 
       const promise = retryWithBackoff(operation, { maxAttempts: 2, baseDelay: 100 });
+      const assertion = expect(promise).rejects.toBe('string error');
       await vi.advanceTimersByTimeAsync(100);
 
-      await expect(promise).rejects.toBe('string error');
+      await assertion;
       expect(operation).toHaveBeenCalledTimes(2);
     });
 
