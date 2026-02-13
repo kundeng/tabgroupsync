@@ -2,6 +2,7 @@ import { StorageManager } from './storage/storageManager';
 import { SyncEngine } from './sync/syncEngine';
 import { getTabsInGroup, getTab, getGroup } from './utils/tabUtils';
 import { Logger } from './utils/logger';
+import { resolveGroupName } from './utils/groupNameResolver';
 
 export class TabGroupManager {
   private lastKnownTitles: Map<number, string>;
@@ -59,13 +60,22 @@ export class TabGroupManager {
   }
 
   async handleGroupVisible(group: chrome.tabGroups.TabGroup): Promise<void> {
-    const name = group.title || 'Unnamed Group';
+    const name = resolveGroupName(group.title);
     this.logger.debug('group:visible', {
       groupId: group.id,
       name,
       windowId: group.windowId,
       type: 'created_or_restored'
     });
+
+    // Skip unnamed/transient groups — they are not ready to sync
+    if (name === null) {
+      this.logger.info('group:visible:skipped', {
+        groupId: group.id,
+        reason: 'unnamed or whitespace-only title'
+      });
+      return;
+    }
 
     // Set initial title in our tracking map
     this.lastKnownTitles.set(group.id, name);
@@ -101,12 +111,21 @@ export class TabGroupManager {
   }
 
   async handleGroupUpdated(group: chrome.tabGroups.TabGroup): Promise<void> {
-    const name = group.title || 'Unnamed Group';
+    const name = resolveGroupName(group.title);
     this.logger.debug('group:updated', {
       groupId: group.id,
       name,
       windowId: group.windowId
     });
+
+    // If group is still unnamed, skip sync but track the ID
+    if (name === null) {
+      this.logger.info('group:updated:skipped', {
+        groupId: group.id,
+        reason: 'unnamed or whitespace-only title'
+      });
+      return;
+    }
 
     const lastTitle = this.lastKnownTitles.get(group.id);
     const currentTitle = name;

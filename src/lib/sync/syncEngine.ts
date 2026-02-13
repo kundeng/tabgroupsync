@@ -242,13 +242,13 @@ export class SyncEngine {
       if (mapping?.currentGroupId && !group) {
         // Try to find any group with this name
         const allGroups = await chrome.tabGroups.query({});
-        const sameNameGroup = allGroups.find(g => (g.title || 'Unnamed Group') === name);
+        const sameNameGroup = allGroups.find(g => resolveGroupName(g.title) === name);
         
         this.logger.debug('sync:groupSearch', {
           name,
           currentId: mapping.currentGroupId,
           groupsFound: allGroups.map(g => ({ 
-            name: g.title || 'Unnamed Group',
+            name: resolveGroupName(g.title),
             window: `Window ${g.windowId}`,
             color: g.color
           })),
@@ -492,7 +492,7 @@ export class SyncEngine {
       
       // Find current group with this name (needed for currentGroupId and to queue sync)
       const allGroups = await chrome.tabGroups.query({});
-      const group = allGroups.find(g => (g.title || 'Unnamed Group') === name);
+      const group = allGroups.find(g => resolveGroupName(g.title) === name);
 
       // Update runtime mapping to match persisted state
       await this.storage.updateMapping(name, { 

@@ -7,6 +7,7 @@ import { GroupViewModel } from '../lib/types/storage';
 import GroupSection from './GroupSection';
 import { Logger } from '../lib/utils/logger';
 import { BookmarkManager } from '../lib/bookmarks/bookmarkManager';
+import { resolveGroupName } from '../lib/utils/groupNameResolver';
 
 interface GroupListProps {
   storage: StorageManager;
@@ -81,9 +82,10 @@ export default function GroupList({ storage, syncEngine, bookmarkManager }: Grou
       // Build view models from current groups
       const viewModels: GroupViewModel[] = [];
       
-      // Process active groups
+      // Process active groups (skip unnamed/transient groups per Req 13.1)
       for (const group of allGroups) {
-        const name = group.title || 'Unnamed Group';
+        const name = resolveGroupName(group.title);
+        if (name === null) continue;
         const mapping = runtimeMappings[name];
         const folder = folders.find(f => f.title === name);
         const isCurrentWindow = group.windowId === currentWindowId;

@@ -1,5 +1,6 @@
 import { TabGroupManager } from '../lib/tabGroupManager';
 import { Logger } from '../lib/utils/logger';
+import { resolveGroupName } from '../lib/utils/groupNameResolver';
 
 export function initializeTabGroupListeners(tabGroupManager: TabGroupManager): void {
   const logger = Logger.getInstance();
@@ -75,7 +76,14 @@ export function initializeTabGroupListeners(tabGroupManager: TabGroupManager): v
 
     try {
       // Pass group name to preserve folder mapping
-      const name = group.title || 'Unnamed Group';
+      const name = resolveGroupName(group.title);
+      if (name === null) {
+        logger.info('tabGroup:removed:skipped', {
+          groupId: group.id,
+          reason: 'unnamed or whitespace-only title — was never synced'
+        });
+        return;
+      }
       await tabGroupManager.handleGroupRemoved(name);
       logger.info('tabGroup:removed:handled', {
         groupId: group.id,
@@ -126,9 +134,10 @@ export function initializeTabGroupListeners(tabGroupManager: TabGroupManager): v
       // Get groups in the window before it's removed
       const groups = await chrome.tabGroups.query({ windowId });
       
-      // Queue each group for removal
+      // Queue each group for removal (skip unnamed groups — never synced)
       groups.forEach(group => {
-        const name = group.title || 'Unnamed Group';
+        const name = resolveGroupName(group.title);
+        if (name === null) return;
         removalQueue.push({ name, groupId: group.id });
         logger.debug('window:removed:group:queued', {
           windowId,
