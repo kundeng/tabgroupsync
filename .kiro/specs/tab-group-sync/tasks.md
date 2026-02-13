@@ -653,7 +653,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - **Depends**: 19.1, 19.2, 19.3, 19.4
     - _Requirements: NF 1.4_
 
-- [ ] 20. Snapshot restore — implement Requirement 5.2
+- [x] 20. Snapshot restore — implement Requirement 5.2
   - [x] 20.1 Add `restoreSnapshot` method to `SnapshotManager`
     - Read snapshot folder bookmarks, create tabs for each URL, group them, set title from snapshot metadata
     - **File**: `src/lib/bookmarks/snapshotManager.ts`
@@ -680,7 +680,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - _Requirements: 5.2_
     - _Properties: 18_
 
-  - [ ] 20.5 Add E2E test for snapshot restore via UI
+  - [x] 20.5 Add E2E test for snapshot restore via UI
     - Create group → create snapshot → delete group → restore snapshot → verify new group exists with same tabs
     - **File**: `tests/e2e/snapshot-system.test.ts`
     - **Depends**: 20.3

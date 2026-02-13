@@ -75,4 +75,9 @@
 # Remaining 3 failures are pre-existing issues unrelated to bugs 19.1-19.3
 [2026-02-13T17:40:00Z] Added phase 20: Snapshot restore (Req 5.2) — 5 tasks (20.1-20.5)
 # Req 5.2 exists but was never implemented: no restoreSnapshot method, no restore UI button
-# SUMMARY: 59/64 done | next: 20.1
+[2026-02-13T17:57:00Z] DONE 20.1 - Add restoreSnapshot method to SnapshotManager
+[2026-02-13T17:58:00Z] DONE 20.2 - Add RESTORE_SNAPSHOT message handler in background.ts
+[2026-02-13T17:59:00Z] DONE 20.3 - Add restore button (RestoreIcon) to SnapshotList.tsx UI
+[2026-02-13T18:01:00Z] DONE 20.4 - Add property test for snapshot restore round-trip (fc.pre filters '|' in titles)
+[2026-02-13T18:04:00Z] DONE 20.5 - Add E2E test for snapshot restore via UI + restoreSnapshotViaUI helper
+# SUMMARY: 64/64 done | all tasks complete

@@ -6,6 +6,7 @@ import {
   createAndSyncTabGroup,
   createSnapshotViaUI,
   openSnapshotHistory,
+  restoreSnapshotViaUI,
   getTabGroups,
   removeTabGroup,
   findBookmarkFolder,
@@ -166,5 +167,44 @@ test.describe('Snapshot System E2E', () => {
     snapshots = await getBookmarksInFolder(extensionPage, snapshotsFolder!.id);
     snapshotFolders = snapshots.filter(s => !s.url);
     expect(snapshotFolders.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('should restore a snapshot by recreating the tab group', async ({ extensionPage, extensionId }) => {
+    // Create and sync a tab group
+    await createAndSyncTabGroup(extensionPage, extensionId, {
+      title: 'Restore Test',
+      color: 'green',
+      urls: ['https://example.com', 'https://google.com'],
+    });
+
+    await waitForGroupBookmarks(extensionPage, 'Restore Test', 2);
+
+    // Create a snapshot via UI
+    await createSnapshotViaUI(extensionPage, extensionId, 'Restore Test');
+
+    // Verify snapshot exists
+    const snapshotsFolder = await findBookmarkFolder(extensionPage, 'Tab Group Snapshots');
+    expect(snapshotsFolder).toBeTruthy();
+
+    // Restore the snapshot via UI (clicks restore button in history dialog)
+    await restoreSnapshotViaUI(extensionPage, extensionId, 'Restore Test');
+
+    // Wait for tabs to be created
+    await extensionPage.waitForTimeout(3000);
+
+    // Verify a tab group with the same name exists
+    const groups = await getTabGroups(extensionPage);
+    const restoredGroups = groups.filter(g => g.title === 'Restore Test');
+    expect(restoredGroups.length).toBeGreaterThanOrEqual(1);
+
+    // Verify the restored group has tabs with the expected URLs
+    const restoredGroup = restoredGroups[restoredGroups.length - 1]; // latest one
+    const tabs = await extensionPage.evaluate(async (gid: number) => {
+      const tabs = await chrome.tabs.query({ groupId: gid });
+      return tabs.map(t => t.url || t.pendingUrl || '');
+    }, restoredGroup.id);
+
+    expect(tabs.some(u => u.includes('example.com'))).toBeTruthy();
+    expect(tabs.some(u => u.includes('google.com'))).toBeTruthy();
   });
 });

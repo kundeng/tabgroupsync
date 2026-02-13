@@ -193,6 +193,27 @@ export async function openSnapshotHistory(
 }
 
 /**
+ * Restores the most recent snapshot for a group via the popup UI.
+ * Opens snapshot history, clicks the restore button on the first snapshot.
+ */
+export async function restoreSnapshotViaUI(
+  page: Page,
+  extensionId: string,
+  groupName: string
+): Promise<void> {
+  // Open snapshot history dialog
+  await openSnapshotHistory(page, extensionId, groupName);
+
+  // Click the restore button on the first (most recent) snapshot
+  const restoreButton = page.locator('button:has([data-testid="RestoreIcon"])').first();
+  await restoreButton.waitFor({ state: 'visible', timeout: 5000 });
+  await restoreButton.click();
+
+  // Wait for dialog to close (restore handler calls setShowHistory(false))
+  await page.waitForTimeout(2000);
+}
+
+/**
  * Triggers a full resync for a group via the popup UI.
  * Finds the group row and clicks the refresh icon button.
  */
