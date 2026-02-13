@@ -238,30 +238,33 @@ describe('BookmarkManager', () => {
   describe('getContainerFolder', () => {
     it('should detect nested container folders', async () => {
       // Setup nested folder structure
-      vi.mocked(chrome.bookmarks.get).mockImplementation((id: string, callback: any) => {
+      vi.mocked(chrome.bookmarks.get).mockImplementation((id: string, callback?: any) => {
+        let result: chrome.bookmarks.BookmarkTreeNode[] = [];
         if (id === 'nested-container') {
-          callback([{
+          result = [{
             id: 'nested-container',
             title: 'Nested Container',
             parentId: 'parent-container',
             index: 0,
             dateAdded: Date.now(),
-          }]);
+          }];
         } else if (id === 'parent-container') {
-          callback([{
+          result = [{
             id: 'parent-container',
             title: 'Parent Container',
             parentId: '1',
             index: 0,
             dateAdded: Date.now(),
-          }]);
+          }];
         }
+        if (callback) callback(result);
+        return Promise.resolve(result);
       });
 
-      vi.mocked(chrome.bookmarks.getChildren).mockImplementation((id: string, callback: any) => {
+      vi.mocked(chrome.bookmarks.getChildren).mockImplementation((id: string, callback?: any) => {
+        let result: chrome.bookmarks.BookmarkTreeNode[] = [];
         if (id === 'parent-container') {
-          // Parent has both intermediate folders
-          callback([
+          result = [
             {
               id: 'parent-bookmarks',
               title: 'Tab Group Bookmarks',
@@ -283,10 +286,10 @@ describe('BookmarkManager', () => {
               index: 2,
               dateAdded: Date.now(),
             }
-          ]);
-        } else {
-          callback([]);
+          ];
         }
+        if (callback) callback(result);
+        return Promise.resolve(result);
       });
 
       // Update settings to use nested container
