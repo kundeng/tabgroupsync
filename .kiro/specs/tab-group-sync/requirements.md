@@ -173,11 +173,11 @@ Tab Group Sync is a Chrome extension that automatically synchronizes tab groups 
 
 #### Acceptance Criteria
 
-1. WHEN a tab group has no title (undefined or null), THE Extension SHALL treat it as "Unnamed Group"
+1. WHEN a tab group has no title (undefined, null, or empty string), THE Extension SHALL NOT sync that group because it is in a transient state (e.g., being created and not yet named by the user)
 2. WHEN a tab group has a whitespace-only title, THE Extension SHALL NOT manage or sync that group
-3. WHEN multiple tab groups have no title, THE Extension SHALL map them all to a single "Unnamed Group" bookmark folder
-4. WHEN checking if a group should be synced, THE Extension SHALL skip groups with whitespace-only titles
-5. WHEN logging group operations, THE Extension SHALL indicate when a group is skipped due to whitespace-only title
+3. WHEN a previously unnamed tab group receives a valid title via `tabGroups.onUpdated`, THE Extension SHALL begin syncing it under the new name
+4. WHEN checking if a group should be synced, THE Extension SHALL skip groups whose resolved name is null (unnamed or whitespace-only)
+5. WHEN logging group operations, THE Extension SHALL indicate when a group is skipped due to missing or whitespace-only title
 
 **NF 2: Chrome API Promise-Based Architecture**
 

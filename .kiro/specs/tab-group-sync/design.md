@@ -281,6 +281,49 @@ interface SyncHistoryEntry {
 }
 ```
 
+## Chrome Event Flow
+
+### Overview
+
+Chrome fires tab group events that the extension must handle correctly. The key insight
+is that **newly created groups start with an empty title** (`""`). The user may or may
+not name the group afterwards. The extension must not sync a group until it has a
+meaningful name.
+
+### Event → Component Flow
+
+```
+Chrome Event                    Listener                          SyncEngine
+────────────────────────────────────────────────────────────────────────────────
+tabGroups.onCreated ──────────► tabGroupListeners.ts             handleGroupCreated()
+  group.title = ""               enqueue in groupQueue              resolveGroupName("") → null
+  (transient state)              processGroupQueue()                → SKIP (group unnamed)
+
+tabGroups.onUpdated ──────────► tabGroupListeners.ts             handleGroupUpdated()
+  group.title = "Work"           direct call                        resolveGroupName("Work") → "Work"
+  (user named the group)                                            → create mapping + queueSync
+
+tabGroups.onUpdated ──────────► tabGroupListeners.ts             handleGroupUpdated()
+  color/collapse change          direct call                        update mapping color/state
+  (title unchanged)
+
+tabGroups.onRemoved ──────────► tabGroupListeners.ts             handleGroupRemoved()
+  group deleted or               enqueue in removalQueue            preserve bookmarks (Req 1.5)
+  window closed
+```
+
+### Key Design Decision
+
+When `onCreated` fires, `group.title` is always `""`. This is Chrome's default — the
+user has not typed a name yet. Syncing at this point would:
+
+1. Create a bookmark folder for a group that may be renamed moments later
+2. Cause data loss if multiple unnamed groups overwrite each other's bookmarks
+3. Waste Chrome storage API quota on transient state
+
+Therefore: **unnamed groups are observed but not synced**. Sync begins only when
+`onUpdated` delivers a non-empty, non-whitespace title.
+
 ## Group Name Handling
 
 ### Overview
@@ -294,14 +337,14 @@ The extension uses group names (titles) as primary identifiers for storage keys,
  * Resolves a tab group title to a usable group name
  * 
  * Rules:
- * 1. undefined/null/empty → "Unnamed Group"
+ * 1. undefined/null/empty → null (group is unnamed/transient — do NOT sync)
  * 2. Whitespace-only → null (skip this group)
  * 3. Valid name → use as-is
  */
 function resolveGroupName(title: string | undefined): string | null {
-  // Handle undefined, null, or empty
-  if (!title) {
-    return 'Unnamed Group';
+  // Handle undefined, null, or empty — group is unnamed/transient
+  if (title === undefined || title === null || title === '') {
+    return null;
   }
   
   // Check if whitespace-only
@@ -316,10 +359,11 @@ function resolveGroupName(title: string | undefined): string | null {
 
 ### Behavior Specifications
 
-**Unnamed Groups:**
-- All groups without titles map to a single "Unnamed Group" folder
-- Multiple unnamed groups share the same bookmark folder
-- This is intentional - unnamed groups are treated as a single logical group
+**Unnamed Groups (empty/undefined/null title):**
+- These groups are NOT synced — they are in a transient state
+- The most common cause is `tabGroups.onCreated` firing before the user types a name
+- Multiple unnamed groups with different IDs are separate groups and must not be merged
+- When the user names the group (via `onUpdated`), sync begins under the new name
 
 **Whitespace-Only Groups:**
 - Groups with whitespace-only titles (e.g., " ", "  ") are NOT managed
@@ -339,10 +383,10 @@ function resolveGroupName(title: string | undefined): string | null {
 async handleGroupCreated(group: chrome.tabGroups.TabGroup): Promise<void> {
   const name = resolveGroupName(group.title);
   
-  // Skip whitespace-only groups
+  // Skip unnamed or whitespace-only groups
   if (name === null) {
     this.logger.info('sync:groupSkipped', {
-      reason: 'whitespace-only title',
+      reason: 'unnamed or whitespace-only title',
       groupId: group.id
     });
     return;
@@ -358,7 +402,7 @@ async handleGroupCreated(group: chrome.tabGroups.TabGroup): Promise<void> {
 async ensureGroupFolder(title: string | undefined): Promise<chrome.bookmarks.BookmarkTreeNode | null> {
   const name = resolveGroupName(title);
   
-  // Return null for whitespace-only groups
+  // Return null for unnamed or whitespace-only groups
   if (name === null) {
     return null;
   }
@@ -373,7 +417,7 @@ async ensureGroupFolder(title: string | undefined): Promise<chrome.bookmarks.Boo
 async getGroupSyncSettings(title: string | undefined): Promise<GroupSyncSettings> {
   const name = resolveGroupName(title);
   
-  // Return disabled settings for whitespace-only groups
+  // Return disabled settings for unnamed or whitespace-only groups
   if (name === null) {
     return { enabled: false, lastSynced: 0 };
   }
@@ -385,10 +429,10 @@ async getGroupSyncSettings(title: string | undefined): Promise<GroupSyncSettings
 
 ### Edge Cases
 
-**Multiple Unnamed Groups:**
-- All unnamed groups sync to the same "Unnamed Group" folder
-- Last-write-wins for bookmark content
-- This is acceptable behavior - users should name important groups
+**Unnamed Groups:**
+- NOT synced — treated as transient
+- Each unnamed group is independent (different group IDs)
+- Sync begins only when the user provides a valid name
 
 **Whitespace Variations:**
 - " " (single space) → skipped
@@ -407,11 +451,11 @@ async getGroupSyncSettings(title: string | undefined): Promise<GroupSyncSettings
 All name resolution decisions are logged:
 
 ```typescript
-// Unnamed group
-logger.info('groupName:resolved', {
+// Unnamed group (transient — not synced)
+logger.info('groupName:skipped', {
   original: undefined,
-  resolved: 'Unnamed Group',
-  reason: 'no title provided'
+  resolved: null,
+  reason: 'unnamed group — transient state, not synced'
 });
 
 // Whitespace-only group
@@ -432,23 +476,23 @@ logger.debug('groupName:resolved', {
 ### Testing Considerations
 
 **Property-Based Tests:**
-- Test with undefined titles
-- Test with whitespace-only titles
-- Test with valid names
-- Verify unnamed groups map to single folder
+- Test with undefined titles → verify group is skipped (null)
+- Test with whitespace-only titles → verify group is skipped (null)
+- Test with valid names → verify name returned as-is
+- Verify unnamed groups are NOT synced
 - Verify whitespace groups are skipped
 
 **Unit Tests:**
 - Test `resolveGroupName()` with all edge cases
+- Verify null return for undefined/null/empty
 - Verify null return for whitespace-only
-- Verify "Unnamed Group" for undefined/null/empty
+- Verify valid names returned as-is
 
 **E2E Tests:**
-- Create unnamed groups and verify single folder
+- Create unnamed groups and verify NO sync occurs
+- Name a group and verify sync begins
 - Create whitespace-only groups and verify no sync
 - Verify logging for all scenarios
-}
-```
 
 ## Correctness Properties
 
