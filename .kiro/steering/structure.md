@@ -66,6 +66,7 @@ lib/
 │   ├── logger.ts             # Logging system
 │   ├── promiseUtils.ts       # Promise helpers
 │   ├── rateLimiter.ts        # API rate limiting
+│   ├── groupNameResolver.ts   # Group name resolution (Req 13)
 │   ├── tabUtils.ts           # Tab manipulation helpers
 │   └── validators.ts         # Data validation
 ├── constants.ts          # Application constants

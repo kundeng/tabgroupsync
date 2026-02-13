@@ -1,26 +1,9 @@
 # Documentation
 
-This directory contains detailed technical documentation for Tab Group Sync.
+This directory contains the technical reference for Tab Group Sync.
+
+The **spec** (`.kiro/specs/tab-group-sync/`) is the system of record for requirements, design, and tasks.
 
 ## Available Documentation
 
-- **[TECHNICAL.md](TECHNICAL.md)** - Comprehensive technical documentation covering:
-  - Learning guide for React and Chrome extension development
-  - Architecture overview and design patterns
-  - Component structure and implementation details
-  - State management and communication patterns
-  - Development and testing guidelines
-
-## Quick Links
-
-- [Getting Started](TECHNICAL.md#getting-started)
-- [Architecture Overview](TECHNICAL.md#architecture-overview)
-- [Component Structure](TECHNICAL.md#ui-components)
-- [Development Setup](TECHNICAL.md#development-setup)
-
-## Project Guidelines
-
-For development guidelines and project structure, see the steering files in `.kiro/steering/`:
-- `product.md` - Product overview and features
-- `structure.md` - Project structure and conventions
-- `tech.md` - Technology stack and build system
+- **[TECHNICAL.md](TECHNICAL.md)** — Learning guide and technical reference covering architecture, components, state management, and communication patterns

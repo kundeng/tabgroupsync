@@ -51,9 +51,8 @@ function resolveGroupName(title: string | undefined): string | null {
 - Counterexample: `{"id":1,"title":" ","color":"grey","windowId":1,"collapsed":false}`
 
 **Documentation**:
-- Requirements: Requirement 15
-- Design: "Group Name Handling" section
-- Tasks: 1.8, 4.3, 8.2a, 8.8a
+- Requirements: Requirement 13 (Group Name Handling)
+- Design: "Group Name Handling" section in design.md
 
 ---
 
@@ -132,11 +131,12 @@ Property-based testing has been valuable for discovering edge cases:
 3. **Boundary conditions**: Large numbers of tabs, long URLs
 4. **Concurrent operations**: Multiple rapid state changes
 
-**Test Coverage**:
-- 30 correctness properties defined
+**Test Coverage** (see spec NF 1 for requirements):
+- 30 correctness properties implemented (fast-check)
+- 281+ unit/property tests (Vitest)
+- 10 E2E test files (Playwright)
 - 100+ iterations per property test
-- Randomized input generation
-- Shrinking to minimal counterexamples
+- Randomized input generation with shrinking to minimal counterexamples
 
 ---
 
@@ -169,6 +169,7 @@ If you discover new issues or edge cases:
 
 ## References
 
-- [Design Document](.kiro/specs/tab-group-sync/design.md)
-- [Requirements](.kiro/specs/tab-group-sync/requirements.md)
+- [Spec: requirements.md](.kiro/specs/tab-group-sync/requirements.md) — system of record
+- [Spec: design.md](.kiro/specs/tab-group-sync/design.md)
 - [Property Tests](tests/property/)
+- [Property Coverage](tests/property/PROPERTY_COVERAGE.md)

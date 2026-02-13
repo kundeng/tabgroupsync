@@ -38,7 +38,6 @@ npx tsc --noEmit
 1. TypeScript compilation (`tsc`)
 2. Vite bundling with React plugin
 3. Extension file copying (`scripts/copy-extension-files.js`)
-4. Icon generation (`scripts/generate-icons.js`)
 
 ### Build Configuration
 
@@ -56,7 +55,7 @@ npx tsc --noEmit
 
 - **Service Worker**: `background.js` (replaces background pages)
 - **Popup**: `popup.html` with React app
-- **Permissions**: `tabs`, `tabGroups`, `bookmarks`, `storage`
+- **Permissions**: `tabs`, `tabGroups`, `bookmarks`, `storage`, `unlimitedStorage`
 - **Content Security Policy**: Strict CSP for security
 
 ### Key Chrome APIs Used
@@ -89,7 +88,8 @@ Use `npm run watch` for automatic rebuilds. Manual extension reload required in 
 
 ## Testing Strategy
 
-- **Unit Tests**: Manager classes and utilities
-- **Integration Tests**: Sync engine and storage operations
-- **Manual Testing**: Extension functionality in Chrome
-- **Error Boundary Testing**: UI error handling
+- **Unit Tests**: Vitest with mocked Chrome APIs for manager classes and utilities
+- **Property Tests**: fast-check for correctness properties across randomized inputs
+- **E2E Tests**: Playwright loading the real extension in isolated Chrome profiles
+
+See spec NF 1 for detailed testing requirements.

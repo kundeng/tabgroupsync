@@ -1073,93 +1073,38 @@ The snapshot system provides point-in-time backups of tab groups:
 
 ```typescript
 // src/lib/bookmarks/snapshotManager.ts
+// Snapshot folder titles use format: "name|sourceId|datetime"
+// Cleanup is count-based: MAX_SNAPSHOTS_PER_GROUP = 5
 export class SnapshotManager {
-  private static readonly SNAPSHOT_PREFIX = 'snapshot_';
-  
   constructor(
-    private bookmarkManager: BookmarkManager,
-    private logger: Logger
+    private storage: StorageManager,
+    private bookmarkManager: BookmarkManager
   ) {}
 
+  // Create a snapshot of a synced group's bookmarks
   async createSnapshot(
-    group: chrome.tabGroups.TabGroup,
-    tabs: chrome.tabs.Tab[]
-  ): Promise<chrome.bookmarks.BookmarkTreeNode> {
-    const timestamp = Date.now();
-    const snapshotFolder = await this.bookmarkManager.createFolder(
-      `${SnapshotManager.SNAPSHOT_PREFIX}${timestamp}`,
-      group.title
-    );
-
-    // Save tabs to snapshot
-    await Promise.all(
-      tabs.map(tab => 
-        this.bookmarkManager.createBookmark({
-          parentId: snapshotFolder.id,
-          title: tab.title || '',
-          url: tab.url
-        })
-      )
-    );
-
-    this.logger.info('snapshot:created', {
-      group: group.title,
-      timestamp,
-      tabCount: tabs.length
-    });
-
-    return snapshotFolder;
+    sourceId: string,       // Bookmark folder ID of the group
+    sourceName: string,     // Group name
+    description?: string
+  ): Promise<SnapshotMetadata> {
+    // Creates folder titled "name|sourceId|datetime" in snapshots folder
+    // Copies all bookmarks from the source folder into the snapshot
+    // Cleans up old snapshots if count exceeds MAX_SNAPSHOTS_PER_GROUP
   }
 
+  // Restore a snapshot by recreating the tab group
   async restoreSnapshot(
-    snapshotId: string,
-    windowId: number
-  ): Promise<chrome.tabGroups.TabGroup> {
-    const snapshot = await chrome.bookmarks.getSubTree(snapshotId);
-    const bookmarks = await chrome.bookmarks.getChildren(snapshotId);
-  
-    // Create new tabs from bookmarks
-    const tabs = await Promise.all(
-      bookmarks.map(bookmark =>
-        chrome.tabs.create({
-          windowId,
-          url: bookmark.url,
-          active: false
-        })
-      )
-    );
-
-    // Group the tabs
-    const groupId = await chrome.tabs.group({
-      tabIds: tabs.map(tab => tab.id!)
-    });
-
-    // Update group properties
-    await chrome.tabGroups.update(groupId, {
-      title: snapshot[0].title.replace(SnapshotManager.SNAPSHOT_PREFIX, '')
-    });
-
-    return chrome.tabGroups.get(groupId);
+    snapshotId: string
+  ): Promise<{ groupId: number; tabCount: number; groupName: string }> {
+    // Parse metadata from folder title: "name|sourceId|datetime"
+    // Read all bookmarks in the snapshot folder
+    // Create tabs for each bookmark URL
+    // Group the tabs and set title from metadata
   }
 
-  async cleanupOldSnapshots(
-    maxAge: number = 7 * 24 * 60 * 60 * 1000 // 1 week
-  ): Promise<void> {
-    const snapshots = await this.getSnapshots();
-    const now = Date.now();
-
-    await Promise.all(
-      snapshots
-        .filter(snapshot => {
-          const timestamp = parseInt(
-            snapshot.title.replace(SnapshotManager.SNAPSHOT_PREFIX, '')
-          );
-          return now - timestamp > maxAge;
-        })
-        .map(snapshot =>
-          chrome.bookmarks.removeTree(snapshot.id)
-        )
-    );
+  // Count-based cleanup: keep only MAX_SNAPSHOTS_PER_GROUP per source
+  async cleanupOldSnapshots(sourceId: string): Promise<void> {
+    // Sort snapshots by timestamp, remove oldest beyond limit
   }
 }
 ```
@@ -1174,16 +1119,15 @@ export class SnapshotManager {
    - Automatic cleanup
 2. **Restoration Process**
 
-   - Tab recreation
-   - Group properties restoration
-   - Window placement
-   - Error handling
+   - Tab recreation from snapshot bookmarks
+   - Group title restored from snapshot metadata
+   - Color defaults to blue
+   - Error handling with logging
 3. **Management**
 
-   - Age-based cleanup
-   - Storage optimization
-   - Logging and tracking
-   - Recovery options
+   - Count-based cleanup (MAX_SNAPSHOTS_PER_GROUP = 5)
+   - Oldest snapshots removed first
+   - Logging and operation tracking
 
 This system provides:
 
