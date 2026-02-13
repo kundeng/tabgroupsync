@@ -65,4 +65,7 @@
 # - storageManager.ts: converted callback-based Chrome API to promise-based (NF 2), fixing property-20/22 timeouts
 # - Updated all test mocks (storageManager.test.ts, property-05/06/07) for promise-based API
 # - property-20: simplified permission/quota error tests to test at bookmarkManager level
-# SUMMARY: 54/54 done | all tasks complete
+[2026-02-13T16:30:00Z] IN_PROGRESS 19 - Bug fixes discovered during E2E testing (5 new tasks: 19.1-19.5)
+# Bugs found: container folder recreation fails, snapshot cleanup missing, auto-sync not enabling per-group sync
+# E2E test infrastructure already partially fixed (setupExtensionViaUI, toggleGroupSync, createAndSyncTabGroup)
+# SUMMARY: 54/59 done | next: 19.1

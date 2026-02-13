@@ -3,6 +3,7 @@ import {
   setupExtensionViaUI,
   openExtensionPopup,
   createTabGroup,
+  createAndSyncTabGroup,
   createSnapshotViaUI,
   openSnapshotHistory,
   getTabGroups,
@@ -38,7 +39,7 @@ test.describe('Snapshot System E2E', () => {
 
   test('should create a snapshot of a synced tab group', async ({ extensionPage, extensionId }) => {
     // Create and sync a tab group
-    await createTabGroup(extensionPage, {
+    await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Snapshot Test',
       color: 'blue',
       urls: ['https://example.com', 'https://google.com'],
@@ -69,7 +70,7 @@ test.describe('Snapshot System E2E', () => {
   });
 
   test('should create multiple snapshots for the same group', async ({ extensionPage, extensionId }) => {
-    await createTabGroup(extensionPage, {
+    await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Multi Snapshot',
       color: 'red',
       urls: ['https://example.com'],
@@ -106,7 +107,7 @@ test.describe('Snapshot System E2E', () => {
   });
 
   test('should clean up old snapshots when limit is exceeded', async ({ extensionPage, extensionId }) => {
-    await createTabGroup(extensionPage, {
+    await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Cleanup Test',
       color: 'purple',
       urls: ['https://example.com'],
@@ -135,7 +136,7 @@ test.describe('Snapshot System E2E', () => {
   });
 
   test('should preserve snapshot data across page reloads', async ({ extensionPage, extensionId }) => {
-    await createTabGroup(extensionPage, {
+    await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Persist Test',
       color: 'cyan',
       urls: ['https://example.com', 'https://google.com'],

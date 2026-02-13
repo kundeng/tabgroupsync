@@ -150,7 +150,7 @@ interface BookmarkManager {
 The BookmarkManager implements automatic folder structure recovery:
 
 1. **Detection**: When `handleBookmarkRemoved` detects container folder deletion, it checks if any tab groups still exist
-2. **Automatic Recreation**: If tab groups exist, the manager automatically recreates the container folder structure
+2. **Automatic Recreation**: If tab groups exist, the manager recreates the container folder using `removeInfo.parentId` and `removeInfo.node.title` from the deletion event (since the folder itself is already gone and cannot be queried)
 3. **Logging**: All folder recreation decisions are logged with reasoning
 4. **Structure Validation**: The `ensureContainerFolderExists` method validates and repairs folder structure on-demand
 
@@ -163,14 +163,19 @@ async handleBookmarkRemoved(id: string, removeInfo: chrome.bookmarks.BookmarkRem
     const tabGroups = await chrome.tabGroups.query({});
     
     if (tabGroups.length > 0) {
-      // Automatic recreation
+      // Automatic recreation — use removeInfo since the folder is already deleted
+      // IMPORTANT: Do NOT call getBookmark(settings.containerFolderId) here —
+      // the folder no longer exists. Use removeInfo.parentId for the parent
+      // and removeInfo.node.title for the folder name.
       logger.logDecision(
         'Recreating container folder',
         'Container folder was deleted but tab groups still exist',
         { deletedFolderId: id, existingGroupCount: tabGroups.length }
       );
       
-      const newContainer = await this.createContainerFolder();
+      const parentId = removeInfo.parentId;
+      const title = removeInfo.node.title || 'Tab Groups';
+      const newContainer = await createBookmark(parentId, title);
       await storageManager.updateSettings({ containerFolderId: newContainer.id });
       await this.setupTabGroupsFolder(newContainer);
     }

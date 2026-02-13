@@ -2,6 +2,7 @@ import { test, expect } from './fixtures';
 import { 
   setupExtensionViaUI,
   createTabGroup,
+  createAndSyncTabGroup,
   findBookmarkFolder,
   waitForBookmarkFolder,
   getBookmarksInFolder,
@@ -61,14 +62,12 @@ test.describe('Ungrouped Tab Handling E2E', () => {
   });
 
   test('should not create bookmarks when tabs are ungrouped', async ({ extensionPage, extensionId }) => {
-    // Create a tab group
-    const groupId = await createTabGroup(extensionPage, {
+    // Create a tab group and enable sync
+    const groupId = await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Ungroup Test',
       color: 'blue',
       urls: ['https://example.com', 'https://google.com']
     });
-
-    await waitForSyncComplete(extensionPage);
 
     // Verify bookmarks were created
     const folder = await waitForBookmarkFolder(extensionPage, 'Ungroup Test');
@@ -106,14 +105,12 @@ test.describe('Ungrouped Tab Handling E2E', () => {
   });
 
   test('should preserve bookmarks when tab is removed from group', async ({ extensionPage, extensionId }) => {
-    // Create a tab group with multiple tabs
-    const groupId = await createTabGroup(extensionPage, {
+    // Create a tab group with multiple tabs and enable sync
+    const groupId = await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Remove Tab Test',
       color: 'red',
       urls: ['https://example.com', 'https://google.com', 'https://github.com']
     });
-
-    await waitForSyncComplete(extensionPage);
 
     const folder = await waitForBookmarkFolder(extensionPage, 'Remove Tab Test');
     expect(folder).toBeTruthy();
@@ -148,14 +145,12 @@ test.describe('Ungrouped Tab Handling E2E', () => {
   });
 
   test('should not sync new tabs added to ungrouped state', async ({ extensionPage, extensionId }) => {
-    // Create a tab group first
-    const groupId = await createTabGroup(extensionPage, {
+    // Create a tab group first and enable sync
+    const groupId = await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Mixed State Test',
       color: 'green',
       urls: ['https://grouped.com']
     });
-
-    await waitForSyncComplete(extensionPage);
 
     // Create ungrouped tabs
     await extensionPage.evaluate(() => {
@@ -182,14 +177,12 @@ test.describe('Ungrouped Tab Handling E2E', () => {
   });
 
   test('should handle tab moving between grouped and ungrouped states', async ({ extensionPage, extensionId }) => {
-    // Create a tab group
-    const groupId = await createTabGroup(extensionPage, {
+    // Create a tab group and enable sync
+    const groupId = await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'State Change Test',
       color: 'yellow',
       urls: ['https://example.com']
     });
-
-    await waitForSyncComplete(extensionPage);
 
     const folder = await waitForBookmarkFolder(extensionPage, 'State Change Test');
     expect(folder).toBeTruthy();
@@ -238,7 +231,7 @@ test.describe('Ungrouped Tab Handling E2E', () => {
       return chrome.tabs.create({ url: 'https://ungrouped-before.com', active: false });
     });
 
-    const groupId = await createTabGroup(extensionPage, {
+    const groupId = await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Filter Test',
       color: 'purple',
       urls: ['https://grouped1.com', 'https://grouped2.com']
@@ -248,7 +241,7 @@ test.describe('Ungrouped Tab Handling E2E', () => {
       return chrome.tabs.create({ url: 'https://ungrouped-after.com', active: false });
     });
 
-    await waitForSyncComplete(extensionPage);
+    await extensionPage.waitForTimeout(3000);
 
     // Verify only grouped tabs were synced
     const folder = await waitForBookmarkFolder(extensionPage, 'Filter Test');
@@ -267,14 +260,12 @@ test.describe('Ungrouped Tab Handling E2E', () => {
   });
 
   test('should handle all tabs being ungrouped', async ({ extensionPage, extensionId }) => {
-    // Create a tab group
-    const groupId = await createTabGroup(extensionPage, {
+    // Create a tab group and enable sync
+    const groupId = await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'All Ungrouped Test',
       color: 'cyan',
       urls: ['https://example.com', 'https://google.com']
     });
-
-    await waitForSyncComplete(extensionPage);
 
     const folder = await waitForBookmarkFolder(extensionPage, 'All Ungrouped Test');
     expect(folder).toBeTruthy();

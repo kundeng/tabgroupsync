@@ -616,6 +616,45 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - **Depends**: —
     - _Requirements: NF 3.1, NF 3.3_
 
+- [ ] 19. Bug fixes discovered during E2E testing
+  - [ ] 19.1 Fix container folder recreation after deletion
+    - **Bug**: `handleBookmarkRemoved` calls `createContainerFolder()` which calls `getBookmark(settings.containerFolderId)` to find the parent — but the folder was just deleted, so the call fails
+    - **Fix**: In `handleBookmarkRemoved`, use `removeInfo.parentId` and `removeInfo.node.title` directly instead of calling `createContainerFolder()`. Create the new folder with `createBookmark(removeInfo.parentId, removeInfo.node.title)`, then update settings and call `setupTabGroupsFolder`
+    - **File**: `src/lib/bookmarks/bookmarkManager.ts` — `handleBookmarkRemoved` method
+    - **Depends**: —
+    - _Requirements: 4.2, 4.3_
+    - _Properties: 15_
+
+  - [ ] 19.2 Fix snapshot cleanup when limit is exceeded
+    - **Bug**: `SnapshotManager.createSnapshot` never removes old snapshots — Requirement 5.4 says oldest snapshots should be removed when limits are exceeded, but no cleanup logic exists
+    - **Fix**: After creating a snapshot in `createSnapshot()`, query all snapshots for the same source group, and if count exceeds the limit (5), delete the oldest ones. Add a `MAX_SNAPSHOTS_PER_GROUP` constant
+    - **File**: `src/lib/bookmarks/snapshotManager.ts` — `createSnapshot` method
+    - **Depends**: —
+    - _Requirements: 5.4_
+    - _Properties: 19_
+
+  - [ ] 19.3 Fix auto-sync not enabling per-group sync for new groups
+    - **Bug**: When auto-sync is enabled and a new named group is created via `tabGroups.onCreated`, the `handleGroupCreated` path in `syncEngine.ts` correctly calls `updateGroupSyncSettings(name, { enabled: true })`. However, `onCreated` fires with `title=""` (unnamed), so the group is skipped. When `onUpdated` fires with the real title, `handleGroupUpdated` is called — but it delegates to `handleGroupCreated` only if no mapping exists. The issue is that `handleGroupCreated` checks `settings.autoSync && settings.containerFolderId` but the group may already have a mapping from the initial unnamed event processing, causing the auto-sync path to be missed
+    - **Fix**: In `handleGroupUpdated`, when no mapping exists and the group is treated as new (delegated to `handleGroupCreated`), ensure the auto-sync check runs. Verify the full flow: `onCreated(title="")` → skip → `onUpdated(title="Work")` → `handleGroupUpdated` → no mapping → `handleGroupCreated` → auto-sync check should fire
+    - **File**: `src/lib/sync/syncEngine.ts` — `handleGroupUpdated` and `handleGroupCreated`
+    - **Depends**: —
+    - _Requirements: 6.1, 6.4_
+    - _Properties: 9, 10_
+
+  - [ ] 19.4 Fix E2E test infrastructure
+    - **Already done in test files**: `setupExtensionViaUI` folder picker, `toggleGroupSync` popup refresh, `createAndSyncTabGroup` helper
+    - **Remaining**: Fix `ui-interactions.test.ts` assertion that looks for `<header>` or `[role="banner"]` — the actual `Header.tsx` component uses a `Box`, not a semantic `<header>` element. Update the assertion to match the actual UI structure
+    - **Files**: `tests/e2e/ui-interactions.test.ts`, `tests/e2e/utils.ts` (already fixed), `tests/e2e/container-folder.test.ts` (already fixed), `tests/e2e/snapshot-system.test.ts` (already fixed), `tests/e2e/cross-device-sync.test.ts` (already fixed), `tests/e2e/error-scenarios.test.ts` (already fixed), `tests/e2e/ungrouped-tabs.test.ts` (already fixed)
+    - **Depends**: 19.1, 19.2, 19.3
+    - _Requirements: NF 1.4_
+
+  - [ ] 19.5 E2E test verification — run all E2E tests and confirm fixes
+    - Run each E2E test file one at a time: debug-sync, tab-group-sync, container-folder, snapshot-system, sync-control, cross-device-sync, error-scenarios, ungrouped-tabs, ui-interactions
+    - All tests that were previously failing due to bugs 19.1–19.3 should now pass
+    - Document any remaining failures as known issues
+    - **Depends**: 19.1, 19.2, 19.3, 19.4
+    - _Requirements: NF 1.4_
+
 ## Notes
 
 - Each task references specific requirements for traceability

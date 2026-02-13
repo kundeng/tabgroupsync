@@ -2,6 +2,7 @@ import { test, expect } from './fixtures';
 import { 
   setupExtensionViaUI,
   createTabGroup,
+  createAndSyncTabGroup,
   findBookmarkFolder,
   waitForBookmarkFolder,
   getBookmarksInFolder,
@@ -32,8 +33,8 @@ test.describe('Container Folder Management E2E', () => {
       enableAutoSync: true,
     });
 
-    // Create a tab group to trigger folder structure creation
-    await createTabGroup(extensionPage, {
+    // Create a tab group and enable sync to trigger folder structure creation
+    await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Test Group',
       color: 'blue',
       urls: ['https://example.com'],
@@ -66,8 +67,8 @@ test.describe('Container Folder Management E2E', () => {
       enableAutoSync: true,
     });
 
-    // Create a tab group so the extension has something to sync
-    await createTabGroup(extensionPage, {
+    // Create a tab group and enable sync so the extension has something to sync
+    await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Important Group',
       color: 'red',
       urls: ['https://example.com', 'https://google.com'],
@@ -101,7 +102,11 @@ test.describe('Container Folder Management E2E', () => {
   });
 
   test('should handle container folder in different bookmark locations', async ({ extensionPage, extensionId }) => {
-    // Create a folder in "Other Bookmarks" before setup (browser-level action)
+    // Open popup first so Chrome extension APIs are available
+    const { openExtensionPopup } = await import('./utils');
+    await openExtensionPopup(extensionPage, extensionId);
+
+    // Create a folder in "Other Bookmarks" (browser-level action, needs extension context)
     await extensionPage.evaluate(async () => {
       const existing = await chrome.bookmarks.search({ title: 'Tab Groups in Other' });
       if (!existing.find(b => !b.url)) {
@@ -115,8 +120,8 @@ test.describe('Container Folder Management E2E', () => {
       enableAutoSync: true,
     });
 
-    // Create a tab group
-    await createTabGroup(extensionPage, {
+    // Create a tab group and enable sync
+    await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Other Location Test',
       color: 'cyan',
       urls: ['https://example.com'],

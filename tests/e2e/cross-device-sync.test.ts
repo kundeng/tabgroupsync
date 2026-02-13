@@ -2,6 +2,7 @@ import { test, expect } from './fixtures';
 import { 
   setupExtensionViaUI,
   createTabGroup,
+  createAndSyncTabGroup,
   findBookmarkFolder,
   waitForBookmarkFolder,
   getBookmarksInFolder,
@@ -32,8 +33,8 @@ test.describe('Cross-Device Sync E2E', () => {
   });
 
   test('should sync bookmarks created on device A to device B', async ({ extensionPage, extensionId }) => {
-    // Device A: Create a tab group
-    await createTabGroup(extensionPage, {
+    // Device A: Create a tab group and enable sync
+    await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Cross Device Test',
       color: 'blue',
       urls: ['https://example.com', 'https://google.com'],
@@ -58,7 +59,7 @@ test.describe('Cross-Device Sync E2E', () => {
   });
 
   test('should handle bookmark changes from remote device', async ({ extensionPage, extensionId }) => {
-    await createTabGroup(extensionPage, {
+    await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Remote Change Test',
       color: 'red',
       urls: ['https://example.com'],
@@ -88,7 +89,7 @@ test.describe('Cross-Device Sync E2E', () => {
   });
 
   test('should handle folder rename from remote device', async ({ extensionPage, extensionId }) => {
-    await createTabGroup(extensionPage, {
+    await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Original Remote Name',
       color: 'green',
       urls: ['https://example.com'],
@@ -114,7 +115,7 @@ test.describe('Cross-Device Sync E2E', () => {
   });
 
   test('should handle bookmark deletion from remote device', async ({ extensionPage, extensionId }) => {
-    await createTabGroup(extensionPage, {
+    await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Remote Delete Test',
       color: 'yellow',
       urls: ['https://example.com', 'https://google.com', 'https://github.com'],
@@ -147,7 +148,7 @@ test.describe('Cross-Device Sync E2E', () => {
   });
 
   test('should handle same group on multiple devices', async ({ extensionPage, extensionId }) => {
-    const groupId = await createTabGroup(extensionPage, {
+    const groupId = await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Multi Device Group',
       color: 'purple',
       urls: ['https://example.com'],

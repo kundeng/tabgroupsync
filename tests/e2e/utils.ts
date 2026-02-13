@@ -47,7 +47,10 @@ export async function setupExtensionViaUI(
   const folderName = options.containerFolderName ?? 'E2E Test Container';
   const enableAutoSync = options.enableAutoSync ?? true;
 
-  // Ensure a bookmark folder exists to pick
+  // Open popup first so Chrome extension APIs are available
+  await openExtensionPopup(page, extensionId);
+
+  // Ensure a bookmark folder exists to pick (must run in extension context)
   await page.evaluate(async (name) => {
     const existing = await chrome.bookmarks.search({ title: name });
     const folder = existing.find(b => !b.url);
@@ -55,9 +58,6 @@ export async function setupExtensionViaUI(
       await chrome.bookmarks.create({ parentId: '1', title: name });
     }
   }, folderName);
-
-  // Open popup
-  await openExtensionPopup(page, extensionId);
 
   // Open Settings dialog — click the gear icon (tooltip "Settings")
   await page.locator('button[aria-label="Settings"], button:has([data-testid="SettingsIcon"])').click();
@@ -69,16 +69,44 @@ export async function setupExtensionViaUI(
 
   // Wait for FolderPicker dialog
   await page.locator('text=Select Container Location').waitFor({ state: 'visible' });
+  await page.waitForTimeout(500);
 
-  // Navigate into Bookmarks Bar (first folder in the list) if needed,
-  // then find and click the target folder
-  const targetFolder = page.locator(`role=button >> text="${folderName}"`);
-  // If the folder is visible, click it; otherwise we're already at the right level
-  if (await targetFolder.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await targetFolder.click();
+  // FolderPicker shows root bookmark folders (Bookmarks Bar, Other Bookmarks).
+  // Single-click navigates INTO a folder. Double-click selects it.
+  // "Select Current Folder" is disabled at root level (currentPath.length <= 1).
+  //
+  // Strategy: navigate into a root folder, find the target, navigate into it,
+  // then click "Select Current Folder".
+
+  // Try to find the target folder by navigating into root folders
+  const rootFolders = ['Bookmarks bar', 'Other bookmarks'];
+  let folderFound = false;
+
+  for (const rootName of rootFolders) {
+    const rootFolder = page.locator('.MuiListItemButton-root', { hasText: rootName });
+    if (await rootFolder.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await rootFolder.click();
+      await page.waitForTimeout(500);
+
+      // Check if target folder is visible at this level
+      const targetFolder = page.locator('.MuiListItemButton-root', { hasText: folderName });
+      if (await targetFolder.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await targetFolder.click();
+        await page.waitForTimeout(500);
+        folderFound = true;
+        break;
+      }
+
+      // Target not here — navigate back up via ".." button
+      const upButton = page.locator('.MuiListItemButton-root', { hasText: '..' });
+      if (await upButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await upButton.click();
+        await page.waitForTimeout(500);
+      }
+    }
   }
 
-  // Click "Select Current Folder" to confirm
+  // Click "Select Current Folder" (now enabled since we navigated in)
   await page.locator('button:has-text("Select Current Folder")').click();
 
   // Wait for FolderPicker dialog to close
@@ -114,15 +142,17 @@ export async function toggleGroupSync(
   extensionId: string,
   groupName: string
 ): Promise<void> {
-  // Ensure popup is open
-  if (!page.url().includes('popup.html')) {
-    await openExtensionPopup(page, extensionId);
-  }
+  // Always reopen popup to get fresh group list
+  await openExtensionPopup(page, extensionId);
+  await page.waitForTimeout(1500);
 
-  // Find the list item that contains the group name, then click its Switch
+  // Wait for the group row to appear (groups load asynchronously)
   const groupRow = page.locator('li', { has: page.locator(`text="${groupName}"`) });
+  await groupRow.waitFor({ state: 'visible', timeout: 10000 });
+
+  // Click the Switch toggle
   await groupRow.locator('.MuiSwitch-root').click();
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(2000);
 }
 
 /**
@@ -178,6 +208,49 @@ export async function fullResyncViaUI(
   const groupRow = page.locator('li', { has: page.locator(`text="${groupName}"`) });
   await groupRow.locator('button:has([data-testid="RefreshIcon"])').click();
   await page.waitForTimeout(3000);
+}
+
+// ============================================================================
+// COMPOSITE HELPERS (create + sync via UI)
+// ============================================================================
+
+/**
+ * Creates a tab group and enables sync for it via the popup UI.
+ * Combines createTabGroup (browser-level) with toggleGroupSync (UI action).
+ * Returns the groupId.
+ */
+export async function createAndSyncTabGroup(
+  page: Page,
+  extensionId: string,
+  options: {
+    title?: string;
+    color?: string;
+    urls: string[];
+  }
+): Promise<number> {
+  const groupId = await createTabGroup(page, options);
+
+  // Wait for the extension to detect the new group and update the popup
+  await page.waitForTimeout(1500);
+
+  // Open popup and enable sync for this group via the UI toggle
+  if (options.title) {
+    await openExtensionPopup(page, extensionId);
+    await page.waitForTimeout(1000);
+
+    const groupRow = page.locator('li', { has: page.locator(`text="${options.title}"`) });
+    const rowCount = await groupRow.count();
+    if (rowCount > 0) {
+      const switchInput = groupRow.locator('input[type="checkbox"]');
+      const isChecked = await switchInput.isChecked().catch(() => false);
+      if (!isChecked) {
+        await groupRow.locator('.MuiSwitch-root').click();
+        await page.waitForTimeout(2000);
+      }
+    }
+  }
+
+  return groupId;
 }
 
 // ============================================================================

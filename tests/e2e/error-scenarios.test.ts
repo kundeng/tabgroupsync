@@ -2,6 +2,7 @@ import { test, expect } from './fixtures';
 import { 
   setupExtensionViaUI,
   createTabGroup,
+  createAndSyncTabGroup,
   findBookmarkFolder,
   waitForBookmarkFolder,
   getBookmarksInFolder,
@@ -36,14 +37,12 @@ test.describe('Error Scenarios E2E', () => {
   });
 
   test('should handle bookmark creation failure gracefully', async ({ extensionPage, extensionId }) => {
-    // Create a tab group
-    const groupId = await createTabGroup(extensionPage, {
+    // Create a tab group and enable sync
+    const groupId = await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Error Test',
       color: 'blue',
       urls: ['https://example.com']
     });
-
-    await waitForSyncComplete(extensionPage);
 
     // Wait for initial sync
     await waitForGroupBookmarks(extensionPage, 'Error Test', 1);
@@ -107,14 +106,14 @@ test.describe('Error Scenarios E2E', () => {
   });
 
   test('should handle rapid sync requests with queuing', async ({ extensionPage, extensionId }) => {
-    // Create a tab group
-    const groupId = await createTabGroup(extensionPage, {
+    // Create a tab group and enable sync
+    const groupId = await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Rapid Sync Test',
       color: 'green',
       urls: ['https://example.com']
     });
 
-    await waitForSyncComplete(extensionPage);
+    await waitForGroupBookmarks(extensionPage, 'Rapid Sync Test', 1);
 
     // Rapidly add multiple tabs (browser-level actions)
     for (let i = 0; i < 10; i++) {
@@ -147,8 +146,8 @@ test.describe('Error Scenarios E2E', () => {
   });
 
   test('should handle rapid tab changes without crashing', async ({ extensionPage, extensionId }) => {
-    // Create a tab group
-    const groupId = await createTabGroup(extensionPage, {
+    // Create a tab group and enable sync
+    const groupId = await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Quota Test',
       color: 'yellow',
       urls: ['https://example.com'],
@@ -176,14 +175,12 @@ test.describe('Error Scenarios E2E', () => {
   });
 
   test('should handle missing container folder gracefully', async ({ extensionPage, extensionId }) => {
-    // Create a tab group
-    const groupId = await createTabGroup(extensionPage, {
+    // Create a tab group and enable sync
+    const groupId = await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Missing Container Test',
       color: 'purple',
       urls: ['https://example.com']
     });
-
-    await waitForSyncComplete(extensionPage);
 
     // Verify initial sync
     let folder = await waitForBookmarkFolder(extensionPage, 'Missing Container Test');
@@ -239,14 +236,12 @@ test.describe('Error Scenarios E2E', () => {
   });
 
   test('should recover from bookmark API errors', async ({ extensionPage, extensionId }) => {
-    // Create a tab group
-    const groupId = await createTabGroup(extensionPage, {
+    // Create a tab group and enable sync
+    const groupId = await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'API Error Test',
       color: 'cyan',
       urls: ['https://example.com']
     });
-
-    await waitForSyncComplete(extensionPage);
 
     const folder = await waitForBookmarkFolder(extensionPage, 'API Error Test');
     expect(folder).toBeTruthy();
@@ -282,8 +277,8 @@ test.describe('Error Scenarios E2E', () => {
   });
 
   test('should handle extension page reload during sync', async ({ extensionPage, extensionId }) => {
-    // Create a tab group
-    await createTabGroup(extensionPage, {
+    // Create a tab group and enable sync
+    await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Restart Test',
       color: 'orange',
       urls: ['https://example.com'],
@@ -305,8 +300,8 @@ test.describe('Error Scenarios E2E', () => {
   });
 
   test('should remain functional after bookmark API errors', async ({ extensionPage, extensionId }) => {
-    // Create a tab group and wait for sync
-    await createTabGroup(extensionPage, {
+    // Create a tab group and enable sync
+    await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Error Logging Test',
       color: 'cyan',
       urls: ['https://example.com'],
