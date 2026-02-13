@@ -13,6 +13,8 @@ export interface SnapshotMetadata {
   description?: string;
 }
 
+const MAX_SNAPSHOTS_PER_GROUP = 5;
+
 export class SnapshotManager {
   private logger = Logger.getInstance();
   private tracker = OperationTracker.getInstance();
@@ -155,6 +157,9 @@ export class SnapshotManager {
         bookmarkCount: tabs.length
       });
 
+      // Cleanup old snapshots if limit exceeded (Req 5.4)
+      await this.cleanupOldSnapshots(sourceId);
+
       return metadata;
     } catch (error) {
       this.logger.error('snapshot:failed', {
@@ -203,6 +208,39 @@ export class SnapshotManager {
         error: error instanceof Error ? error.message : 'Unknown error'
       }, error instanceof Error ? error : undefined);
       throw error;
+    }
+  }
+
+  private async cleanupOldSnapshots(sourceId: string): Promise<void> {
+    try {
+      const allSnapshots = await this.listSnapshots(sourceId);
+      if (allSnapshots.length <= MAX_SNAPSHOTS_PER_GROUP) return;
+
+      // Sort by timestamp ascending (oldest first)
+      const sorted = [...allSnapshots].sort((a, b) => a.timestamp - b.timestamp);
+      const toDelete = sorted.slice(0, sorted.length - MAX_SNAPSHOTS_PER_GROUP);
+
+      for (const snapshot of toDelete) {
+        await chrome.bookmarks.removeTree(snapshot.id);
+        this.logger.info('snapshot:cleanup:deleted', {
+          snapshotId: snapshot.id,
+          sourceName: snapshot.sourceName,
+          timestamp: snapshot.timestamp,
+          reason: `exceeded limit of ${MAX_SNAPSHOTS_PER_GROUP}`
+        });
+      }
+
+      this.logger.logDecision(
+        'Cleaned up old snapshots',
+        `Snapshot count (${allSnapshots.length}) exceeded limit (${MAX_SNAPSHOTS_PER_GROUP})`,
+        { sourceId, deleted: toDelete.length, remaining: MAX_SNAPSHOTS_PER_GROUP }
+      );
+    } catch (error) {
+      this.logger.error('snapshot:cleanup:failed', {
+        sourceId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      // Don't throw — cleanup failure shouldn't block snapshot creation
     }
   }
 

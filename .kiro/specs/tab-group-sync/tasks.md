@@ -625,7 +625,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - _Requirements: 4.2, 4.3_
     - _Properties: 15_
 
-  - [ ] 19.2 Fix snapshot cleanup when limit is exceeded
+  - [x] 19.2 Fix snapshot cleanup when limit is exceeded
     - **Bug**: `SnapshotManager.createSnapshot` never removes old snapshots — Requirement 5.4 says oldest snapshots should be removed when limits are exceeded, but no cleanup logic exists
     - **Fix**: After creating a snapshot in `createSnapshot()`, query all snapshots for the same source group, and if count exceeds the limit (5), delete the oldest ones. Add a `MAX_SNAPSHOTS_PER_GROUP` constant
     - **File**: `src/lib/bookmarks/snapshotManager.ts` — `createSnapshot` method
