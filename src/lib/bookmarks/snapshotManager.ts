@@ -244,6 +244,65 @@ export class SnapshotManager {
     }
   }
 
+  async restoreSnapshot(snapshotId: string): Promise<{ groupId: number; tabCount: number; groupName: string }> {
+    const opId = this.tracker.startOperation('restoreSnapshot', { snapshotId });
+
+    try {
+      const snapshot = await getBookmark(snapshotId);
+      if (!snapshot) {
+        throw new Error(`Snapshot ${snapshotId} not found`);
+      }
+
+      // Parse metadata from folder title: "name|sourceId|datetime"
+      const parts = snapshot.title.split('|');
+      if (parts.length !== 3) {
+        throw new Error(`Invalid snapshot format: ${snapshot.title}`);
+      }
+      const [sourceName] = parts;
+
+      // Read all bookmarks in the snapshot folder
+      const bookmarks = await getBookmarkChildren(snapshotId);
+      const urls = bookmarks
+        .filter(b => b.url)
+        .map(b => ({ url: b.url!, title: b.title }));
+
+      if (urls.length === 0) {
+        throw new Error('Snapshot has no tabs to restore');
+      }
+
+      // Create tabs for each bookmark
+      const tabs: chrome.tabs.Tab[] = [];
+      for (const { url } of urls) {
+        const tab = await chrome.tabs.create({ url, active: false });
+        tabs.push(tab);
+      }
+
+      // Group the tabs into a new tab group
+      const tabIds = tabs.map(t => t.id!).filter(id => id !== undefined);
+      const groupId = await chrome.tabs.group({ tabIds });
+
+      // Set the group title and color
+      await chrome.tabGroups.update(groupId, { title: sourceName, color: 'blue' });
+
+      this.logger.info('snapshot:restored', {
+        snapshotId,
+        groupName: sourceName,
+        groupId,
+        tabCount: urls.length
+      });
+
+      return { groupId, tabCount: urls.length, groupName: sourceName };
+    } catch (error) {
+      this.logger.error('restoreSnapshot:failed', {
+        snapshotId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }, error instanceof Error ? error : undefined);
+      throw error;
+    } finally {
+      this.tracker.endOperation(opId);
+    }
+  }
+
   async deleteSnapshot(snapshotId: string): Promise<void> {
     const opId = this.tracker.startOperation('deleteSnapshot', { snapshotId });
 

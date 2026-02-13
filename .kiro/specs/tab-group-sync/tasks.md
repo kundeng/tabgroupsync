@@ -654,7 +654,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - _Requirements: NF 1.4_
 
 - [ ] 20. Snapshot restore — implement Requirement 5.2
-  - [ ] 20.1 Add `restoreSnapshot` method to `SnapshotManager`
+  - [x] 20.1 Add `restoreSnapshot` method to `SnapshotManager`
     - Read snapshot folder bookmarks, create tabs for each URL, group them, set title from snapshot metadata
     - **File**: `src/lib/bookmarks/snapshotManager.ts`
     - **Depends**: —
