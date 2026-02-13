@@ -564,6 +564,35 @@ export class SyncEngine {
     // Check if this group should be synced (either autoSync or previously enabled)
     const groupSettings = await this.storage.getGroupSyncSettings(name);
     if ((settings.autoSync && settings.containerFolderId) || groupSettings.enabled) {
+      // If auto-sync is on, persist the preference FIRST (acts as a lock for concurrent calls)
+      if (settings.autoSync && !groupSettings.enabled) {
+        this.logger.info('sync:autoSync', {
+          name,
+          action: 'enabling',
+          reason: 'autoSync enabled'
+        });
+        await this.storage.updateGroupSyncSettings(name, { 
+          enabled: true,
+          lastSynced: Date.now()
+        });
+      }
+
+      // Check if already fully set up (idempotency guard for concurrent calls)
+      const existingMapping = await this.storage.getMapping(name);
+      if (existingMapping?.syncEnabled && existingMapping?.folderId) {
+        this.logger.info('sync:groupCreatedAlreadySetUp', {
+          name,
+          folderId: existingMapping.folderId,
+          reason: 'mapping already exists with sync enabled'
+        });
+        // Just update the group ID in case it changed
+        await this.storage.updateMapping(name, {
+          currentGroupId: group.id.toString(),
+          color: group.color
+        });
+        return;
+      }
+
       // Ensure folder exists
       const folder = await this.bookmarkManager.ensureGroupFolder(name);
       
@@ -575,26 +604,6 @@ export class SyncEngine {
         });
         return;
       }
-      
-      // Get current mapping if it exists
-      const mapping = await this.storage.getMapping(name);
-      
-      // Determine if sync should be enabled
-      let syncEnabled = groupSettings.enabled;
-      
-      // Only update settings if auto-sync is enabled and not already enabled
-      if (settings.autoSync && !groupSettings.enabled) {
-        this.logger.info('sync:autoSync', {
-          name,
-          action: 'enabling',
-          reason: 'autoSync enabled'
-        });
-        await this.storage.updateGroupSyncSettings(name, { 
-          enabled: true,
-          lastSynced: Date.now()
-        });
-        syncEnabled = true; // Update local variable to reflect the change
-      }
 
       // Create or update mapping to match persisted settings
       await this.storage.updateMapping(name, {
@@ -602,30 +611,27 @@ export class SyncEngine {
         currentGroupId: group.id.toString(),
         color: group.color,
         folderId: folder.id,
-        syncEnabled, // Use the updated value
+        syncEnabled: true,
         status: {
-          lastSynced: mapping?.status.lastSynced ?? Date.now(),
+          lastSynced: existingMapping?.status.lastSynced ?? Date.now(),
           inProgress: false,
           error: undefined
         }
       });
 
-      // Queue sync if enabled
-      if (syncEnabled) {
-        this.queueSync(name);
-      }
+      // Queue sync
+      this.queueSync(name);
       
       this.logger.info('sync:groupCreated', { 
         name,
         autoSync: settings.autoSync,
         previouslyEnabled: groupSettings.enabled,
-        syncEnabled
+        syncEnabled: true
       });
     }
   }
 
   async handleGroupUpdated(group: chrome.tabGroups.TabGroup): Promise<void> {
-    
     // Resolve group name - skip if unnamed or whitespace-only
     const name = resolveGroupName(group.title);
     if (name === null) {

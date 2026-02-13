@@ -633,7 +633,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - _Requirements: 5.4_
     - _Properties: 19_
 
-  - [ ] 19.3 Fix auto-sync not enabling per-group sync for new groups
+  - [x] 19.3 Fix auto-sync not enabling per-group sync for new groups
     - **Bug**: When auto-sync is enabled and a new named group is created via `tabGroups.onCreated`, the `handleGroupCreated` path in `syncEngine.ts` correctly calls `updateGroupSyncSettings(name, { enabled: true })`. However, `onCreated` fires with `title=""` (unnamed), so the group is skipped. When `onUpdated` fires with the real title, `handleGroupUpdated` is called — but it delegates to `handleGroupCreated` only if no mapping exists. The issue is that `handleGroupCreated` checks `settings.autoSync && settings.containerFolderId` but the group may already have a mapping from the initial unnamed event processing, causing the auto-sync path to be missed
     - **Fix**: In `handleGroupUpdated`, when no mapping exists and the group is treated as new (delegated to `handleGroupCreated`), ensure the auto-sync check runs. Verify the full flow: `onCreated(title="")` → skip → `onUpdated(title="Work")` → `handleGroupUpdated` → no mapping → `handleGroupCreated` → auto-sync check should fire
     - **File**: `src/lib/sync/syncEngine.ts` — `handleGroupUpdated` and `handleGroupCreated`

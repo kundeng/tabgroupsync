@@ -290,6 +290,21 @@ export class BookmarkManager {
       return existingFolder;
     }
 
+    // Re-check for existing folder (race condition guard — another call may have
+    // created it between our check and this point)
+    const recheckFolders = await getBookmarkChildren(bookmarksFolder.id);
+    const recheckFolder = recheckFolders.find(f => f.title === name && !f.url);
+    if (recheckFolder) {
+      await this.storage.updateMapping(name, {
+        name,
+        folderId: recheckFolder.id,
+        syncEnabled: true,
+        status: { lastSynced: Date.now(), inProgress: false }
+      });
+      this.logger.info('groupFolder:reused:raceGuard', { name, folderId: recheckFolder.id });
+      return recheckFolder;
+    }
+
     // Create new folder
     const folder = await createBookmark(bookmarksFolder.id, name);
     this.logger.info('groupFolder:created', {

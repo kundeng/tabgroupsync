@@ -439,8 +439,14 @@ export async function waitForGroupBookmarks(
   const startTime = Date.now();
 
   while (Date.now() - startTime < timeout) {
-    const folder = await findBookmarkFolder(page, groupName);
-    if (folder) {
+    // Check ALL matching folders (not just the first) to handle race conditions
+    // where duplicate folders may be created by concurrent service workers
+    const folders = await page.evaluate(async (title) => {
+      const results = await chrome.bookmarks.search({ title });
+      return results.filter(r => !r.url);
+    }, groupName);
+
+    for (const folder of folders) {
       const bookmarks = await getBookmarksInFolder(page, folder.id);
       const urls = bookmarks.filter(b => b.url);
       if (urls.length >= expectedCount) {

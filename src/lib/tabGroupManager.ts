@@ -6,6 +6,7 @@ import { resolveGroupName } from './utils/groupNameResolver';
 
 export class TabGroupManager {
   private lastKnownTitles: Map<number, string>;
+  private pendingTitleChecks: Set<number> = new Set();
   private logger = Logger.getInstance();
 
   constructor(
@@ -68,12 +69,15 @@ export class TabGroupManager {
       type: 'created_or_restored'
     });
 
-    // Skip unnamed/transient groups — they are not ready to sync
+    // Skip unnamed/transient groups — but schedule deferred title check
+    // because onUpdated with the new title may not always fire in the
+    // background service worker (e.g., when title is set from popup context).
     if (name === null) {
       this.logger.info('group:visible:skipped', {
         groupId: group.id,
-        reason: 'unnamed or whitespace-only title'
+        reason: 'unnamed or whitespace-only title — scheduling deferred check'
       });
+      this.scheduleDeferredTitleCheck(group.id);
       return;
     }
 
@@ -108,6 +112,64 @@ export class TabGroupManager {
       name,
       syncEnabled: settings.enabled
     });
+  }
+
+  private scheduleDeferredTitleCheck(groupId: number): void {
+    // Prevent duplicate deferred checks for the same group
+    if (this.pendingTitleChecks.has(groupId)) return;
+    this.pendingTitleChecks.add(groupId);
+
+    const POLL_INTERVAL = 2000; // 2 seconds between checks
+    const MAX_CHECKS = 5;       // Check up to 5 times (10 seconds total)
+    let checks = 0;
+
+    const check = async () => {
+      checks++;
+      try {
+        const group = await this.getGroup(groupId);
+        if (!group) {
+          this.logger.debug('deferredTitleCheck:groupGone', { groupId, checks });
+          this.pendingTitleChecks.delete(groupId);
+          return; // Group was removed, stop checking
+        }
+
+        const name = resolveGroupName(group.title);
+        if (name !== null && !this.lastKnownTitles.has(groupId)) {
+          // Title appeared! Process as a new named group
+          this.logger.info('deferredTitleCheck:titleFound', {
+            groupId,
+            title: group.title,
+            checks
+          });
+          this.pendingTitleChecks.delete(groupId);
+          this.lastKnownTitles.set(groupId, name);
+          await this.syncEngine.handleGroupCreated(group);
+          return;
+        }
+
+        // If title was already handled (e.g., by onUpdated), stop
+        if (this.lastKnownTitles.has(groupId)) {
+          this.pendingTitleChecks.delete(groupId);
+          return;
+        }
+
+        if (checks < MAX_CHECKS) {
+          setTimeout(check, POLL_INTERVAL);
+        } else {
+          this.logger.debug('deferredTitleCheck:gaveUp', { groupId, checks });
+          this.pendingTitleChecks.delete(groupId);
+        }
+      } catch (error) {
+        this.logger.error('deferredTitleCheck:failed', {
+          groupId,
+          checks,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+        this.pendingTitleChecks.delete(groupId);
+      }
+    };
+
+    setTimeout(check, POLL_INTERVAL);
   }
 
   async handleGroupUpdated(group: chrome.tabGroups.TabGroup): Promise<void> {
