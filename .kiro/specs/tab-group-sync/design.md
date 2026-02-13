@@ -591,6 +591,43 @@ logger.debug('groupName:resolved', {
 *For any* snapshot collection that exceeds limits, the oldest snapshots should be removed first to maintain the limit
 **Validates: Requirements 5.4**
 
+### Snapshot Restore Design (Requirement 5.2)
+
+**Flow**: User clicks "Restore" button on a snapshot in the SnapshotList dialog → popup sends `RESTORE_SNAPSHOT` message to background → `SnapshotManager.restoreSnapshot(snapshotId)` reads the snapshot's bookmarks → creates a new tab group with `chrome.tabs.create` + `chrome.tabs.group` + `chrome.tabGroups.update` → sync engine picks up the new group via `onCreated`/`onUpdated` events.
+
+**SnapshotManager.restoreSnapshot pseudocode:**
+```
+async restoreSnapshot(snapshotId):
+  snapshot = getBookmark(snapshotId)
+  if !snapshot: throw "Snapshot not found"
+
+  // Parse metadata from folder title: "name|sourceId|datetime"
+  metadata = parseSnapshotTitle(snapshot.title)
+
+  // Read all bookmarks in the snapshot folder
+  bookmarks = getBookmarkChildren(snapshotId)
+  urls = bookmarks.filter(b => b.url).map(b => ({ url: b.url, title: b.title }))
+  if urls.length === 0: throw "Snapshot has no tabs"
+
+  // Create tabs for each bookmark
+  tabs = []
+  for each { url, title } in urls:
+    tab = chrome.tabs.create({ url, active: false })
+    tabs.push(tab)
+
+  // Group the tabs into a new tab group
+  groupId = chrome.tabs.group({ tabIds: tabs.map(t => t.id) })
+
+  // Set the group title and color from metadata
+  chrome.tabGroups.update(groupId, { title: metadata.sourceName, color: 'blue' })
+
+  return { groupId, tabCount: urls.length, groupName: metadata.sourceName }
+```
+
+**UI**: Add a "Restore" icon button (e.g., `RestoreIcon` from MUI) next to each snapshot's delete button in `SnapshotList.tsx`. On click, send `RESTORE_SNAPSHOT` message and show success/error feedback.
+
+**Background message handler**: Add `RESTORE_SNAPSHOT` case in the message listener that calls `snapshotManager.restoreSnapshot(snapshotId)` and returns the result.
+
 ### Error Handling and Recovery Properties
 
 **Property 20: Sync Operation Error Handling**
