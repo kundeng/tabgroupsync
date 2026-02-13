@@ -616,7 +616,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - **Depends**: —
     - _Requirements: NF 3.1, NF 3.3_
 
-- [ ] 19. Bug fixes discovered during E2E testing
+- [x] 19. Bug fixes discovered during E2E testing
   - [x] 19.1 Fix container folder recreation after deletion
     - **Bug**: `handleBookmarkRemoved` calls `createContainerFolder()` which calls `getBookmark(settings.containerFolderId)` to find the parent — but the folder was just deleted, so the call fails
     - **Fix**: In `handleBookmarkRemoved`, use `removeInfo.parentId` and `removeInfo.node.title` directly instead of calling `createContainerFolder()`. Create the new folder with `createBookmark(removeInfo.parentId, removeInfo.node.title)`, then update settings and call `setupTabGroupsFolder`
@@ -648,7 +648,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - **Depends**: 19.1, 19.2, 19.3
     - _Requirements: NF 1.4_
 
-  - [ ] 19.5 E2E test verification — run all E2E tests and confirm fixes
+  - [x] 19.5 E2E test verification — run all E2E tests and confirm fixes
     - Run each E2E test file one at a time: debug-sync, tab-group-sync, container-folder, snapshot-system, sync-control, cross-device-sync, error-scenarios, ungrouped-tabs, ui-interactions
     - All tests that were previously failing due to bugs 19.1–19.3 should now pass
     - Document any remaining failures as known issues

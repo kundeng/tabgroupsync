@@ -135,7 +135,21 @@ export class TabGroupManager {
 
         const name = resolveGroupName(group.title);
         if (name !== null && !this.lastKnownTitles.has(groupId)) {
-          // Title appeared! Process as a new named group
+          // Title appeared! Check if sync was already set up by another path
+          // (e.g., user toggled sync via UI, or another SW instance handled it)
+          const existingSettings = await this.storage.getGroupSyncSettings(name);
+          if (existingSettings.enabled) {
+            this.logger.info('deferredTitleCheck:alreadyEnabled', {
+              groupId,
+              title: group.title,
+              checks
+            });
+            this.pendingTitleChecks.delete(groupId);
+            this.lastKnownTitles.set(groupId, name);
+            return;
+          }
+
+          // Process as a new named group
           this.logger.info('deferredTitleCheck:titleFound', {
             groupId,
             title: group.title,
