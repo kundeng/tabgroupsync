@@ -673,7 +673,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - **Depends**: 20.2
     - _Requirements: 5.2_
 
-  - [ ] 20.4 Add unit/property test for snapshot restore round-trip
+  - [x] 20.4 Add unit/property test for snapshot restore round-trip
     - Verify: create snapshot → restore snapshot → new tab group has same URLs
     - **File**: `tests/property/snapshots/property-18-snapshot-restoration.test.ts`
     - **Depends**: 20.1

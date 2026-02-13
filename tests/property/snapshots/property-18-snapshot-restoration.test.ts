@@ -332,6 +332,115 @@ describe('Property 18: Snapshot Restoration Round-Trip', () => {
     );
   }, 30000);
 
+  it('should restore a snapshot by recreating tabs and grouping them', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        arbitraryTabGroup,
+        fc.array(arbitraryTab, { minLength: 1, maxLength: 10 }),
+        async (group, tabs) => {
+          // Reset state for each iteration
+          createdBookmarks = [];
+          snapshotFolders = [];
+          
+          // Initialize storage
+          await storageManager.initialize();
+          
+          // Ensure tabs have unique URLs and belong to the group
+          const validTabs = tabs.map((tab, idx) => ({
+            ...tab,
+            url: `https://example.com/page-${idx}`,
+            title: tab.title || `Tab ${idx}`,
+            groupId: group.id
+          }));
+
+          // Mock tab groups query to return our group
+          vi.mocked(chrome.tabGroups.query).mockImplementation((queryInfo: any, callback?: any) => {
+            const result = [group];
+            if (callback) callback(result);
+            return Promise.resolve(result);
+          });
+
+          // Mock tabs query to return tabs in the group
+          vi.mocked(chrome.tabs.query).mockImplementation((queryInfo: any, callback?: any) => {
+            const result = queryInfo.groupId === group.id ? validTabs : [];
+            if (callback) callback(result);
+            return Promise.resolve(result);
+          });
+
+          // Skip titles containing '|' which would break the snapshot folder format
+          const groupName = group.title || 'Test Group';
+          fc.pre(!groupName.includes('|'));
+
+          // Create snapshot
+          const snapshot = await snapshotManager.createSnapshot(
+            `group-folder-${group.id}`,
+            groupName
+          );
+
+          // Now set up mocks for restoration (clear call counts from creation phase)
+          vi.mocked(chrome.tabs.create).mockClear();
+          vi.mocked(chrome.tabs.group).mockClear();
+          vi.mocked(chrome.tabGroups.update).mockClear();
+          let restoredTabIds: number[] = [];
+          let tabIdCounter = 5000;
+          vi.mocked(chrome.tabs.create).mockImplementation((props: any, callback?: any) => {
+            const newTab = {
+              id: tabIdCounter++,
+              url: props.url,
+              title: props.title || '',
+              active: false,
+              pinned: false,
+              highlighted: false,
+              incognito: false,
+              selected: false,
+              discarded: false,
+              autoDiscardable: true,
+              windowId: 1,
+              index: 0,
+              groupId: -1,
+            } as chrome.tabs.Tab;
+            restoredTabIds.push(newTab.id!);
+            if (callback) callback(newTab);
+            return Promise.resolve(newTab);
+          });
+
+          const restoredGroupId = 9999;
+          vi.mocked(chrome.tabs.group).mockImplementation((options: any, callback?: any) => {
+            if (callback) callback(restoredGroupId);
+            return Promise.resolve(restoredGroupId);
+          });
+
+          vi.mocked(chrome.tabGroups.update).mockImplementation((groupId: any, props: any, callback?: any) => {
+            const result = { id: groupId, title: props.title, color: props.color, windowId: 1, collapsed: false } as chrome.tabGroups.TabGroup;
+            if (callback) callback(result);
+            return Promise.resolve(result);
+          });
+
+          // Restore the snapshot
+          const result = await snapshotManager.restoreSnapshot(snapshot.id);
+
+          // Verify: correct number of tabs created
+          expect(result.tabCount).toBe(validTabs.length);
+          expect(result.groupId).toBe(restoredGroupId);
+          expect(result.groupName).toBe(group.title || 'Test Group');
+
+          // Verify: chrome.tabs.create was called for each bookmark URL
+          expect(chrome.tabs.create).toHaveBeenCalledTimes(validTabs.length);
+
+          // Verify: chrome.tabs.group was called with all tab IDs
+          expect(chrome.tabs.group).toHaveBeenCalledWith({ tabIds: restoredTabIds });
+
+          // Verify: group title was set
+          expect(chrome.tabGroups.update).toHaveBeenCalledWith(
+            restoredGroupId,
+            { title: group.title || 'Test Group', color: 'blue' }
+          );
+        }
+      ),
+      { numRuns: 50 }
+    );
+  }, 30000);
+
   it('should allow retrieving snapshot metadata for restoration', async () => {
     await fc.assert(
       fc.asyncProperty(
