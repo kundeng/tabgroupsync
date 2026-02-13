@@ -589,7 +589,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - **Depends**: 16.2
     - _Requirements: 12.4_
 
-- [ ] 17. Final checkpoint - Ensure all tests pass and generate coverage reports
+- [x] 17. Final checkpoint - Ensure all tests pass and generate coverage reports
   - Run full test suite (unit, property-based, and E2E tests)
   - Generate code coverage reports
   - Generate property validation coverage reports
@@ -603,11 +603,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     5. Tab groups are created and synced
   - E2E tests MUST NOT call `chrome.runtime.sendMessage`, `chrome.storage.sync.set/get/clear`, or any internal API
   - E2E tests should verify the complete user experience from setup to sync
-  - **KNOWN ISSUE**: E2E tests reveal a race condition where tab group creation triggers sync before title is set
-    - This causes groups to sync as "Unnamed Group" initially
-    - When the title change event fires, the extension creates a new folder under the new name (old folder preserved per Req 1.4)
-    - E2E tests need to account for this timing by waiting for title updates to propagate
-    - This is a real user-facing issue that should be addressed in future iterations
+  - **RESOLVED**: Unnamed group race condition fixed — unnamed groups (empty/null/undefined title) are now treated as transient and skipped by sync. See revised Req 13.1.
   - **Depends**: 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8, 16.9, 16.10
   - _Requirements: 12.7_
 
