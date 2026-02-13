@@ -38,7 +38,7 @@ test.describe('UI Interactions E2E', () => {
     await extensionPage.waitForSelector('body', { state: 'visible' });
 
     // Verify main UI elements are present
-    const hasHeader = await extensionPage.locator('header, [role="banner"]').count();
+    const hasHeader = await extensionPage.locator('h1:has-text("Tab Group Sync")').count();
     expect(hasHeader).toBeGreaterThan(0);
 
     // Verify the page has content
@@ -295,7 +295,7 @@ test.describe('UI Interactions E2E', () => {
     // Create a group
     await createTabGroup(extensionPage, {
       title: 'Reopen Test',
-      color: 'brown',
+      color: 'orange',
       urls: ['https://example.com']
     });
 

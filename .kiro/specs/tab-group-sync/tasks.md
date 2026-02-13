@@ -641,7 +641,7 @@ Both unit tests and property tests are complementary and necessary for comprehen
     - _Requirements: 6.1, 6.4_
     - _Properties: 9, 10_
 
-  - [ ] 19.4 Fix E2E test infrastructure
+  - [x] 19.4 Fix E2E test infrastructure
     - **Already done in test files**: `setupExtensionViaUI` folder picker, `toggleGroupSync` popup refresh, `createAndSyncTabGroup` helper
     - **Remaining**: Fix `ui-interactions.test.ts` assertion that looks for `<header>` or `[role="banner"]` — the actual `Header.tsx` component uses a `Box`, not a semantic `<header>` element. Update the assertion to match the actual UI structure
     - **Files**: `tests/e2e/ui-interactions.test.ts`, `tests/e2e/utils.ts` (already fixed), `tests/e2e/container-folder.test.ts` (already fixed), `tests/e2e/snapshot-system.test.ts` (already fixed), `tests/e2e/cross-device-sync.test.ts` (already fixed), `tests/e2e/error-scenarios.test.ts` (already fixed), `tests/e2e/ungrouped-tabs.test.ts` (already fixed)
