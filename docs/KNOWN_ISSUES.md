@@ -169,7 +169,7 @@ If you discover new issues or edge cases:
 
 ## References
 
-- [Spec: requirements.md](.kiro/specs/tab-group-sync/requirements.md) — system of record
-- [Spec: design.md](.kiro/specs/tab-group-sync/design.md)
-- [Property Tests](tests/property/)
-- [Property Coverage](tests/property/PROPERTY_COVERAGE.md)
+- [Spec: requirements.md](../.kiro/specs/tab-group-sync/requirements.md) — system of record
+- [Spec: design.md](../.kiro/specs/tab-group-sync/design.md)
+- [Property Tests](../tests/property/)
+- [Property Coverage](../tests/property/PROPERTY_COVERAGE.md)

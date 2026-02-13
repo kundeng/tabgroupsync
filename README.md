@@ -58,7 +58,7 @@ See [Property Coverage](tests/property/PROPERTY_COVERAGE.md) and [E2E README](te
 | [Spec: design.md](.kiro/specs/tab-group-sync/design.md) | Architecture, properties, pseudocode |
 | [Spec: tasks.md](.kiro/specs/tab-group-sync/tasks.md) | Implementation tasks and status |
 | [docs/TECHNICAL.md](docs/TECHNICAL.md) | Learning guide and technical reference |
-| [KNOWN_ISSUES.md](KNOWN_ISSUES.md) | Known limitations and edge cases |
+| [KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | Known limitations and edge cases |
 
 ## License
 
