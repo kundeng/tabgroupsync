@@ -47,10 +47,27 @@ export class StorageManager {
       }
     });
 
-    // Save in a single operation
-    await new Promise<void>((resolve) => {
-      chrome.storage.sync.set(data, resolve);
-    });
+    // Save in a single operation (promise-based per NF 2)
+    try {
+      await chrome.storage.sync.set(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Log informative messages for quota and storage errors (Req 8.4)
+      if (message.toLowerCase().includes('quota') || message.toLowerCase().includes('exceeded')) {
+        this.logger.error('storage:saveState:quotaExceeded', error, {
+          message: `Storage quota exceeded — consider removing unused sync preferences`,
+          dataKeys: Object.keys(data).length
+        });
+      } else {
+        this.logger.error('storage:saveState:failed', error, {
+          message,
+          dataKeys: Object.keys(data).length
+        });
+      }
+      
+      throw error;
+    }
   }
 
   private notify(type: StorageEvent['type'], data: StorageEvent['data']): void {
@@ -75,17 +92,13 @@ export class StorageManager {
 
   private async loadState(): Promise<void> {
     return withErrorHandling(async () => {
-      // Load settings and history
-      const data = await new Promise<{ [key: string]: any }>(resolve => {
-        chrome.storage.sync.get(['state:settings', 'state:history'], resolve);
-      });
+      // Load settings and history (promise-based per NF 2)
+      const data = await (chrome.storage.sync.get(['state:settings', 'state:history']) as unknown as Promise<{ [key: string]: any }>);
 
       try {
         if (data['state:settings']) {
           // Get all preference keys
-          const allKeys = await new Promise<{ [key: string]: any }>(resolve => {
-            chrome.storage.sync.get(null, resolve);
-          });
+          const allKeys = await (chrome.storage.sync.get(null) as unknown as Promise<{ [key: string]: any }>);
 
           // Extract group preferences - use Object.create(null) to avoid prototype pollution
           const preferences: GroupSyncPreferences = Object.create(null);
@@ -158,9 +171,7 @@ export class StorageManager {
     // Verify container folder still exists
     if (this.persistedState.settings.containerFolderId) {
       try {
-        const folder = await new Promise<chrome.bookmarks.BookmarkTreeNode[]>((resolve) => {
-          chrome.bookmarks.get(this.persistedState.settings.containerFolderId!, resolve);
-        });
+        const folder = await chrome.bookmarks.get(this.persistedState.settings.containerFolderId!);
         
         if (!folder || folder.length === 0) {
           // Container folder was deleted, clear the ID and disable sync for all groups
@@ -240,9 +251,7 @@ export class StorageManager {
     for (const [name, pref] of Object.entries(this.persistedState.syncPreferences)) {
       try {
         // Try to find existing folder for this group
-        const groupFolders = await new Promise<chrome.bookmarks.BookmarkTreeNode[]>((resolve) => {
-          chrome.bookmarks.getChildren(containerFolder.id, resolve);
-        });
+        const groupFolders = await chrome.bookmarks.getChildren(containerFolder.id);
         const groupFolder = groupFolders.find(f => f.title === name);
         
         this.runtimeState.mappings[name] = {
@@ -281,9 +290,7 @@ export class StorageManager {
     if (!settings.containerFolderId) return null;
     
     try {
-      const results = await new Promise<chrome.bookmarks.BookmarkTreeNode[]>((resolve) => {
-        chrome.bookmarks.get(settings.containerFolderId!, resolve);
-      });
+      const results = await chrome.bookmarks.get(settings.containerFolderId!);
       
       if (!results || results.length === 0) {
         // Container folder was deleted, clear the ID

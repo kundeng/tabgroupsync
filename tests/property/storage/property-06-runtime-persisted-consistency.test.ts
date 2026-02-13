@@ -21,43 +21,47 @@ describe('Property 6: Runtime and Persisted State Consistency', () => {
     storageData = {};
     
     // Mock Chrome storage API
-    vi.mocked(chrome.storage.sync.get).mockImplementation((keys: any, callback: any) => {
+    vi.mocked(chrome.storage.sync.get).mockImplementation((keys: any, callback?: any) => {
       if (typeof keys === 'function') {
         callback = keys;
         keys = null;
       }
       
+      let result: Record<string, any> = {};
       if (keys === null) {
-        callback({ ...storageData });
+        result = { ...storageData };
       } else if (Array.isArray(keys)) {
-        const result: Record<string, any> = {};
-        keys.forEach(key => {
+        keys.forEach((key: string) => {
           if (storageData[key] !== undefined) {
             result[key] = storageData[key];
           }
         });
-        callback(result);
       } else if (typeof keys === 'object') {
-        const result: Record<string, any> = {};
         Object.keys(keys).forEach(key => {
           result[key] = storageData[key] !== undefined ? storageData[key] : keys[key];
         });
-        callback(result);
       }
+      if (callback) callback(result);
+      return Promise.resolve(result);
     });
 
     vi.mocked(chrome.storage.sync.set).mockImplementation((data: any, callback?: any) => {
       Object.assign(storageData, data);
       if (callback) callback();
+      return Promise.resolve();
     });
 
     // Mock bookmarks API for container folder checks
-    vi.mocked(chrome.bookmarks.get).mockImplementation((id: any, callback: any) => {
-      callback([{ id, title: 'Container', children: [] }]);
+    vi.mocked(chrome.bookmarks.get).mockImplementation((id: any, callback?: any) => {
+      const result = [{ id, title: 'Container', children: [] }];
+      if (callback) callback(result);
+      return Promise.resolve(result);
     });
 
-    vi.mocked(chrome.bookmarks.getChildren).mockImplementation((id: any, callback: any) => {
-      callback([]);
+    vi.mocked(chrome.bookmarks.getChildren).mockImplementation((id: any, callback?: any) => {
+      const result: chrome.bookmarks.BookmarkTreeNode[] = [];
+      if (callback) callback(result);
+      return Promise.resolve(result);
     });
   });
 

@@ -20,37 +20,34 @@ describe('Property 5: Sync Preference Persistence', () => {
     storageData = {};
     
     // Mock Chrome storage API
-    vi.mocked(chrome.storage.sync.get).mockImplementation((keys: any, callback: any) => {
+    vi.mocked(chrome.storage.sync.get).mockImplementation((keys: any, callback?: any) => {
       if (typeof keys === 'function') {
         callback = keys;
         keys = null;
       }
       
+      let result: Record<string, any> = {};
       if (keys === null) {
-        // Return all data
-        callback({ ...storageData });
+        result = { ...storageData };
       } else if (Array.isArray(keys)) {
-        // Return specific keys
-        const result: Record<string, any> = {};
-        keys.forEach(key => {
+        keys.forEach((key: string) => {
           if (storageData[key] !== undefined) {
             result[key] = storageData[key];
           }
         });
-        callback(result);
       } else if (typeof keys === 'object') {
-        // Return specific keys with defaults
-        const result: Record<string, any> = {};
         Object.keys(keys).forEach(key => {
           result[key] = storageData[key] !== undefined ? storageData[key] : keys[key];
         });
-        callback(result);
       }
+      if (callback) callback(result);
+      return Promise.resolve(result);
     });
 
     vi.mocked(chrome.storage.sync.set).mockImplementation((data: any, callback?: any) => {
       Object.assign(storageData, data);
       if (callback) callback();
+      return Promise.resolve();
     });
   });
 
