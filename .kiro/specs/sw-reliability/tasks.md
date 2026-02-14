@@ -30,7 +30,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: 1.2
     - _Requirements: 1.3, 3.2, 3.4_
 
-  - [ ] 1.4 Write property test for alarm persistence (Property 1)
+  - [x] 1.4 Write property test for alarm persistence (Property 1)
     - Verify alarm is created on init, listener handles wake-up, sync runs after alarm fires
     - **File**: `tests/property/reliability/property-alarm-persistence.test.ts`
     - **Depends**: 1.2
