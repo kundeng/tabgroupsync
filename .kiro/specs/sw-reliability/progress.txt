@@ -11,4 +11,5 @@
 2025-02-14 05:10 DONE 2.3 - Property test for container folder resolution
 2025-02-14 05:11 DONE 3.1 - Add bounded recovery alarm on initialization failure
 2025-02-14 05:12 DONE 3.2 - Add unhandledrejection listener
-# SUMMARY: 9/18 done | next: 3.3
+2025-02-14 05:16 DONE 3.3 - Property test for bounded self-recovery + fix ensureInitialized microtask ordering
+# SUMMARY: 10/18 done | next: 4.1

@@ -475,7 +475,9 @@ export class StorageManager {
   }
 
   // History Operations
-  async addHistoryEntry(entry: SyncHistoryEntry): Promise<void> {
+  async addHistoryEntry(entry: SyncHistoryEntry, options?: { persistToStorage?: boolean }): Promise<void> {
+    const persist = options?.persistToStorage ?? true;
+
     // Add to history and keep last 50 entries
     this.persistedState.syncHistory = [
       entry,
@@ -486,8 +488,10 @@ export class StorageManager {
     this.logger.info('sync:history', entry);
     this.notify('history-added', { syncHistory: [entry] });
 
-    // Save state
-    await this.saveState();
+    // Save state only if persisting (skip for no-change syncs)
+    if (persist) {
+      await this.saveState();
+    }
   }
 
   async getHistory(): Promise<SyncHistoryEntry[]> {

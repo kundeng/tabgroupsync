@@ -85,7 +85,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - _Properties: 3_
 
 - [ ] 4. Sync efficiency
-  - [ ] 4.1 Add `persistToStorage` option to `addHistoryEntry`
+  - [x] 4.1 Add `persistToStorage` option to `addHistoryEntry`
     - Add optional `{ persistToStorage?: boolean }` parameter to `StorageManager.addHistoryEntry`
     - When `false`, add entry to in-memory history array but skip `chrome.storage.sync` write
     - Default to `true` for backward compatibility
