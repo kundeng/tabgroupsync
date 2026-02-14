@@ -50,7 +50,7 @@ test.describe('SW Reliability E2E', () => {
 
     // Open popup and verify the group appears
     await openExtensionPopup(extensionPage, extensionId);
-    await expect(extensionPage.locator('text=E2E Alarm Test')).toBeVisible({ timeout: 10000 });
+    await expect(extensionPage.getByText('E2E Alarm Test', { exact: true })).toBeVisible({ timeout: 10000 });
 
     // Cleanup
     await page.close();
