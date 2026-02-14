@@ -45,7 +45,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: —
     - _Requirements: 2.7_
 
-  - [ ] 2.2 Add `resolveContainerFolder()` with three-tier resolution
+  - [x] 2.2 Add `resolveContainerFolder()` with three-tier resolution
     - Tier 1: Try stored ID with 3 retries (500ms backoff)
     - Tier 2: If ID not found, search by signature (`"Tab Group Bookmarks"` + `"Tab Group Snapshots"` children) using stored name
     - Tier 3: If API errors on all retries, mark `'unverified'` and preserve config

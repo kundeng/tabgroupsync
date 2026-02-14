@@ -14,6 +14,7 @@ import {
 import { validateStorageState, validateSyncHistoryEntry } from '../utils/validators';
 import { StorageError, withErrorHandling, ErrorType } from '../utils/errors';
 import { Logger } from '../utils/logger';
+import { BOOKMARK_FOLDERS } from '../constants';
 
 export class StorageManager {
   private persistedState: StorageState;
@@ -149,6 +150,99 @@ export class StorageManager {
     }, ErrorType.STORAGE);
   }
 
+  // Three-tier container folder resolution
+  // Tier 1: Try stored ID with retries
+  // Tier 2: Search by signature (child folders match) using stored name
+  // Tier 3: API errors on all retries → 'unverified', preserve config
+  async resolveContainerFolder(): Promise<'exists' | 'relocated' | 'deleted' | 'unverified'> {
+    const settings = this.persistedState.settings;
+    if (!settings.containerFolderId) return 'deleted';
+
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 500;
+
+    // Tier 1: Try stored ID with retries
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const results = await chrome.bookmarks.get(settings.containerFolderId!);
+        if (results && results.length > 0) {
+          // Also populate containerFolderName if missing (backward compat)
+          if (!settings.containerFolderName && results[0].title) {
+            this.persistedState.settings.containerFolderName = results[0].title;
+          }
+          return 'exists';
+        }
+        // Empty result = folder genuinely deleted, fall through to Tier 2
+        break;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        // "Can't find bookmark" type errors mean the ID is invalid → fall to Tier 2
+        if (message.includes("Can't find") || message.includes('not found') || message.includes('No bookmark')) {
+          break;
+        }
+        // Transient API error → retry
+        if (attempt < MAX_RETRIES) {
+          this.logger.warn('resolveContainerFolder:retry', { attempt, error: message });
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt));
+          continue;
+        }
+        // All retries exhausted with API errors → Tier 3: unverified
+        this.logger.error('resolveContainerFolder:unverified', {
+          error: message,
+          attempts: MAX_RETRIES,
+          action: 'preserving config'
+        });
+        return 'unverified';
+      }
+    }
+
+    // Tier 2: ID not found — search by signature using stored name
+    if (settings.containerFolderName) {
+      try {
+        const candidates = await chrome.bookmarks.search({ title: settings.containerFolderName });
+        for (const candidate of candidates) {
+          // Skip bookmarks (only want folders)
+          if (candidate.url) continue;
+          try {
+            const children = await chrome.bookmarks.getChildren(candidate.id);
+            const hasBookmarks = children.some(c => !c.url && c.title === BOOKMARK_FOLDERS.BOOKMARKS);
+            const hasSnapshots = children.some(c => !c.url && c.title === BOOKMARK_FOLDERS.SNAPSHOTS);
+            if (hasBookmarks && hasSnapshots) {
+              // Found relocated folder — update stored ID
+              const oldId = settings.containerFolderId;
+              this.persistedState.settings.containerFolderId = candidate.id;
+              this.persistedState.settings.containerFolderName = candidate.title;
+              this.logger.info('resolveContainerFolder:relocated', {
+                oldId,
+                newId: candidate.id,
+                name: candidate.title
+              });
+              return 'relocated';
+            }
+          } catch {
+            // Skip candidates that error on getChildren
+            continue;
+          }
+        }
+      } catch (error) {
+        this.logger.error('resolveContainerFolder:searchFailed', {
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+        // Search API failed — treat as unverified to be safe
+        return 'unverified';
+      }
+    }
+
+    // No folder found by ID or signature — genuinely deleted
+    this.logger.warn('resolveContainerFolder:deleted', {
+      oldId: settings.containerFolderId,
+      oldName: settings.containerFolderName
+    });
+    this.persistedState.settings.containerFolderId = undefined;
+    this.persistedState.settings.containerFolderName = undefined;
+    return 'deleted';
+  }
+
   private async performMaintenance(): Promise<void> {
     // Clean up inactive groups if enabled
     if (this.persistedState.settings.cleanup.enabled) {
@@ -168,58 +262,33 @@ export class StorageManager {
       });
     }
 
-    // Verify container folder still exists
+    // Verify container folder using three-tier resolution
     if (this.persistedState.settings.containerFolderId) {
-      try {
-        const folder = await chrome.bookmarks.get(this.persistedState.settings.containerFolderId!);
-        
-        if (!folder || folder.length === 0) {
-          // Container folder was deleted, clear the ID and disable sync for all groups
-          this.persistedState.settings.containerFolderId = undefined;
-          
-          // Update all runtime mappings to show error but preserve sync state
-          Object.keys(this.runtimeState.mappings).forEach(name => {
-            const mapping = this.runtimeState.mappings[name];
-            this.runtimeState.mappings[name] = {
-              ...mapping,
-              status: {
-                ...mapping.status,
-                inProgress: false,
-                error: 'Backup location not found'
-              }
-            };
-          });
-
-          this.logger.warn('maintenance:containerFolderMissing', {
-            action: 'cleared container folder ID and disabled sync for all groups'
-          });
-        }
-      } catch (error) {
-        // Handle error by clearing the container folder ID and disabling sync
-        this.persistedState.settings.containerFolderId = undefined;
-        
-        // Update all runtime mappings to reflect error state
+      const resolution = await this.resolveContainerFolder();
+      
+      if (resolution === 'deleted') {
+        // Genuinely deleted — update runtime mappings to show error
         Object.keys(this.runtimeState.mappings).forEach(name => {
           const mapping = this.runtimeState.mappings[name];
-          const pref = this.persistedState.syncPreferences[name];
-          
-          // Keep user's sync preference but show error
           this.runtimeState.mappings[name] = {
             ...mapping,
-            syncEnabled: pref?.syncEnabled ?? false,
             status: {
-              lastSynced: Date.now(),
+              ...mapping.status,
               inProgress: false,
-              error: 'Failed to verify backup location'
+              error: 'Backup location not found'
             }
           };
         });
-
-        this.logger.error('maintenance:containerFolderCheckFailed', {
-          error: error instanceof Error ? error.message : 'Unknown error',
-          action: 'disabled sync for all groups'
+        this.logger.warn('maintenance:containerFolderDeleted', {
+          action: 'cleared container folder ID'
+        });
+      } else if (resolution === 'unverified') {
+        // API errors — preserve config, log warning
+        this.logger.warn('maintenance:containerFolderUnverified', {
+          action: 'preserving config, will retry next cycle'
         });
       }
+      // 'exists' and 'relocated' are handled by resolveContainerFolder itself
     }
 
     // Save cleaned state
@@ -289,22 +358,27 @@ export class StorageManager {
     const settings = await this.getSettings();
     if (!settings.containerFolderId) return null;
     
+    // Use three-tier resolution instead of aggressive clearing
+    const resolution = await this.resolveContainerFolder();
+    if (resolution === 'deleted') {
+      await this.saveState();
+      return null;
+    }
+    if (resolution === 'unverified') {
+      // Can't verify but config preserved — try to use stored ID anyway
+      this.logger.warn('getTabGroupsFolder:unverified', { action: 'attempting with stored ID' });
+    }
+    // 'exists' or 'relocated' — use the (possibly updated) containerFolderId
     try {
-      const results = await chrome.bookmarks.get(settings.containerFolderId!);
-      
-      if (!results || results.length === 0) {
-        // Container folder was deleted, clear the ID
-        await this.updateSettings({ containerFolderId: undefined });
-        return null;
+      const results = await chrome.bookmarks.get(this.persistedState.settings.containerFolderId!);
+      if (results && results.length > 0) {
+        return results[0];
       }
-      
-      return results[0];
+      return null;
     } catch (error) {
       this.logger.error('getTabGroupsFolder:failed', {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
-      // Clear invalid container folder ID
-      await this.updateSettings({ containerFolderId: undefined });
       return null;
     }
   }

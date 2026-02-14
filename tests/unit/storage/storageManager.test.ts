@@ -463,9 +463,10 @@ describe('StorageManager', () => {
 
       await manager.updateSettings({ containerFolderId: 'missing-folder' });
 
-      // Mock bookmarks.get to simulate missing folder
-      vi.mocked(chrome.bookmarks.get).mockImplementation((id: any, callback: any) => {
-        callback([]);
+      // Mock bookmarks.get to simulate missing folder (promise-based)
+      vi.mocked(chrome.bookmarks.get).mockImplementation((id: any, callback?: any) => {
+        if (callback) callback([]);
+        return Promise.resolve([]);
       });
 
       // Re-initialize to trigger maintenance
