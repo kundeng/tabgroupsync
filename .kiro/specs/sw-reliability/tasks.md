@@ -84,7 +84,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: 3.1
     - _Properties: 3_
 
-- [ ] 4. Sync efficiency
+- [x] 4. Sync efficiency
   - [x] 4.1 Add `persistToStorage` option to `addHistoryEntry`
     - Add optional `{ persistToStorage?: boolean }` parameter to `StorageManager.addHistoryEntry`
     - When `false`, add entry to in-memory history array but skip `chrome.storage.sync` write
@@ -108,7 +108,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: 4.2
     - _Properties: 4_
 
-- [ ] 5. Observability
+- [x] 5. Observability
   - [x] 5.1 Add wake-up trigger logging to background.ts
     - Log at top of alarm listener: `{ trigger: 'alarm', alarm: alarm.name }`
     - Log at top of onMessage listener: `{ trigger: 'message', type: message.type }`
@@ -139,20 +139,20 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: 1.3, 2.2, 3.1
     - _Properties: 6_
 
-- [ ] 6. E2E Tests
-  - [ ] 6.1 E2E — periodic sync survives worker idle
+- [x] 6. E2E Tests
+  - [x] 6.1 E2E — periodic sync survives worker idle
     - Create and sync a group, wait for alarm interval, verify sync still works after idle period
     - **File**: `tests/e2e/sw-reliability.test.ts`
     - **Depends**: 1.2, 1.3
     - _Requirements: 1.1, 1.2, 1.3_
 
-  - [ ] 6.2 E2E — storage location persists across extension reload
+  - [x] 6.2 E2E — storage location persists across extension reload
     - Configure storage location, reload extension, verify location is preserved and sync resumes
     - **File**: `tests/e2e/sw-reliability.test.ts`
     - **Depends**: 2.2
     - _Requirements: 2.1, 2.3, 2.4_
 
-  - [ ] 6.3 E2E — extension recovers from initialization failure
+  - [x] 6.3 E2E — extension recovers from initialization failure
     - Verify extension processes messages after worker restart (simulated via extension reload)
     - **File**: `tests/e2e/sw-reliability.test.ts`
     - **Depends**: 3.1
