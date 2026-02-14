@@ -13,7 +13,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: —
     - _Requirements: 1.1, NF 1.2_
 
-  - [ ] 1.2 Replace `setInterval` with `chrome.alarms` in background.ts
+  - [x] 1.2 Replace `setInterval` with `chrome.alarms` in background.ts
     - Remove `setInterval` from `startPeriodicSync()`
     - Create `chrome.alarms.create('periodic-sync', { periodInMinutes: 5 })` during initialization
     - Add `chrome.alarms.onAlarm.addListener` that calls `syncAll()` on `periodic-sync` alarm

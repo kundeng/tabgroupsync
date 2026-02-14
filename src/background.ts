@@ -49,7 +49,10 @@ async function initializeManagers() {
   logger.info('managers:initialized', { timestamp: Date.now() });
 }
 
-// Start periodic sync
+// Alarm name constants
+const ALARM_PERIODIC_SYNC = 'periodic-sync';
+
+// Start periodic sync via chrome.alarms (survives worker termination)
 async function startPeriodicSync() {
   const settings = await storage.getSettings();
   
@@ -59,26 +62,35 @@ async function startPeriodicSync() {
     logger.info('sync:initial', { timestamp: Date.now() });
   }
 
-  // Start periodic sync if enabled
-  if (settings.syncInterval) {
-    // Use 5 minute minimum interval to avoid quota issues
-    const interval = Math.max(settings.syncInterval, 5) * 60 * 1000;
-    
-    setInterval(async () => {
-      try {
-        await syncEngine.syncAll();
-        logger.info('sync:periodic', { 
-          timestamp: Date.now(),
-          interval: interval / 60000 // Log interval in minutes
-        });
-      } catch (error) {
-        logger.error('sync:periodic:failed', {
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
-      }
-    }, interval);
-  }
+  // Create periodic sync alarm (replaces setInterval which is lost on worker termination)
+  // chrome.alarms minimum interval is 1 minute; we use 5 minute minimum to avoid quota issues
+  const periodInMinutes = Math.max(settings.syncInterval ?? 5, 5);
+  await chrome.alarms.create(ALARM_PERIODIC_SYNC, { periodInMinutes });
+  logger.info('sync:alarmCreated', { 
+    alarm: ALARM_PERIODIC_SYNC, 
+    periodInMinutes 
+  });
 }
+
+// Handle alarm events (fires even after worker termination + restart)
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  logger.info('alarm:fired', { name: alarm.name, timestamp: Date.now() });
+
+  if (alarm.name === ALARM_PERIODIC_SYNC) {
+    if (!isReady) {
+      logger.warn('alarm:notReady', { alarm: alarm.name });
+      return;
+    }
+    try {
+      await syncEngine.syncAll();
+      logger.info('sync:periodic', { timestamp: Date.now() });
+    } catch (error) {
+      logger.error('sync:periodic:failed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+});
 
 // Initialize state and start sync
 async function initializeAndSync() {
@@ -414,40 +426,16 @@ ctx.addEventListener('activate', (event: ExtendableEvent) => {
   event.waitUntil((async () => {
     await ctx.clients.claim();
     
-    // Reinitialize managers and state
+    // Reinitialize managers and ensure alarm exists
     try {
       await initializeManagers();
       logger.info('serviceWorker:reinitialized', { timestamp: Date.now() });
 
-      // Get all preference keys
-      const allKeys = await new Promise<{ [key: string]: any }>(resolve => {
-        chrome.storage.sync.get(null, resolve);
-      });
-
-      // Extract enabled groups
-      const enabledGroups = Object.entries(allKeys)
-        .filter(([key, value]) => key.startsWith('pref:') && value.syncEnabled)
-        .map(([key]) => key.slice(5)); // Remove 'pref:' prefix
-
-      // Only update runtime state, no storage writes needed
-      enabledGroups.forEach(name => {
-        storage.updateRuntimeMapping(name, {
-          name,
-          folderId: '',  // Will be set when syncing
-          syncEnabled: true,
-          status: {
-            lastSynced: 0,
-            inProgress: false
-          }
-        });
-      });
-      
-      // Start periodic sync which will handle all groups
+      // Ensure periodic sync alarm exists (it persists across worker restarts,
+      // but re-create on activate to handle extension updates)
       await startPeriodicSync();
       
-      logger.info('serviceWorker:syncPreferencesRestored', {
-        preferences: enabledGroups.length
-      });
+      logger.info('serviceWorker:activated', { timestamp: Date.now() });
     } catch (error) {
       logger.error('serviceWorker:reinitializationFailed', {
         error: error instanceof Error ? error.message : 'Unknown error'
