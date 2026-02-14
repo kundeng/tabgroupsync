@@ -40,10 +40,8 @@ async function ensureInitialized(): Promise<boolean> {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
       return false;
-    } finally {
-      initPromise = null;
     }
-  })();
+  })().then(result => { initPromise = null; return result; });
   return initPromise;
 }
 

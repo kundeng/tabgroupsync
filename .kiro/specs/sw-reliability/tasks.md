@@ -78,7 +78,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: —
     - _Requirements: 3.3_
 
-  - [ ] 3.3 Write property test for bounded self-recovery (Property 3)
+  - [x] 3.3 Write property test for bounded self-recovery (Property 3)
     - Mock init to fail N times then succeed, verify at most 4 attempts (3 immediate + 1 alarm), then recovery via `ensureInitialized`
     - **File**: `tests/property/reliability/property-self-recovery.test.ts`
     - **Depends**: 3.1

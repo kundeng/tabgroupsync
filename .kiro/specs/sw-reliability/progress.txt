@@ -9,4 +9,6 @@
 2025-02-14 05:01 DONE 2.1 - Add containerFolderName to GlobalSettings
 2025-02-14 05:06 DONE 2.2 - Add resolveContainerFolder() with three-tier resolution
 2025-02-14 05:10 DONE 2.3 - Property test for container folder resolution
-# SUMMARY: 7/18 done | next: 3.1
+2025-02-14 05:11 DONE 3.1 - Add bounded recovery alarm on initialization failure
+2025-02-14 05:12 DONE 3.2 - Add unhandledrejection listener
+# SUMMARY: 9/18 done | next: 3.3
