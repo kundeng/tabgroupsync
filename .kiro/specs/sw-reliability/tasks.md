@@ -71,7 +71,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: 1.2, 1.3
     - _Requirements: 3.1, 3.5_
 
-  - [ ] 3.2 Add `unhandledrejection` listener (log only)
+  - [x] 3.2 Add `unhandledrejection` listener (log only)
     - Add `self.addEventListener('unhandledrejection', ...)` that logs error with stack trace
     - No automatic recovery — `ensureInitialized` handles that on next event
     - **File**: `src/background.ts`

@@ -463,6 +463,16 @@ if (import.meta.env.DEV) {
   };
 }
 
+// Catch unhandled promise rejections — log only, no automatic recovery
+ctx.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
+  const error = event.reason;
+  logger.error('worker:unhandledRejection', {
+    message: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+    timestamp: Date.now()
+  });
+});
+
 // Service worker lifecycle management
 ctx.addEventListener('install', (event: ExtendableEvent) => {
   logger.info('serviceWorker:install', { timestamp: Date.now() });
