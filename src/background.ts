@@ -160,7 +160,7 @@ async function initializeAndSync() {
 
 // Handle connections from popup
 chrome.runtime.onConnect.addListener((port) => {
-  logger.info('connection:received', { 
+  logger.info('trigger:connect', { 
     name: port.name, 
     timestamp: Date.now()
   });
@@ -219,6 +219,8 @@ initializeWithRetry();
 
 // Listen for messages
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  logger.info('trigger:message', { type: message.type, sender: sender.id, timestamp: Date.now() });
+
   if (message.type === 'SYNC_ERROR') {
     logger.error('sync:error', message.payload);
   }

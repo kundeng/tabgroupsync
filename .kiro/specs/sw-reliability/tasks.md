@@ -109,7 +109,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - _Properties: 4_
 
 - [ ] 5. Observability
-  - [ ] 5.1 Add wake-up trigger logging to background.ts
+  - [x] 5.1 Add wake-up trigger logging to background.ts
     - Log at top of alarm listener: `{ trigger: 'alarm', alarm: alarm.name }`
     - Log at top of onMessage listener: `{ trigger: 'message', type: message.type }`
     - Record `workerStartTime` at module load, log `timeSinceWorkerStart` in events

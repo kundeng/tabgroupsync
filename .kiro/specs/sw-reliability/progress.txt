@@ -12,4 +12,7 @@
 2025-02-14 05:11 DONE 3.1 - Add bounded recovery alarm on initialization failure
 2025-02-14 05:12 DONE 3.2 - Add unhandledrejection listener
 2025-02-14 05:16 DONE 3.3 - Property test for bounded self-recovery + fix ensureInitialized microtask ordering
-# SUMMARY: 10/18 done | next: 4.1
+2025-02-14 05:18 DONE 4.1 - Add persistToStorage option to addHistoryEntry
+2025-02-14 05:19 DONE 4.2 - Skip storage writes for no-change syncs
+2025-02-14 05:21 DONE 4.3 - Property test for no-change sync idempotency
+# SUMMARY: 13/18 done | next: 5.1
