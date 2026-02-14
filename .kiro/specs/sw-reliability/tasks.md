@@ -124,7 +124,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: —
     - _Requirements: NF 2.3_
 
-  - [ ] 5.3 Write property test for backward compatibility (Property 5)
+  - [x] 5.3 Write property test for backward compatibility (Property 5)
     - Seed storage with current-format data (no `containerFolderName`), run new initialization, verify all data preserved and name populated on first resolution
     - **File**: `tests/property/reliability/property-backward-compat.test.ts`
     - **Depends**: 2.2
