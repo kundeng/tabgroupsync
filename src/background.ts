@@ -17,6 +17,9 @@ declare const self: ServiceWorkerGlobalScope;
 // Service worker context
 const ctx = self;
 
+// Worker start time for observability
+const workerStartTime = Date.now();
+
 // Managers
 let storage: StorageManager;
 let bookmarkManager: BookmarkManager;
@@ -61,7 +64,7 @@ async function initializeManagers() {
   snapshotManager = new SnapshotManager(storage, bookmarkManager);
   
   // Initialize listeners
-  initializeTabGroupListeners(tabGroupManager);
+  initializeTabGroupListeners(tabGroupManager, workerStartTime);
   initializeTabListeners(tabGroupManager);
   initializeBookmarkListeners(bookmarkManager);
 

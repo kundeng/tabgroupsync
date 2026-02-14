@@ -117,7 +117,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: 1.2
     - _Requirements: NF 2.1, NF 2.2_
 
-  - [ ] 5.2 Add startup event logging to tab group listeners
+  - [x] 5.2 Add startup event logging to tab group listeners
     - Log event type, group count, and `timeSinceWorkerStart` for tab group created/updated events
     - Helps diagnose Edge workspace bulk-load behavior
     - **File**: `src/listeners/tabGroupListeners.ts`
