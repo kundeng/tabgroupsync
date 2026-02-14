@@ -7,7 +7,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
 ## Tasks
 
 - [ ] 1. Persistent periodic sync via chrome.alarms
-  - [ ] 1.1 Add `alarms` permission to manifest.json
+  - [x] 1.1 Add `alarms` permission to manifest.json
     - Add `"alarms"` to the permissions array in `manifest.json`
     - **File**: `manifest.json`
     - **Depends**: —
