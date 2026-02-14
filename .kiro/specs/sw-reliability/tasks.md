@@ -63,7 +63,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - _Properties: 2_
 
 - [ ] 3. Service worker self-recovery
-  - [ ] 3.1 Add bounded recovery alarm on initialization failure
+  - [x] 3.1 Add bounded recovery alarm on initialization failure
     - After 3 retries in `initializeWithRetry`, schedule ONE `chrome.alarms.create('retry-init', { delayInMinutes: 1 })` — then stop
     - Handle `retry-init` in alarm listener: attempt init, clear alarm on success
     - Do NOT loop — `ensureInitialized` provides on-demand recovery for future events

@@ -73,6 +73,7 @@ async function initializeManagers() {
 
 // Alarm name constants
 const ALARM_PERIODIC_SYNC = 'periodic-sync';
+const ALARM_RETRY_INIT = 'retry-init';
 
 // Start periodic sync via chrome.alarms (survives worker termination)
 async function startPeriodicSync() {
@@ -110,6 +111,26 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       logger.error('sync:periodic:failed', {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
+    }
+  } else if (alarm.name === ALARM_RETRY_INIT) {
+    logger.info('alarm:retryInit', { timestamp: Date.now() });
+    const success = await ensureInitialized();
+    if (success) {
+      await chrome.alarms.clear(ALARM_RETRY_INIT);
+      logger.info('alarm:retryInit:success', { timestamp: Date.now() });
+      // Start periodic sync now that we're initialized
+      try {
+        await startPeriodicSync();
+      } catch (error) {
+        logger.error('alarm:retryInit:syncStartFailed', {
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    } else {
+      // Don't reschedule — this was the one recovery attempt.
+      // ensureInitialized will handle on-demand recovery for future events.
+      await chrome.alarms.clear(ALARM_RETRY_INIT);
+      logger.error('alarm:retryInit:failed', { action: 'giving up, ensureInitialized will handle future events' });
     }
   }
 });
@@ -181,8 +202,15 @@ async function initializeWithRetry(attempt = 1) {
       });
       setTimeout(() => initializeWithRetry(attempt + 1), RETRY_DELAY);
     } else {
+      // Schedule ONE recovery alarm — then stop. ensureInitialized handles on-demand recovery.
       logger.error('initialization:failed:maxRetries', {
-        attempts: MAX_RETRIES
+        attempts: MAX_RETRIES,
+        action: 'scheduling recovery alarm'
+      });
+      await chrome.alarms.create(ALARM_RETRY_INIT, { delayInMinutes: 1 });
+      logger.info('initialization:recoveryAlarmScheduled', {
+        alarm: ALARM_RETRY_INIT,
+        delayInMinutes: 1
       });
     }
   }

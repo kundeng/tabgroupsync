@@ -8,4 +8,5 @@
 2025-02-14 04:59 DONE 1.4 - Property test for alarm persistence
 2025-02-14 05:01 DONE 2.1 - Add containerFolderName to GlobalSettings
 2025-02-14 05:06 DONE 2.2 - Add resolveContainerFolder() with three-tier resolution
-# SUMMARY: 6/18 done | next: 2.3
+2025-02-14 05:10 DONE 2.3 - Property test for container folder resolution
+# SUMMARY: 7/18 done | next: 3.1
