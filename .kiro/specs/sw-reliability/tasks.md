@@ -22,7 +22,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: 1.1
     - _Requirements: 1.1, 1.2, 1.4, 1.5_
 
-  - [ ] 1.3 Add `ensureInitialized()` reentrant guard
+  - [x] 1.3 Add `ensureInitialized()` reentrant guard
     - Create `ensureInitialized()` that checks `isReady`, re-initializes if needed, deduplicates concurrent calls via shared promise
     - Replace all `if (!isReady) { sendResponse({ error }); return; }` blocks in message handlers with `await ensureInitialized()` calls
     - Call `ensureInitialized()` in alarm listener before `syncAll()`

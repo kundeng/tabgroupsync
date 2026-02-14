@@ -25,6 +25,28 @@ let tabGroupManager: TabGroupManager;
 let snapshotManager: SnapshotManager;
 let isReady = false;
 
+// Reentrant initialization guard — deduplicates concurrent init attempts
+let initPromise: Promise<boolean> | null = null;
+
+async function ensureInitialized(): Promise<boolean> {
+  if (isReady) return true;
+  if (initPromise) return initPromise; // Reentrant — await existing init
+  initPromise = (async () => {
+    try {
+      await initializeManagers();
+      return true;
+    } catch (error) {
+      logger.error('ensureInitialized:failed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return false;
+    } finally {
+      initPromise = null;
+    }
+  })();
+  return initPromise;
+}
+
 // Initialize managers
 async function initializeManagers() {
   storage = new StorageManager();
@@ -77,7 +99,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   logger.info('alarm:fired', { name: alarm.name, timestamp: Date.now() });
 
   if (alarm.name === ALARM_PERIODIC_SYNC) {
-    if (!isReady) {
+    if (!await ensureInitialized()) {
       logger.warn('alarm:notReady', { alarm: alarm.name });
       return;
     }
@@ -181,11 +203,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   // Storage operations
   else if (message.type === 'GET_SETTINGS') {
-    if (!isReady) {
-      sendResponse({ error: 'Background service not ready' });
-      return true;
-    }
     Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
       try {
         const settings = await storage.getSettings();
         sendResponse({ settings });
@@ -196,11 +218,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
   else if (message.type === 'UPDATE_SETTINGS') {
-    if (!isReady) {
-      sendResponse({ error: 'Background service not ready' });
-      return true;
-    }
     Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
       try {
         await storage.updateSettings(message.settings);
         sendResponse({ success: true });
@@ -213,11 +235,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Bookmark operations
   else if (message.type === 'GET_TAB_GROUPS_FOLDER') {
-    if (!isReady) {
-      sendResponse({ error: 'Background service not ready' });
-      return true;
-    }
     Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
       try {
         const folder = await bookmarkManager.getTabGroupsFolder();
         sendResponse({ folder });
@@ -228,11 +250,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
   else if (message.type === 'SETUP_TAB_GROUPS_FOLDER') {
-    if (!isReady) {
-      sendResponse({ error: 'Background service not ready' });
-      return true;
-    }
     Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
       try {
         const folder = await bookmarkManager.setupTabGroupsFolder(message.containerFolder);
         sendResponse({ folder });
@@ -245,11 +267,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Group operations
   else if (message.type === 'GET_ALL_MAPPINGS') {
-    if (!isReady) {
-      sendResponse({ error: 'Background service not ready' });
-      return true;
-    }
     Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
       try {
         const mappings = await storage.getAllMappings();
         sendResponse({ mappings });
@@ -260,11 +282,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
   else if (message.type === 'TOGGLE_SYNC') {
-    if (!isReady) {
-      sendResponse({ error: 'Background service not ready' });
-      return true;
-    }
     Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
       try {
         await syncEngine.toggleSync(message.name);
         sendResponse({ success: true });
@@ -275,11 +297,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
   else if (message.type === 'FULL_RESYNC_GROUP') {
-    if (!isReady) {
-      sendResponse({ error: 'Background service not ready' });
-      return true;
-    }
     Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
       try {
         await syncEngine.fullResyncGroup(message.group);
         sendResponse({ success: true });
@@ -290,11 +312,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
   else if (message.type === 'SYNC_ALL') {
-    if (!isReady) {
-      sendResponse({ error: 'Background service not ready' });
-      return true;
-    }
     Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
       try {
         await syncEngine.syncAll();
         sendResponse({ success: true });
@@ -307,11 +329,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Snapshot operations
   else if (message.type === 'LIST_SNAPSHOTS') {
-    if (!isReady) {
-      sendResponse({ error: 'Background service not ready' });
-      return true;
-    }
     Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
       try {
         const snapshots = await snapshotManager.listSnapshots(message.groupId);
         sendResponse({ snapshots });
@@ -322,11 +344,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
   else if (message.type === 'CREATE_SNAPSHOT') {
-    if (!isReady) {
-      sendResponse({ error: 'Background service not ready' });
-      return true;
-    }
     Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
       try {
         const snapshot = await snapshotManager.createSnapshot(message.groupId, message.groupName);
         sendResponse({ snapshot });
@@ -337,11 +359,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
   else if (message.type === 'DELETE_SNAPSHOT') {
-    if (!isReady) {
-      sendResponse({ error: 'Background service not ready' });
-      return true;
-    }
     Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
       try {
         await snapshotManager.deleteSnapshot(message.snapshotId);
         sendResponse({ success: true });
@@ -352,11 +374,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
   else if (message.type === 'RESTORE_SNAPSHOT') {
-    if (!isReady) {
-      sendResponse({ error: 'Background service not ready' });
-      return true;
-    }
     Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
       try {
         const result = await snapshotManager.restoreSnapshot(message.snapshotId);
         sendResponse({ result });
@@ -367,11 +389,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
   else if (message.type === 'GET_GROUP_SYNC_SETTINGS') {
-    if (!isReady) {
-      sendResponse({ error: 'Background service not ready' });
-      return true;
-    }
     Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
       try {
         const settings = await storage.getGroupSyncSettings(message.name);
         sendResponse({ settings });
@@ -385,11 +407,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
   else if (message.type === 'GET_HISTORY') {
-    if (!isReady) {
-      sendResponse({ error: 'Background service not ready' });
-      return true;
-    }
     Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
       try {
         const history = await storage.getHistory();
         sendResponse({ history });
