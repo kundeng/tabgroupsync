@@ -2,4 +2,4 @@
 # Auto-updated by spec-go workflow
 # Format: [TIMESTAMP] [STATUS] [TASK_ID] - [DESCRIPTION]
 # STATUS: DONE | BLOCKED | SKIPPED | IN_PROGRESS
-# SUMMARY: 0/19 done | next: 1.1
+# SUMMARY: 0/16 done | next: 1.1

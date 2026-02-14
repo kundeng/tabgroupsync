@@ -12,185 +12,103 @@
 
 ```mermaid
 graph TD
-    A[chrome.alarms] -->|fires| B[Alarm Listener]
-    B --> C{isReady?}
-    C -->|no| D[ensureInitialized]
-    C -->|yes| E[syncEngine.syncAll]
-    D --> E
-    F[chrome.runtime.onMessage] --> G{isReady?}
-    G -->|no| H[ensureInitialized or queue]
-    G -->|yes| I[Handle message]
-    H --> I
-    J[Service Worker Start] --> K[Register listeners synchronously]
-    K --> L[initializeWithRetry]
-    L -->|fail after retries| M[Schedule recovery alarm]
+    A[chrome.alarms] -->|periodic-sync fires| B[Alarm Listener]
+    B --> C{ensureInitialized}
+    C -->|ok| D[syncEngine.syncAll]
+    C -->|fail| E[Log error, stop]
+    F[chrome.runtime.onMessage] --> G{ensureInitialized}
+    G -->|ok| H[Handle message]
+    G -->|fail| I[Return error to popup]
+    J[Service Worker Start] --> K[initializeWithRetry]
+    K -->|fail after 3+1 retries| L[Stop, wait for next event]
+    M[containerFolderId not found] --> N{Search by signature}
+    N -->|found| O[Update ID, continue]
+    N -->|not found| P{API error or deleted?}
+    P -->|error| Q[Keep config, mark unverified]
+    P -->|deleted| R[Clear config, show error]
 ```
 
 ## Module Changes
 
 ### 1. background.ts — Alarm-Based Periodic Sync
 
-**Current problem**: `setInterval` is lost when the service worker terminates.
+**Current problem**: `setInterval` is lost when the service worker terminates. Sync stops permanently.
 
-**Solution**: Replace `setInterval` with `chrome.alarms.create`. The alarm fires even if the worker was terminated — Chrome wakes the worker to deliver the event.
+**Solution**: Replace `setInterval` with `chrome.alarms.create`. Alarms survive worker termination — Chrome wakes the worker to deliver the event.
 
 ```
-// Remove startPeriodicSync's setInterval
-// Replace with:
+// Replace startPeriodicSync's setInterval with:
 chrome.alarms.create('periodic-sync', { periodInMinutes: 5 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  logger.info('alarm:fired', { name: alarm.name });
   if (alarm.name === 'periodic-sync') {
-    await ensureInitialized();
-    await syncEngine.syncAll();
+    if (await ensureInitialized()) {
+      await syncEngine.syncAll();
+    }
   }
   if (alarm.name === 'retry-init') {
-    await initializeWithRetry();
+    await initializeManagers();
   }
 });
 ```
 
-**Key change**: `ensureInitialized()` is a new function that checks `isReady` and re-initializes if needed. This is the single entry point for all wake-up paths.
+Note: `chrome.alarms` minimum interval is 1 minute (Chrome enforces this). Current 5-minute interval is fine.
 
 ### 2. background.ts — ensureInitialized Guard
 
-**Current problem**: If `isReady` is false, every message returns an error forever.
+**Current problem**: If `isReady` is false, every message returns `{ error: 'Background service not ready' }` forever.
 
-**Solution**: A lazy-init guard that any code path can call.
+**Solution**: A reentrant lazy-init guard. If init is already in progress, await the existing promise (no double-init).
 
 ```
+let initPromise: Promise<boolean> | null = null;
+
 async function ensureInitialized(): Promise<boolean> {
   if (isReady) return true;
-  try {
-    await initializeManagers();
-    isReady = true;
-    return true;
-  } catch (error) {
-    logger.error('ensureInitialized:failed', { error });
-    return false;
-  }
-}
-```
-
-Message handlers call `ensureInitialized()` instead of checking `isReady` and returning an error. If it fails, *then* return the error.
-
-### 3. background.ts — Message Queuing During Init
-
-**Current problem**: Messages arriving during initialization get error responses.
-
-**Solution**: Queue messages while initialization is in progress, process them after.
-
-```
-let initPromise: Promise<void> | null = null;
-const pendingMessages: Array<{ message, sender, sendResponse }> = [];
-
-// In onMessage listener:
-if (!isReady) {
-  if (!initPromise) {
-    initPromise = ensureInitialized().then(() => { initPromise = null; });
-  }
-  // Queue the message and process after init
-  await initPromise;
-  if (!isReady) {
-    sendResponse({ error: 'Extension failed to initialize' });
-    return;
-  }
-  // Fall through to normal handling
-}
-```
-
-### 4. storageManager.ts — Resilient Container Folder Check
-
-**Current problem**: `performMaintenance` calls `chrome.bookmarks.get(containerFolderId)` once. If it fails for any reason, it wipes `containerFolderId` permanently.
-
-**Solution**: Retry with backoff, and distinguish "folder genuinely deleted" from "transient API failure".
-
-```
-private async verifyContainerFolder(): Promise<'exists' | 'deleted' | 'unverified'> {
-  const id = this.persistedState.settings.containerFolderId;
-  if (!id) return 'deleted';
-
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  if (initPromise) return initPromise;  // Reentrant — await existing init
+  initPromise = (async () => {
     try {
-      const folder = await chrome.bookmarks.get(id);
-      if (folder && folder.length > 0) return 'exists';
-      return 'deleted';  // API succeeded but folder not found = genuinely deleted
+      await initializeManagers();
+      return true;
     } catch (error) {
-      if (attempt < 3) {
-        await new Promise(r => setTimeout(r, 500 * attempt));
-        continue;
-      }
-      // All retries failed — don't wipe config
-      this.logger.warn('maintenance:containerFolderUnverified', {
-        id, attempts: 3, error
-      });
-      return 'unverified';
+      logger.error('ensureInitialized:failed', { error });
+      return false;
+    } finally {
+      initPromise = null;
+    }
+  })();
+  return initPromise;
+}
+```
+
+All message handlers and alarm handlers call `ensureInitialized()` instead of checking `isReady` directly.
+
+### 3. background.ts — Light Self-Recovery
+
+**Current problem**: After 3 failed init retries, the worker is permanently broken.
+
+**Solution**: After 3 retries fail, schedule ONE recovery alarm (60s). If that also fails, stop — don't loop aggressively.
+
+```
+async function initializeWithRetry(attempt = 1) {
+  try {
+    await initializeAndSync();
+  } catch (error) {
+    if (attempt < MAX_RETRIES) {
+      setTimeout(() => initializeWithRetry(attempt + 1), RETRY_DELAY);
+    } else {
+      // One more chance via alarm, then give up
+      chrome.alarms.create('retry-init', { delayInMinutes: 1 });
+      logger.error('initialization:scheduledRecovery', { attempts: MAX_RETRIES });
     }
   }
-  return 'unverified';
 }
 ```
 
-In `performMaintenance`:
-- `'exists'` → continue normally
-- `'deleted'` → clear `containerFolderId`, show error (current behavior, but only on confirmed deletion)
-- `'unverified'` → log warning, keep `containerFolderId`, skip folder-dependent maintenance
+The `ensureInitialized` guard also provides on-demand recovery — if a message or alarm arrives later and the underlying issue resolved, it will succeed.
 
-### 5. storageManager.ts — Batched Bookmark Lookups
-
-**Current problem**: `initializeRuntimeMappings` calls `chrome.bookmarks.getChildren(containerFolder.id)` once (good), but then for each group it does individual lookups.
-
-**Solution**: Load all children once, build a lookup map.
-
-```
-private async initializeRuntimeMappings(): Promise<void> {
-  const containerFolder = await this.getTabGroupsFolder();
-  if (!containerFolder) { /* existing error handling */ return; }
-
-  // Single API call — build lookup map
-  const children = await chrome.bookmarks.getChildren(containerFolder.id);
-  const folderByName = new Map(children.map(f => [f.title, f]));
-
-  for (const [name, pref] of Object.entries(this.persistedState.syncPreferences)) {
-    const folder = folderByName.get(name);
-    this.runtimeState.mappings[name] = {
-      name,
-      folderId: folder?.id || '',
-      syncEnabled: pref.syncEnabled,
-      status: { lastSynced: pref.lastSynced ?? 0, inProgress: false }
-    };
-  }
-}
-```
-
-### 6. syncEngine.ts — Batched Settings Load in syncAll
-
-**Current problem**: `syncAll` calls `storage.getMapping(name)` and `storage.getGroupSyncSettings(name)` for each group — N*2 storage reads.
-
-**Solution**: Load all data in one call at the start of `syncAll`.
-
-```
-async syncAll(): Promise<void> {
-  const settings = await this.storage.getSettings();
-  if (!settings.containerFolderId) return;
-
-  // Single load of all mappings and preferences
-  const allMappings = await this.storage.getAllMappings();
-  const allPreferences = await this.storage.getAllSyncPreferences();
-
-  // ... use allMappings and allPreferences instead of per-group calls
-}
-```
-
-This requires adding `getAllSyncPreferences()` to StorageManager (trivial — it already has the data in `persistedState.syncPreferences`).
-
-### 7. syncEngine.ts — Skip History Writes for No-Change Syncs
-
-**Current problem**: `syncGroupToFolder` writes a history entry even when the hash check shows no changes.
-
-**Solution**: Remove the history write from the no-change path. Only write history on actual syncs, errors, and user actions.
-
-### 8. background.ts — Unhandled Rejection Listener
+### 4. background.ts — Unhandled Rejection Listener
 
 ```
 self.addEventListener('unhandledrejection', (event) => {
@@ -198,10 +116,118 @@ self.addEventListener('unhandledrejection', (event) => {
     reason: event.reason?.message || String(event.reason),
     stack: event.reason?.stack
   });
-  // Don't let it crash silently — attempt recovery
-  if (!isReady) {
-    chrome.alarms.create('retry-init', { delayInMinutes: 1 });
+});
+```
+
+Log only — no automatic recovery from unhandled rejections. The `ensureInitialized` guard handles recovery on the next event.
+
+### 5. storageManager.ts — Robust Container Folder Resolution
+
+**Current problem**: `performMaintenance` calls `chrome.bookmarks.get(containerFolderId)` once. If it fails for any reason, it wipes `containerFolderId` permanently. Also, bookmark IDs are local to each Chrome profile — they change across devices.
+
+**Solution**: Three-tier folder resolution:
+
+1. **Try stored ID** (fast path)
+2. **Search by signature** — find a folder containing children named `"Tab Group Bookmarks"` and `"Tab Group Snapshots"` (cross-device path)
+3. **Retry on transient failure** — don't wipe config on API errors
+
+```
+private async resolveContainerFolder(): Promise<'exists' | 'relocated' | 'deleted' | 'unverified'> {
+  const id = this.persistedState.settings.containerFolderId;
+  const name = this.persistedState.settings.containerFolderName; // NEW field
+  if (!id) return 'deleted';
+
+  // Tier 1: Try stored ID with retries
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const folder = await chrome.bookmarks.get(id);
+      if (folder && folder.length > 0) return 'exists';
+      break; // API succeeded, folder genuinely gone — fall through to signature search
+    } catch (error) {
+      if (attempt < 3) {
+        await new Promise(r => setTimeout(r, 500 * attempt));
+        continue;
+      }
+      // All retries failed on API error — don't wipe, mark unverified
+      return 'unverified';
+    }
   }
+
+  // Tier 2: Search by signature (handles cross-device ID change)
+  const found = await this.findContainerBySignature(name);
+  if (found) {
+    this.persistedState.settings.containerFolderId = found.id;
+    await this.saveState();
+    return 'relocated';
+  }
+
+  return 'deleted';
+}
+
+private async findContainerBySignature(
+  name?: string
+): Promise<chrome.bookmarks.BookmarkTreeNode | null> {
+  // Search bookmark tree for a folder containing both
+  // "Tab Group Bookmarks" and "Tab Group Snapshots" children
+  // If name is provided, prefer folders matching that name
+  const candidates = await chrome.bookmarks.search({ title: name || '' });
+  for (const candidate of candidates) {
+    if (candidate.url) continue; // Skip bookmarks
+    const children = await chrome.bookmarks.getChildren(candidate.id);
+    const hasBookmarks = children.some(c => c.title === 'Tab Group Bookmarks' && !c.url);
+    const hasSnapshots = children.some(c => c.title === 'Tab Group Snapshots' && !c.url);
+    if (hasBookmarks && hasSnapshots) return candidate;
+  }
+  return null;
+}
+```
+
+### 6. storageManager.ts — Store Container Folder Name
+
+**New field**: Add `containerFolderName?: string` to `GlobalSettings`. Stored alongside `containerFolderId` in `chrome.storage.sync`. Used for cross-device folder relocation.
+
+Set when the user picks a folder in `setupTabGroupsFolder`:
+```
+await this.storage.updateSettings({
+  containerFolderId: folder.id,
+  containerFolderName: folder.title  // NEW
+});
+```
+
+### 7. syncEngine.ts — Skip History/Status Writes for No-Change Syncs
+
+**Current problem**: `syncGroupToFolder` writes a history entry AND a status update even when the hash check shows no changes.
+
+**Solution**: Early return with no storage writes when hash is unchanged.
+
+```
+// In syncGroupToFolder, the no-change path:
+if (currentHash === lastHash) {
+  this.logger.debug('sync:skipped', { name, reason: 'no changes' });
+  return;  // No history write, no status update
+}
+```
+
+### 8. background.ts — Observability Logging
+
+Add structured logging for:
+- Service worker wake-up trigger (alarm name, message type, listener event)
+- Re-initialization trigger and outcome
+- Tab group events during startup with timing (helps diagnose Edge workspace bulk-load)
+
+```
+// At top of alarm listener:
+logger.info('worker:wakeup', { trigger: 'alarm', alarm: alarm.name });
+
+// At top of onMessage listener:
+logger.info('worker:wakeup', { trigger: 'message', type: message.type });
+
+// In tab group listeners:
+logger.info('tabGroup:event', {
+  event: 'created',
+  groupId: group.id,
+  title: group.title,
+  timeSinceWorkerStart: Date.now() - workerStartTime
 });
 ```
 
@@ -218,47 +244,49 @@ sequenceDiagram
     participant Chrome
     participant SW as Service Worker
     participant Alarm as chrome.alarms
-    participant Storage as chrome.storage.sync
+    participant BM as chrome.bookmarks
 
     Chrome->>SW: Worker starts (event trigger)
-    SW->>SW: Register listeners synchronously
+    SW->>SW: Log wake-up trigger
     SW->>SW: initializeWithRetry()
-    SW->>Storage: loadState() — single get(null)
-    Storage-->>SW: All settings + preferences
+    SW->>SW: resolveContainerFolder()
+    alt ID found
+        SW->>BM: get(containerFolderId)
+        BM-->>SW: folder exists
+    else ID not found
+        SW->>BM: search by signature
+        BM-->>SW: found at new ID
+        SW->>SW: update containerFolderId
+    else API error
+        SW->>SW: mark unverified, keep config
+    end
     SW->>SW: isReady = true
+    SW->>Alarm: create periodic-sync alarm
 
     Note over Chrome,SW: Worker may be terminated here
 
     Alarm->>Chrome: periodic-sync fires
     Chrome->>SW: Wake worker
     SW->>SW: ensureInitialized()
-    SW->>SW: syncAll() — batched reads
-    SW->>Storage: Single get(null) for all data
-    SW->>SW: Queue syncs with adaptive delays
-
-    Note over SW: If init failed:
-    SW->>Alarm: Create retry-init alarm
-    Alarm->>Chrome: retry-init fires (1 min later)
-    Chrome->>SW: Wake worker
-    SW->>SW: initializeWithRetry()
+    SW->>SW: syncAll()
 ```
 
 ## Error Handling Strategy
 
 | Scenario | Current Behavior | New Behavior |
 |----------|-----------------|-------------|
-| Worker terminated | `setInterval` lost, sync stops | `chrome.alarms` persists, sync resumes |
-| Init fails 3x | `isReady = false` forever | Schedule `retry-init` alarm, retry every 60s |
-| Message while `!isReady` | Return error immediately | Call `ensureInitialized()`, queue if in progress |
-| Container folder check fails | Wipe `containerFolderId` | Retry 3x, keep config if unverified |
-| Unhandled rejection | Silent crash | Log + schedule recovery alarm |
-| `syncAll` with 20 groups | 40+ storage reads | 1 batched read |
-| No-change sync | Write history entry | Skip history write |
+| Worker terminated | `setInterval` lost, sync stops permanently | `chrome.alarms` persists, sync resumes on wake |
+| Init fails 3x | `isReady = false` forever | One recovery alarm (60s), then `ensureInitialized` on next event |
+| Message while `!isReady` | Return error immediately | Call `ensureInitialized()`, return error only if that fails |
+| Container folder ID invalid | Wipe `containerFolderId` | Search by signature first, retry on API errors, only wipe on confirmed deletion |
+| Cross-device sync | `containerFolderId` wrong on other device | Find folder by signature + stored name, update ID |
+| Unhandled rejection | Silent crash | Log with stack trace |
+| No-change sync | Write history entry + status update | Skip all storage writes |
 
 ## Testing Strategy
 
-- **Property tests**: Verify resilience properties (retry logic, state preservation, batching)
-- **E2E tests**: Validate alarm-based sync, recovery from worker termination, config persistence
+- **Property tests**: Verify resilience properties (folder resolution, retry logic, state preservation)
+- **E2E tests**: Validate alarm-based sync, config persistence across reloads, recovery
 - **Test command**: `npm test` (unit/property), `npm run test:e2e` (E2E)
 
 ## Correctness Properties
@@ -270,59 +298,47 @@ sequenceDiagram
 - **Example**: Worker starts, creates alarm, goes idle, Chrome terminates it, alarm fires, worker wakes, sync runs
 - **Test approach**: Mock `chrome.alarms` API, verify alarm is created on init and listener handles wake-up correctly
 
-### Property 2: Configuration Survival
+### Property 2: Container Folder Resolution
 
-- **Statement**: *For any* sequence of transient bookmark API failures during `performMaintenance`, the `containerFolderId` SHALL NOT be cleared unless the folder is confirmed deleted (API returns empty result, not an error)
-- **Validates**: Requirement 2.1, 2.2, 2.4
-- **Example**: `chrome.bookmarks.get` throws 3 times → `containerFolderId` preserved. `chrome.bookmarks.get` returns `[]` → `containerFolderId` cleared.
-- **Test approach**: Property test with randomized failure sequences — verify config preserved on errors, cleared only on confirmed deletion
+- **Statement**: *For any* sequence of transient bookmark API failures or cross-device ID changes, the container folder SHALL be found if it exists (by ID or by signature), and `containerFolderId` SHALL only be cleared when the folder is confirmed deleted
+- **Validates**: Requirement 2.1, 2.2, 2.3, 2.4, 2.5
+- **Example**: ID "123" not found → search finds folder with signature at ID "456" → update to "456". API throws 3 times → keep "123", mark unverified.
+- **Test approach**: Property test with randomized scenarios: ID valid, ID invalid but signature found, API errors, genuine deletion
 
-### Property 3: Self-Recovery Convergence
+### Property 3: Self-Recovery Bounded Retries
 
-- **Statement**: *For any* initialization failure, the system SHALL eventually reach `isReady = true` if the underlying cause resolves, within a bounded number of retry attempts
-- **Validates**: Requirement 3.1, 3.2, 3.5
-- **Example**: Init fails 3x (max retries), recovery alarm fires, init succeeds on 4th attempt → `isReady = true`
-- **Test approach**: Mock init to fail N times then succeed, verify recovery alarm is created and eventually succeeds
+- **Statement**: *For any* initialization failure, the system SHALL attempt at most 4 retries (3 immediate + 1 alarm) then stop, and SHALL recover on the next event via `ensureInitialized` if the underlying cause resolves
+- **Validates**: Requirement 3.1, 3.2, 3.4, 3.5
+- **Example**: Init fails 3x, recovery alarm fires and fails → stops. User opens popup → `ensureInitialized` succeeds → normal operation
+- **Test approach**: Mock init to fail N times then succeed, verify bounded retries and eventual recovery
 
-### Property 4: Message Delivery Guarantee
-
-- **Statement**: *For any* message arriving while `isReady = false`, the message SHALL either be processed after successful initialization or receive a meaningful error after initialization failure — never silently dropped
-- **Validates**: Requirement 3.2, 5.2
-- **Example**: Popup sends GET_SETTINGS while worker is initializing → message queued → init completes → settings returned
-- **Test approach**: Send messages during simulated init delay, verify all get responses
-
-### Property 5: Bulk Sync Efficiency
-
-- **Statement**: *For any* N synced groups, `syncAll` SHALL make O(1) storage read calls (not O(N))
-- **Validates**: Requirement 4.1, 5.3
-- **Example**: 20 groups → 1 `chrome.storage.sync.get(null)` call, not 40+ individual calls
-- **Test approach**: Mock storage API, count calls during `syncAll` with varying group counts
-
-### Property 6: No-Change Sync Idempotency
+### Property 4: No-Change Sync Idempotency
 
 - **Statement**: *For any* sync operation where the tab hash is unchanged, the system SHALL NOT write to `chrome.storage.sync`
-- **Validates**: Requirement 4.2
+- **Validates**: Requirement 4.1
 - **Example**: Sync group "Work" twice with same tabs → second sync does zero storage writes
 - **Test approach**: Track storage write calls, verify zero writes on unchanged sync
 
-### Property 7: Backward Compatibility
+### Property 5: Backward Compatibility
 
-- **Statement**: *For any* existing user with settings stored in the current format, upgrading to the new version SHALL preserve all `containerFolderId`, sync preferences, and mappings
+- **Statement**: *For any* existing user with settings stored in the current format (without `containerFolderName`), upgrading SHALL preserve all settings and the new `containerFolderName` field SHALL be populated on first successful folder resolution
 - **Validates**: NF 1.1
-- **Example**: User has 10 synced groups → upgrade → all 10 groups still synced with same folders
-- **Test approach**: Seed storage with current-format data, run new initialization, verify all data preserved
+- **Example**: User has `containerFolderId: "123"` but no `containerFolderName` → upgrade → folder found → `containerFolderName` set to folder title
+- **Test approach**: Seed storage with current-format data, run new initialization, verify all data preserved and name populated
 
 ## Edge Cases
 
-1. **Alarm fires during initialization**: `ensureInitialized` must be reentrant — if init is already in progress, await the existing promise rather than starting a second init
-2. **Multiple rapid wake-ups**: Alarm + message arrive simultaneously — must not double-initialize
-3. **Storage quota during recovery**: If storage is full during re-init, don't make it worse by writing error state
-4. **Container folder recreated with different ID**: User deletes and recreates the folder — the old ID is invalid but a folder with the same name exists at a different ID
+1. **Alarm fires during initialization**: `ensureInitialized` is reentrant — concurrent calls await the same promise
+2. **Multiple rapid wake-ups**: Alarm + message arrive simultaneously — `initPromise` deduplication prevents double-init
+3. **Storage quota during recovery**: Don't write error state if storage is full — just log
+4. **Container folder recreated with different ID**: Signature search finds the new folder
+5. **Multiple folders with same signature**: Prefer the one matching `containerFolderName`, fall back to first match
+6. **Edge workspaces**: Multiple tab groups created simultaneously on workspace switch — existing queue + 4s delay handles this, observability logging helps diagnose
 
 ## Decisions
 
-1. **`chrome.alarms` over `setInterval`**: Alarms are the only MV3-compatible way to schedule persistent work. Minimum interval is 1 minute (Chrome enforces this).
-2. **Lazy init over eager init**: `ensureInitialized()` is called on-demand rather than relying solely on startup init. This handles all wake-up paths uniformly.
-3. **Retry with backoff for folder verification**: 3 retries with 500ms/1s/1.5s delays balances reliability with startup speed.
-4. **Message queuing over message rejection**: Better UX — the popup waits briefly rather than showing an error.
-5. **Batched storage reads**: One `get(null)` is faster and more quota-friendly than N individual `get()` calls.
+1. **`chrome.alarms` over `setInterval`**: Only MV3-compatible persistent timer. Minimum 1 minute interval.
+2. **Lazy init (`ensureInitialized`)**: Single entry point for all wake-up paths. Reentrant to handle concurrent events.
+3. **Bounded recovery (3+1 retries)**: Enough to handle transient issues without creating memory pressure from infinite retry loops.
+4. **Signature-based folder search**: Robust cross-device resolution using the distinctive `"Tab Group Bookmarks"` + `"Tab Group Snapshots"` child folder structure.
+5. **Store folder name alongside ID**: Enables targeted search on other devices instead of scanning entire bookmark tree.

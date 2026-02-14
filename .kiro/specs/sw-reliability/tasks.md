@@ -2,7 +2,7 @@
 
 ## Overview
 
-Fix critical production reliability bugs in the Chrome MV3 service worker. Phases progress from foundational changes (alarms, resilient storage) through core reliability (self-recovery, batching) to validation (property tests, E2E tests).
+Fix critical production reliability bugs in the Chrome MV3 service worker. Phases: (1) alarm-based sync, (2) robust folder resolution, (3) light self-recovery, (4) sync efficiency, (5) observability, (6) E2E tests.
 
 ## Tasks
 
@@ -17,14 +17,15 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - Remove `setInterval` from `startPeriodicSync()`
     - Create `chrome.alarms.create('periodic-sync', { periodInMinutes: 5 })` during initialization
     - Add `chrome.alarms.onAlarm.addListener` that calls `syncAll()` on `periodic-sync` alarm
-    - Update alarm interval when sync settings change
+    - Update alarm when sync interval setting changes
     - **File**: `src/background.ts`
     - **Depends**: 1.1
     - _Requirements: 1.1, 1.2, 1.4, 1.5_
 
-  - [ ] 1.3 Add `ensureInitialized()` guard function
-    - Create reentrant `ensureInitialized()` that checks `isReady`, re-initializes if needed, and deduplicates concurrent calls
-    - Replace all `if (!isReady) { sendResponse({ error: ... }); return; }` blocks with `await ensureInitialized()` calls
+  - [ ] 1.3 Add `ensureInitialized()` reentrant guard
+    - Create `ensureInitialized()` that checks `isReady`, re-initializes if needed, deduplicates concurrent calls via shared promise
+    - Replace all `if (!isReady) { sendResponse({ error }); return; }` blocks in message handlers with `await ensureInitialized()` calls
+    - Call `ensureInitialized()` in alarm listener before `syncAll()`
     - **File**: `src/background.ts`
     - **Depends**: 1.2
     - _Requirements: 1.3, 3.2, 3.4_
@@ -35,102 +36,89 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: 1.2
     - _Properties: 1_
 
-- [ ] 2. Resilient configuration persistence
-  - [ ] 2.1 Add `verifyContainerFolder()` with retry logic to StorageManager
-    - Replace the single `chrome.bookmarks.get()` call in `performMaintenance` with a retry loop (3 attempts, 500ms backoff)
-    - Return `'exists' | 'deleted' | 'unverified'` — only clear `containerFolderId` on `'deleted'`
-    - Log the old value before clearing for recovery
-    - **File**: `src/lib/storage/storageManager.ts`
+- [ ] 2. Robust container folder resolution
+  - [ ] 2.1 Add `containerFolderName` field to GlobalSettings
+    - Add `containerFolderName?: string` to `GlobalSettings` interface
+    - Set it alongside `containerFolderId` in `setupTabGroupsFolder` and `createContainerFolder`
+    - Update `validateGlobalSettings` to accept the new field
+    - **Files**: `src/lib/types/storage.ts`, `src/lib/bookmarks/bookmarkManager.ts`, `src/lib/utils/validators.ts`
     - **Depends**: —
-    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
+    - _Requirements: 2.7_
 
-  - [ ] 2.2 Write property test for configuration survival (Property 2)
-    - Randomized failure sequences: verify config preserved on errors, cleared only on confirmed deletion
-    - **File**: `tests/property/reliability/property-config-survival.test.ts`
+  - [ ] 2.2 Add `resolveContainerFolder()` with three-tier resolution
+    - Tier 1: Try stored ID with 3 retries (500ms backoff)
+    - Tier 2: If ID not found, search by signature (`"Tab Group Bookmarks"` + `"Tab Group Snapshots"` children) using stored name
+    - Tier 3: If API errors on all retries, mark `'unverified'` and preserve config
+    - Return `'exists' | 'relocated' | 'deleted' | 'unverified'`
+    - Replace current `performMaintenance` folder check and `getTabGroupsFolder` error handling
+    - **File**: `src/lib/storage/storageManager.ts`
     - **Depends**: 2.1
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
+
+  - [ ] 2.3 Write property test for container folder resolution (Property 2)
+    - Randomized scenarios: ID valid, ID invalid but signature found, API errors, genuine deletion
+    - Verify config preserved on errors, updated on relocation, cleared only on confirmed deletion
+    - **File**: `tests/property/reliability/property-folder-resolution.test.ts`
+    - **Depends**: 2.2
     - _Properties: 2_
 
 - [ ] 3. Service worker self-recovery
-  - [ ] 3.1 Add recovery alarm on initialization failure
-    - After max retries in `initializeWithRetry`, create `chrome.alarms.create('retry-init', { delayInMinutes: 1 })`
-    - Handle `retry-init` alarm in the alarm listener to retry initialization
-    - Clear the alarm once initialization succeeds
+  - [ ] 3.1 Add bounded recovery alarm on initialization failure
+    - After 3 retries in `initializeWithRetry`, schedule ONE `chrome.alarms.create('retry-init', { delayInMinutes: 1 })` — then stop
+    - Handle `retry-init` in alarm listener: attempt init, clear alarm on success
+    - Do NOT loop — `ensureInitialized` provides on-demand recovery for future events
     - **File**: `src/background.ts`
     - **Depends**: 1.2, 1.3
     - _Requirements: 3.1, 3.5_
 
-  - [ ] 3.2 Add `unhandledrejection` listener
-    - Add `self.addEventListener('unhandledrejection', ...)` that logs the error and schedules recovery if `!isReady`
+  - [ ] 3.2 Add `unhandledrejection` listener (log only)
+    - Add `self.addEventListener('unhandledrejection', ...)` that logs error with stack trace
+    - No automatic recovery — `ensureInitialized` handles that on next event
     - **File**: `src/background.ts`
-    - **Depends**: 3.1
+    - **Depends**: —
     - _Requirements: 3.3_
 
-  - [ ] 3.3 Add message queuing during initialization
-    - When `!isReady` and init is in progress, queue the message and process after init completes
-    - If init fails, return error to all queued messages
-    - **File**: `src/background.ts`
-    - **Depends**: 1.3
-    - _Requirements: 3.2, 5.2_
-
-  - [ ] 3.4 Write property test for self-recovery convergence (Property 3)
-    - Mock init to fail N times then succeed, verify recovery alarm is created and eventually succeeds
+  - [ ] 3.3 Write property test for bounded self-recovery (Property 3)
+    - Mock init to fail N times then succeed, verify at most 4 attempts (3 immediate + 1 alarm), then recovery via `ensureInitialized`
     - **File**: `tests/property/reliability/property-self-recovery.test.ts`
-    - **Depends**: 3.1, 3.3
-    - _Properties: 3, 4_
+    - **Depends**: 3.1
+    - _Properties: 3_
 
-- [ ] 4. Efficient bulk sync
-  - [ ] 4.1 Add `getAllSyncPreferences()` to StorageManager
-    - Expose `persistedState.syncPreferences` as a read-only accessor
-    - **File**: `src/lib/storage/storageManager.ts`
+- [ ] 4. Sync efficiency
+  - [ ] 4.1 Remove history/status writes for no-change syncs
+    - In `syncGroupToFolder`, remove `addHistoryEntry` and `updateMapping` calls from the `currentHash === lastHash` early-return path
+    - Keep only the debug log and return
+    - **File**: `src/lib/sync/syncEngine.ts`
     - **Depends**: —
     - _Requirements: 4.1_
 
-  - [ ] 4.2 Batch storage reads in `syncAll()`
-    - Replace per-group `getMapping()` and `getGroupSyncSettings()` calls with single `getAllMappings()` + `getAllSyncPreferences()` at the top
-    - **File**: `src/lib/sync/syncEngine.ts`
+  - [ ] 4.2 Write property test for no-change sync idempotency (Property 4)
+    - Track storage write calls, verify zero writes when hash unchanged
+    - **File**: `tests/property/reliability/property-no-change-sync.test.ts`
     - **Depends**: 4.1
-    - _Requirements: 4.1_
+    - _Properties: 4_
 
-  - [ ] 4.3 Remove history write for no-change syncs
-    - In `syncGroupToFolder`, remove the `addHistoryEntry` call in the `currentHash === lastHash` early-return path
-    - Also remove the `updateMapping` call in that path (no-op status update)
-    - **File**: `src/lib/sync/syncEngine.ts`
-    - **Depends**: —
-    - _Requirements: 4.2_
-
-  - [ ] 4.4 Batch bookmark lookups in `initializeRuntimeMappings()`
-    - Load all children of container folder once, build a `Map<name, folder>`, use it for all groups
-    - **File**: `src/lib/storage/storageManager.ts`
-    - **Depends**: —
-    - _Requirements: 5.3_
-
-  - [ ] 4.5 Add adaptive sync delays based on group count
-    - In `queueSyncsWithDelay`, increase `SYNC_DELAY` when queue size > 10 groups
-    - Log when adaptive delay kicks in
-    - **File**: `src/lib/sync/syncEngine.ts`
-    - **Depends**: 4.2
-    - _Requirements: 4.3, 4.4_
-
-  - [ ] 4.6 Write property test for bulk sync efficiency (Property 5, 6)
-    - Count storage API calls during `syncAll` with varying group counts — verify O(1) reads
-    - Verify zero storage writes on unchanged sync
-    - **File**: `tests/property/reliability/property-bulk-sync.test.ts`
-    - **Depends**: 4.2, 4.3
-    - _Properties: 5, 6_
-
-- [ ] 5. Startup performance
-  - [ ] 5.1 Register event listeners synchronously before async init
-    - Move `chrome.runtime.onMessage.addListener`, `chrome.alarms.onAlarm.addListener`, and `chrome.runtime.onConnect.addListener` to top-level synchronous scope
-    - Keep handler bodies async but ensure registration happens before `initializeWithRetry()`
+- [ ] 5. Observability
+  - [ ] 5.1 Add wake-up trigger logging to background.ts
+    - Log at top of alarm listener: `{ trigger: 'alarm', alarm: alarm.name }`
+    - Log at top of onMessage listener: `{ trigger: 'message', type: message.type }`
+    - Record `workerStartTime` at module load, log `timeSinceWorkerStart` in events
     - **File**: `src/background.ts`
-    - **Depends**: 1.2, 1.3, 3.3
-    - _Requirements: 5.1_
+    - **Depends**: 1.2
+    - _Requirements: NF 2.1, NF 2.2_
 
-  - [ ] 5.2 Write property test for backward compatibility (Property 7)
-    - Seed storage with current-format data, run new initialization, verify all data preserved
+  - [ ] 5.2 Add startup event logging to tab group listeners
+    - Log event type, group count, and `timeSinceWorkerStart` for tab group created/updated events
+    - Helps diagnose Edge workspace bulk-load behavior
+    - **File**: `src/listeners/tabGroupListeners.ts`
+    - **Depends**: —
+    - _Requirements: NF 2.3_
+
+  - [ ] 5.3 Write property test for backward compatibility (Property 5)
+    - Seed storage with current-format data (no `containerFolderName`), run new initialization, verify all data preserved and name populated on first resolution
     - **File**: `tests/property/reliability/property-backward-compat.test.ts`
-    - **Depends**: 2.1, 4.4
-    - _Properties: 7_
+    - **Depends**: 2.2
+    - _Properties: 5_
 
 - [ ] 6. E2E Tests
   - [ ] 6.1 E2E — periodic sync survives worker idle
@@ -139,21 +127,22 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: 1.2, 1.3
     - _Requirements: 1.1, 1.2, 1.3_
 
-  - [ ] 6.2 E2E — storage location persists across restarts
-    - Configure storage location, reload extension, verify location is preserved
+  - [ ] 6.2 E2E — storage location persists across extension reload
+    - Configure storage location, reload extension, verify location is preserved and sync resumes
     - **File**: `tests/e2e/sw-reliability.test.ts`
-    - **Depends**: 2.1
-    - _Requirements: 2.1, 2.4_
+    - **Depends**: 2.2
+    - _Requirements: 2.1, 2.3, 2.4_
 
   - [ ] 6.3 E2E — extension recovers from initialization failure
-    - Simulate init failure, verify extension recovers and processes messages
+    - Verify extension processes messages after worker restart (simulated via extension reload)
     - **File**: `tests/e2e/sw-reliability.test.ts`
-    - **Depends**: 3.1, 3.3
+    - **Depends**: 3.1
     - _Requirements: 3.1, 3.2, 3.5_
 
 ## Notes
 
-- `chrome.alarms` has a minimum interval of 1 minute (Chrome enforces this)
-- `ensureInitialized()` must be reentrant — concurrent calls should await the same promise
-- The `activate` event handler in background.ts has redundant re-initialization logic that duplicates `loadState()` — it should be simplified to use `ensureInitialized()` once that exists
-- Property tests for this spec go in `tests/property/reliability/` to keep them separate from the existing `tab-group-sync` property tests
+- `chrome.alarms` has a minimum interval of 1 minute (Chrome enforces this). Current 5-minute periodic sync is fine.
+- `ensureInitialized()` must be reentrant — concurrent calls await the same promise, no double-init
+- The `activate` event handler in background.ts has redundant re-initialization logic — simplify to use `ensureInitialized()` once that exists
+- Property tests for this spec go in `tests/property/reliability/`
+- Bookmark IDs are local to each Chrome profile — they change when bookmarks sync across devices. The signature-based search handles this.

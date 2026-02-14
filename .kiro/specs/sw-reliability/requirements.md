@@ -2,76 +2,66 @@
 
 ## Introduction
 
-The Tab Group Sync Chrome extension suffers from critical reliability issues in production Chrome. The MV3 service worker is terminated after ~30 seconds of inactivity, which destroys in-memory state (`setInterval`, sync queues, runtime mappings). Additionally, aggressive error handling during initialization can permanently wipe user configuration, and there is no recovery path when initialization fails after max retries. This spec addresses these production reliability bugs.
+The Tab Group Sync Chrome extension has critical reliability issues in production Chrome/Edge. The MV3 service worker is terminated after ~30 seconds of inactivity, which destroys in-memory state (`setInterval`, sync queues, runtime mappings). Aggressive error handling during initialization permanently wipes user configuration on transient failures. The `containerFolderId` stored in `chrome.storage.sync` is a local bookmark ID that changes across devices, breaking cross-device sync. There is no recovery path when initialization fails. This spec addresses these production bugs.
 
 ## Glossary
 
-- **Service_Worker**: The MV3 background script that runs as a service worker, subject to Chrome's lifecycle management (termination after inactivity, wake-up on events)
-- **Worker_Termination**: Chrome automatically terminates the service worker after ~30 seconds of inactivity to conserve resources
+- **Service_Worker**: The MV3 background script, subject to Chrome's lifecycle management (termination after ~30s inactivity, wake-up on events)
 - **Chrome_Alarm**: A persistent timer via `chrome.alarms` API that survives worker termination and wakes the worker when it fires
 - **Transient_Failure**: A temporary API error (e.g., bookmarks API not ready during startup) that resolves on retry
-- **Container_Folder_ID**: The user-configured bookmark folder ID stored in `chrome.storage.sync` that anchors all sync operations
+- **Container_Folder**: The user-configured bookmark folder that anchors all sync operations. Contains child folders `"Tab Group Bookmarks"` and `"Tab Group Snapshots"`
+- **Folder_Signature**: The distinctive structure (two known child folder names) that uniquely identifies the container folder regardless of its bookmark ID
 - **Initialization_Deadlock**: State where `isReady = false` permanently, causing all message handlers to return errors
 
 ## Requirements
 
 ### Requirement 1: Persistent Periodic Sync
 
-**User Story:** As a user, I want my tab groups to keep syncing automatically even after Chrome has been idle, so that my bookmarks stay up to date without manual intervention.
+**User Story:** As a user, I want sync to resume automatically when I return to the browser after it has been idle, so that my tab group changes are always backed up.
 
 #### Acceptance Criteria
 
 1. WHEN the extension needs periodic sync, THE Background SHALL use `chrome.alarms` instead of `setInterval` to schedule sync operations
-2. WHEN the service worker is terminated and restarted by Chrome, THE Background SHALL resume periodic sync automatically via the alarm listener
+2. WHEN the service worker is terminated and later wakes up (via alarm, listener event, or message), THE Background SHALL resume periodic sync automatically
 3. WHEN the alarm fires, THE Background SHALL re-initialize managers if needed before performing sync
 4. WHEN the user changes the sync interval setting, THE Background SHALL update the alarm schedule accordingly
-5. WHEN the extension is first installed, THE Background SHALL create the periodic sync alarm
+5. WHEN the extension is first installed or updated, THE Background SHALL create the periodic sync alarm
 
-### Requirement 2: Resilient Configuration Persistence
+### Requirement 2: Robust Container Folder Resolution
 
-**User Story:** As a user, I want my configured storage location to survive browser restarts and transient errors, so that I don't have to reconfigure the extension repeatedly.
+**User Story:** As a user, I want my configured storage location to work reliably across devices and survive browser restarts, so that I don't have to reconfigure the extension repeatedly.
 
 #### Acceptance Criteria
 
-1. WHEN `performMaintenance` checks the container folder, THE Storage_Manager SHALL retry the bookmark API call up to 3 times before concluding the folder is missing
-2. WHEN all retries fail, THE Storage_Manager SHALL mark the folder as "unverified" rather than immediately wiping `containerFolderId`
-3. WHEN the container folder is genuinely deleted by the user, THE Storage_Manager SHALL clear `containerFolderId` and show a clear error in the UI
-4. WHEN the extension starts and `containerFolderId` is set, THE Storage_Manager SHALL NOT clear it due to a single transient API failure
-5. WHEN `containerFolderId` is cleared, THE Storage_Manager SHALL log the reason and preserve the old value for potential recovery
+1. WHEN the stored `containerFolderId` is not found, THE Storage_Manager SHALL search for the container folder by its signature (child folders named `"Tab Group Bookmarks"` and `"Tab Group Snapshots"`) before concluding it is missing
+2. WHEN the container folder is found by signature at a different ID, THE Storage_Manager SHALL update `containerFolderId` to the new ID and continue normally
+3. WHEN the bookmark API fails transiently during folder verification, THE Storage_Manager SHALL retry up to 3 times before concluding the folder is missing
+4. WHEN all retries fail and no folder is found by signature, THE Storage_Manager SHALL mark the folder as "unverified" and preserve `containerFolderId` rather than wiping it
+5. WHEN the container folder is genuinely deleted (API succeeds but returns empty), THE Storage_Manager SHALL clear `containerFolderId` and show a clear error in the UI
+6. WHEN `containerFolderId` is cleared, THE Storage_Manager SHALL log the reason and the old value
+7. WHEN the extension syncs across devices via `chrome.storage.sync`, THE Storage_Manager SHALL store the container folder name alongside the ID so the folder can be relocated on other machines
 
 ### Requirement 3: Service Worker Self-Recovery
 
-**User Story:** As a user, I want the extension to recover automatically from crashes and initialization failures, so that I never have to manually restart the extension.
+**User Story:** As a user, I want the extension to recover automatically from crashes, so that I don't have to manually restart it.
 
 #### Acceptance Criteria
 
-1. WHEN initialization fails after max retries, THE Background SHALL register an alarm to retry initialization periodically (e.g., every 60 seconds) instead of giving up permanently
-2. WHEN a message arrives and `isReady` is false, THE Background SHALL attempt re-initialization before returning an error
-3. WHEN an unhandled promise rejection occurs in the service worker, THE Background SHALL log the error and attempt recovery rather than leaving the worker in a broken state
-4. WHEN the service worker wakes up from any event, THE Background SHALL verify that managers are initialized and re-initialize if needed
-5. WHEN re-initialization succeeds after a previous failure, THE Background SHALL resume normal operation including periodic sync
+1. WHEN initialization fails after max retries (3), THE Background SHALL register a single recovery alarm (60 seconds) for one more attempt — then stop to avoid memory pressure
+2. WHEN a message arrives and `isReady` is false, THE Background SHALL attempt one re-initialization before returning an error
+3. WHEN an unhandled promise rejection occurs in the service worker, THE Background SHALL log the error with stack trace
+4. WHEN the service worker wakes up from any event, THE Background SHALL verify that managers are initialized and re-initialize if needed (`ensureInitialized` guard)
+5. WHEN re-initialization succeeds after a previous failure, THE Background SHALL resume normal operation and clear the recovery alarm
 
-### Requirement 4: Efficient Bulk Sync
+### Requirement 4: Sync Efficiency
 
-**User Story:** As a user with many tab groups, I want the extension to sync efficiently without causing browser lag, so that my browsing experience remains smooth.
-
-#### Acceptance Criteria
-
-1. WHEN `syncAll` runs, THE Sync_Engine SHALL load all settings and mappings in a single `chrome.storage.sync.get(null)` call instead of N individual calls
-2. WHEN syncing a group with no changes detected, THE Sync_Engine SHALL NOT write a history entry to storage
-3. WHEN multiple groups need syncing, THE Sync_Engine SHALL process them with adaptive delays based on the number of groups (longer delays for larger batches)
-4. WHEN the sync queue exceeds a threshold, THE Sync_Engine SHALL log a warning and prioritize recently-changed groups over periodic full syncs
-5. WHEN Chrome API quota errors occur, THE Sync_Engine SHALL implement exponential backoff starting at 60 seconds
-
-### Requirement 5: Startup Performance
-
-**User Story:** As a user, I want the extension to start quickly and not block the browser during initialization, so that my browsing is not impacted when Chrome starts.
+**User Story:** As a user, I want the extension to avoid unnecessary storage writes and respect Chrome API quotas.
 
 #### Acceptance Criteria
 
-1. WHEN the service worker starts, THE Background SHALL register event listeners synchronously before any async initialization
-2. WHEN initialization is in progress, THE Background SHALL queue incoming messages and process them after initialization completes (instead of returning errors)
-3. WHEN `initializeRuntimeMappings` runs, THE Storage_Manager SHALL batch bookmark API calls instead of making one call per group
+1. WHEN syncing a group with no changes detected (hash unchanged), THE Sync_Engine SHALL NOT write a history entry or status update to storage
+2. WHEN Chrome API quota errors occur, THE Sync_Engine SHALL use the existing rate limiter with exponential backoff (current 60s base is fine)
+3. WHEN the sync queue is full, THE Sync_Engine SHALL log a warning with the queue size and dropped group name
 
 ### Non-Functional
 
@@ -82,9 +72,9 @@ The Tab Group Sync Chrome extension suffers from critical reliability issues in 
 
 **NF 2: Observability**
 
-1. WHEN the service worker is terminated, THE Extension SHALL log the termination event (via `beforeunload` or similar)
-2. WHEN the service worker wakes up, THE Extension SHALL log the wake-up reason (alarm, message, listener event)
-3. WHEN re-initialization occurs, THE Extension SHALL log the trigger and outcome
+1. WHEN the service worker starts, THE Background SHALL log the wake-up trigger (alarm name, message type, or listener event type)
+2. WHEN re-initialization occurs, THE Background SHALL log the trigger and outcome
+3. WHEN tab group events fire during startup (especially in Edge with workspaces), THE Background SHALL log the event type, group count, and timing to help diagnose bulk-load behavior
 
 ## Out of Scope
 
@@ -92,3 +82,4 @@ The Tab Group Sync Chrome extension suffers from critical reliability issues in 
 - Changing the storage format or migrating to IndexedDB
 - Adding a persistent background page (not allowed in MV3)
 - UI redesign or new user-facing features beyond error messaging
+- Adaptive sync delays or priority queuing (current queue + 4s delay is sufficient)
