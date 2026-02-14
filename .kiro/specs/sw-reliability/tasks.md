@@ -55,7 +55,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: 2.1
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
 
-  - [ ] 2.3 Write property test for container folder resolution (Property 2)
+  - [x] 2.3 Write property test for container folder resolution (Property 2)
     - Randomized scenarios: ID valid, ID invalid but signature found, API errors, genuine deletion
     - Verify config preserved on errors, updated on relocation, cleared only on confirmed deletion
     - **File**: `tests/property/reliability/property-folder-resolution.test.ts`
