@@ -59,9 +59,9 @@ The Tab Group Sync Chrome extension has critical reliability issues in productio
 
 #### Acceptance Criteria
 
-1. WHEN syncing a group with no changes detected (hash unchanged), THE Sync_Engine SHALL NOT write a history entry or status update to storage
-2. WHEN Chrome API quota errors occur, THE Sync_Engine SHALL use the existing rate limiter with exponential backoff (current 60s base is fine)
-3. WHEN the sync queue is full, THE Sync_Engine SHALL log a warning with the queue size and dropped group name
+1. WHEN syncing a group with no changes detected (hash unchanged), THE Sync_Engine SHALL record "synced, no changes" in the in-memory history but SHALL NOT write a status update to `chrome.storage.sync`
+2. WHEN Chrome API quota errors occur, THE Sync_Engine SHALL re-queue the group with a 60-second delay and retry up to 3 times before dropping it
+3. WHEN the sync queue reaches its max size (100), THE Sync_Engine SHALL log a warning with the queue size and the dropped group name, and SHALL NOT enqueue the new item
 
 ### Non-Functional
 
@@ -75,6 +75,12 @@ The Tab Group Sync Chrome extension has critical reliability issues in productio
 1. WHEN the service worker starts, THE Background SHALL log the wake-up trigger (alarm name, message type, or listener event type)
 2. WHEN re-initialization occurs, THE Background SHALL log the trigger and outcome
 3. WHEN tab group events fire during startup (especially in Edge with workspaces), THE Background SHALL log the event type, group count, and timing to help diagnose bulk-load behavior
+
+**NF 3: Reliability Stress Testing**
+
+1. THE test suite SHALL include a property test that generates realistic random sequences of sync events (group created, updated, removed, renamed, alarm fires, worker restart) and feeds them through the system
+2. THE test SHALL produce structured logs of all operations performed, enabling post-hoc reliability analysis
+3. THE test SHALL verify no unhandled exceptions, no permanent deadlocks (`isReady` stuck false), and no silent data loss across the random event sequence
 
 ## Out of Scope
 

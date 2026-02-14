@@ -85,17 +85,27 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - _Properties: 3_
 
 - [ ] 4. Sync efficiency
-  - [ ] 4.1 Remove history/status writes for no-change syncs
-    - In `syncGroupToFolder`, remove `addHistoryEntry` and `updateMapping` calls from the `currentHash === lastHash` early-return path
-    - Keep only the debug log and return
-    - **File**: `src/lib/sync/syncEngine.ts`
+  - [ ] 4.1 Add `persistToStorage` option to `addHistoryEntry`
+    - Add optional `{ persistToStorage?: boolean }` parameter to `StorageManager.addHistoryEntry`
+    - When `false`, add entry to in-memory history array but skip `chrome.storage.sync` write
+    - Default to `true` for backward compatibility
+    - **File**: `src/lib/storage/storageManager.ts`
     - **Depends**: —
     - _Requirements: 4.1_
 
-  - [ ] 4.2 Write property test for no-change sync idempotency (Property 4)
-    - Track storage write calls, verify zero writes when hash unchanged
-    - **File**: `tests/property/reliability/property-no-change-sync.test.ts`
+  - [ ] 4.2 Skip storage writes for no-change syncs
+    - In `syncGroupToFolder`, replace the `currentHash === lastHash` early-return path:
+      - Remove `updateMapping` call (no status update needed)
+      - Change `addHistoryEntry` to use `{ persistToStorage: false }` with details `"Synced, no changes"`
+    - **File**: `src/lib/sync/syncEngine.ts`
     - **Depends**: 4.1
+    - _Requirements: 4.1_
+
+  - [ ] 4.3 Write property test for no-change sync idempotency (Property 4)
+    - Track `chrome.storage.sync` write calls, verify zero writes when hash unchanged
+    - Verify in-memory history contains "Synced, no changes" entry
+    - **File**: `tests/property/reliability/property-no-change-sync.test.ts`
+    - **Depends**: 4.2
     - _Properties: 4_
 
 - [ ] 5. Observability
@@ -119,6 +129,15 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **File**: `tests/property/reliability/property-backward-compat.test.ts`
     - **Depends**: 2.2
     - _Properties: 5_
+
+  - [ ] 5.4 Write reliability stress test (Property 6)
+    - Use fast-check to generate random sequences of sync events: group created, updated, removed, renamed, alarm fires, worker restart
+    - Feed events through mocked SyncEngine + StorageManager + BookmarkManager
+    - Collect structured logs of all operations
+    - Assert: no unhandled exceptions, no `isReady` stuck false, no silent data loss
+    - **File**: `tests/property/reliability/property-stress-test.test.ts`
+    - **Depends**: 1.3, 2.2, 3.1
+    - _Properties: 6_
 
 - [ ] 6. E2E Tests
   - [ ] 6.1 E2E — periodic sync survives worker idle

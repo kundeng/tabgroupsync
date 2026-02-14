@@ -194,19 +194,30 @@ await this.storage.updateSettings({
 });
 ```
 
-### 7. syncEngine.ts — Skip History/Status Writes for No-Change Syncs
+### 7. syncEngine.ts — No-Change Sync: Record but Don't Persist
 
-**Current problem**: `syncGroupToFolder` writes a history entry AND a status update even when the hash check shows no changes.
+**Current problem**: `syncGroupToFolder` writes a history entry AND a status update to `chrome.storage.sync` even when the hash check shows no changes.
 
-**Solution**: Early return with no storage writes when hash is unchanged.
+**Solution**: Keep the in-memory history record ("synced, no changes") but skip the `chrome.storage.sync` write.
 
 ```
 // In syncGroupToFolder, the no-change path:
 if (currentHash === lastHash) {
   this.logger.debug('sync:skipped', { name, reason: 'no changes' });
-  return;  // No history write, no status update
+  // Record in-memory history (visible in popup) but don't write to chrome.storage.sync
+  await this.storage.addHistoryEntry({
+    timestamp: Date.now(),
+    type: 'group-to-folder',
+    groupId: `group:${name}`,
+    folderId: mapping?.folderId,
+    success: true,
+    details: 'Synced, no changes'
+  }, { persistToStorage: false });  // NEW: in-memory only flag
+  return;
 }
 ```
+
+This requires adding a `persistToStorage` option to `addHistoryEntry`. When `false`, the entry is added to the in-memory history array but not written to `chrome.storage.sync`.
 
 ### 8. background.ts — Observability Logging
 
@@ -235,6 +246,77 @@ logger.info('tabGroup:event', {
 
 ```json
 "permissions": ["tabs", "tabGroups", "bookmarks", "storage", "unlimitedStorage", "alarms"]
+```
+
+## Component Communication
+
+Swim-lane diagram showing how components interact with Chrome APIs for state persistence and bookmark syncing:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Popup as Popup UI
+    participant BG as background.ts
+    participant SE as SyncEngine
+    participant SM as StorageManager
+    participant BMgr as BookmarkManager
+    participant CS as chrome.storage.sync
+    participant CB as chrome.bookmarks
+    participant CA as chrome.alarms
+
+    Note over User,CA: === Startup / Wake-up ===
+    CA->>BG: periodic-sync alarm fires
+    BG->>BG: ensureInitialized()
+    BG->>SM: loadState()
+    SM->>CS: get(null)
+    CS-->>SM: settings + preferences
+    SM->>SM: resolveContainerFolder()
+    SM->>CB: get(containerFolderId)
+    alt ID found
+        CB-->>SM: folder exists
+    else ID not found
+        SM->>CB: search({ title: containerFolderName })
+        CB-->>SM: candidates
+        SM->>CB: getChildren(candidate.id)
+        CB-->>SM: children (check signature)
+        SM->>CS: set({ containerFolderId: newId })
+    end
+    BG->>SE: syncAll()
+
+    Note over User,CA: === Sync Queue Processing ===
+    SE->>SM: getSettings(), getAllMappings()
+    SM-->>SE: settings, mappings
+    SE->>SE: queueSync(name) for each enabled group
+    loop For each queued group (4s delay between)
+        SE->>SE: computeTabsHash(tabs)
+        alt Hash unchanged
+            SE->>SM: addHistoryEntry("no changes", persistToStorage: false)
+            Note over SE: No chrome.storage.sync write
+        else Hash changed
+            SE->>BMgr: syncGroupToFolder(name, tabs, folderId)
+            BMgr->>CB: create/update bookmarks
+            SE->>SM: addHistoryEntry("N tabs synced")
+            SM->>CS: set(history)
+        end
+    end
+
+    Note over User,CA: === User Interaction ===
+    User->>Popup: Toggle sync for group
+    Popup->>BG: message { type: TOGGLE_SYNC, name }
+    BG->>BG: ensureInitialized()
+    BG->>SE: toggleSync(name)
+    SE->>SM: updateGroupSyncSettings(name, { enabled })
+    SM->>CS: set({ pref:name })
+    SE->>SE: queueSync(name)
+
+    Note over User,CA: === Tab Group Events ===
+    Note over BG: chrome.tabGroups.onCreated fires
+    BG->>SE: handleGroupCreated(group)
+    SE->>SM: getGroupSyncSettings(name)
+    SE->>BMgr: ensureGroupFolder(name)
+    BMgr->>CB: create folder under container
+    SE->>SM: updateMapping(name, { folderId })
+    SE->>SE: queueSync(name)
 ```
 
 ## Data Flow
@@ -314,10 +396,10 @@ sequenceDiagram
 
 ### Property 4: No-Change Sync Idempotency
 
-- **Statement**: *For any* sync operation where the tab hash is unchanged, the system SHALL NOT write to `chrome.storage.sync`
+- **Statement**: *For any* sync operation where the tab hash is unchanged, the system SHALL NOT write to `chrome.storage.sync`, but SHALL record the sync in in-memory history
 - **Validates**: Requirement 4.1
-- **Example**: Sync group "Work" twice with same tabs → second sync does zero storage writes
-- **Test approach**: Track storage write calls, verify zero writes on unchanged sync
+- **Example**: Sync group "Work" twice with same tabs → second sync does zero `chrome.storage.sync` writes, but history shows "Synced, no changes"
+- **Test approach**: Track storage write calls, verify zero writes on unchanged sync; verify in-memory history contains the entry
 
 ### Property 5: Backward Compatibility
 
@@ -325,6 +407,13 @@ sequenceDiagram
 - **Validates**: NF 1.1
 - **Example**: User has `containerFolderId: "123"` but no `containerFolderName` → upgrade → folder found → `containerFolderName` set to folder title
 - **Test approach**: Seed storage with current-format data, run new initialization, verify all data preserved and name populated
+
+### Property 6: Reliability Under Random Events
+
+- **Statement**: *For any* realistic random sequence of sync events (group created, updated, removed, renamed, alarm fires, worker restart), the system SHALL not throw unhandled exceptions, SHALL not deadlock (`isReady` stuck false), and SHALL not silently lose data
+- **Validates**: NF 3.1, NF 3.2, NF 3.3
+- **Example**: 100 random events including 3 worker restarts, 5 renames, 20 creates, 10 removes → all operations complete, logs produced, no exceptions
+- **Test approach**: Use fast-check to generate random event sequences, feed them through mocked system, collect structured logs, assert invariants
 
 ## Edge Cases
 
