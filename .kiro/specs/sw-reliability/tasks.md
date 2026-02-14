@@ -130,7 +130,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: 2.2
     - _Properties: 5_
 
-  - [ ] 5.4 Write reliability stress test (Property 6)
+  - [x] 5.4 Write reliability stress test (Property 6)
     - Use fast-check to generate random sequences of sync events: group created, updated, removed, renamed, alarm fires, worker restart
     - Feed events through mocked SyncEngine + StorageManager + BookmarkManager
     - Collect structured logs of all operations
