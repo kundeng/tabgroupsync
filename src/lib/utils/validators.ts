@@ -113,6 +113,7 @@ export function validateGlobalSettings(settings: unknown): GlobalSettings {
   const {
     autoSync,
     containerFolderId,
+    containerFolderName,
     syncInterval,
     keepRemoved,
     cleanup
@@ -121,6 +122,7 @@ export function validateGlobalSettings(settings: unknown): GlobalSettings {
   return {
     autoSync: validateBoolean(autoSync, 'autoSync'),
     containerFolderId: validateOptional(containerFolderId, v => validateString(v, 'containerFolderId')),
+    containerFolderName: validateOptional(containerFolderName, v => validateString(v, 'containerFolderName')),
     syncInterval: validateOptional(syncInterval, v => validateNumber(v, 'syncInterval')),
     keepRemoved: validateBoolean(keepRemoved, 'keepRemoved'),
     cleanup: validateCleanupSettings(cleanup)

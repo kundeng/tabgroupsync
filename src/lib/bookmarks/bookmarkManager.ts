@@ -82,7 +82,7 @@ export class BookmarkManager {
             action: 'using parent'
           });
           
-          await this.storage.updateSettings({ containerFolderId: parent.id });
+          await this.storage.updateSettings({ containerFolderId: parent.id, containerFolderName: parent.title });
           return parent;
         }
         
@@ -184,7 +184,7 @@ export class BookmarkManager {
 
     if (bookmarksFolder && snapshotsFolder) {
       // Already set up correctly
-      await this.storage.updateSettings({ containerFolderId: folder.id });
+      await this.storage.updateSettings({ containerFolderId: folder.id, containerFolderName: folder.title });
       return bookmarksFolder;
     }
 
@@ -208,7 +208,7 @@ export class BookmarkManager {
           parentId: parent.id,
           action: 'using parent'
         });
-        await this.storage.updateSettings({ containerFolderId: parent.id });
+        await this.storage.updateSettings({ containerFolderId: parent.id, containerFolderName: parent.title });
         return parentBookmarksFolder;
       }
 
@@ -217,7 +217,7 @@ export class BookmarkManager {
     }
 
     // No existing container found, set up the selected folder
-    await this.storage.updateSettings({ containerFolderId: folder.id });
+    await this.storage.updateSettings({ containerFolderId: folder.id, containerFolderName: folder.title });
     
     // Create both intermediate folders
     const newBookmarksFolder = await createBookmark(folder.id, BOOKMARK_FOLDERS.BOOKMARKS);
@@ -457,7 +457,7 @@ export class BookmarkManager {
           const parentId = removeInfo.parentId;
           const title = removeInfo.node.title || 'Tab Groups';
           const newContainer = await createBookmark(parentId, title);
-          await this.storage.updateSettings({ containerFolderId: newContainer.id });
+          await this.storage.updateSettings({ containerFolderId: newContainer.id, containerFolderName: newContainer.title });
           await this.setupTabGroupsFolder(newContainer);
           
           this.logger.info('containerFolder:recreated', {

@@ -37,7 +37,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - _Properties: 1_
 
 - [ ] 2. Robust container folder resolution
-  - [ ] 2.1 Add `containerFolderName` field to GlobalSettings
+  - [x] 2.1 Add `containerFolderName` field to GlobalSettings
     - Add `containerFolderName?: string` to `GlobalSettings` interface
     - Set it alongside `containerFolderId` in `setupTabGroupsFolder` and `createContainerFolder`
     - Update `validateGlobalSettings` to accept the new field
