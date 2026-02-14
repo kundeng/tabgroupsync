@@ -101,7 +101,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: 4.1
     - _Requirements: 4.1_
 
-  - [ ] 4.3 Write property test for no-change sync idempotency (Property 4)
+  - [x] 4.3 Write property test for no-change sync idempotency (Property 4)
     - Track `chrome.storage.sync` write calls, verify zero writes when hash unchanged
     - Verify in-memory history contains "Synced, no changes" entry
     - **File**: `tests/property/reliability/property-no-change-sync.test.ts`
