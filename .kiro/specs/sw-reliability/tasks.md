@@ -93,7 +93,7 @@ Fix critical production reliability bugs in the Chrome MV3 service worker. Phase
     - **Depends**: —
     - _Requirements: 4.1_
 
-  - [ ] 4.2 Skip storage writes for no-change syncs
+  - [x] 4.2 Skip storage writes for no-change syncs
     - In `syncGroupToFolder`, replace the `currentHash === lastHash` early-return path:
       - Remove `updateMapping` call (no status update needed)
       - Change `addHistoryEntry` to use `{ persistToStorage: false }` with details `"Synced, no changes"`

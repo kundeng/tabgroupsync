@@ -341,24 +341,15 @@ export class SyncEngine {
           reason: 'no changes'
         });
         
-        // Add history entry for unchanged sync
+        // Record in-memory history (visible in popup) but don't write to chrome.storage.sync
         await this.storage.addHistoryEntry({
           timestamp: Date.now(),
           type: 'group-to-folder',
           groupId: `group:${name}`,
           folderId: mapping?.folderId,
           success: true,
-          details: 'No changes detected'
-        });
-
-        // Update last synced time
-        await this.storage.updateMapping(name, {
-          status: { 
-            lastSynced: Date.now(),
-            inProgress: false,
-            error: undefined
-          }
-        });
+          details: 'Synced, no changes'
+        }, { persistToStorage: false });
         return;
       }
       this.lastKnownHashes.set(name, currentHash);
