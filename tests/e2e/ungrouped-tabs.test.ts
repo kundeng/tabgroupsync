@@ -66,7 +66,7 @@ test.describe('Ungrouped Tab Handling E2E', () => {
     const groupId = await createAndSyncTabGroup(extensionPage, extensionId, {
       title: 'Ungroup Test',
       color: 'blue',
-      urls: ['https://example.com', 'https://google.com']
+      urls: ['https://example.com', 'https://example.org']
     });
 
     // Verify bookmarks were created
@@ -99,7 +99,7 @@ test.describe('Ungrouped Tab Handling E2E', () => {
     });
 
     const testUrls = ungroupedTabs.filter(t => 
-      t.url === 'https://example.com/' || t.url === 'https://google.com/'
+      t.url === 'https://example.com/' || t.url === 'https://example.org/'
     );
     expect(testUrls.length).toBe(2);
   });

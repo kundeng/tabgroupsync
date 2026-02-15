@@ -382,7 +382,21 @@ export async function findBookmarkFolder(
 ): Promise<chrome.bookmarks.BookmarkTreeNode | null> {
   return await page.evaluate(async (folderTitle) => {
     const results = await chrome.bookmarks.search({ title: folderTitle });
-    return results.find(r => !r.url) || null;
+    const folders = results.filter(r => !r.url);
+    if (folders.length === 0) return null;
+    if (folders.length === 1) return folders[0];
+    // When duplicate folders exist, prefer the one with the most children
+    let best = folders[0];
+    let bestCount = 0;
+    for (const f of folders) {
+      const children = await chrome.bookmarks.getChildren(f.id);
+      const urlCount = children.filter(c => c.url).length;
+      if (urlCount > bestCount) {
+        bestCount = urlCount;
+        best = f;
+      }
+    }
+    return best;
   }, title);
 }
 

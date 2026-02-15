@@ -23,6 +23,7 @@ export class SyncEngine {
   private lastKnownHashes: Map<string, string> = new Map();
   private readonly MAX_QUEUE_SIZE = 100;
   private readonly MAX_RETRIES = 3;
+  private groupOpLocks: Map<string, Promise<void>> = new Map();
 
   constructor(
     private storage: StorageManager,
@@ -361,56 +362,30 @@ export class SyncEngine {
           mapping.status.error = undefined;
         }
 
-        // Try to sync to existing folder first
-        try {
-          if (mapping?.folderId) {
-            await withRetry('syncToFolder',
-              () => this.bookmarkManager.syncGroupToFolder(name, tabs, mapping.folderId),
-              { maxAttempts: 3, delayMs: 1000 }
-            );
-            
-            // Add success entry to history
-            await this.storage.addHistoryEntry({
-              timestamp: Date.now(),
-              type: 'group-to-folder',
-              groupId: `group:${name}`,
-              folderId: mapping.folderId,
-              success: true,
-              details: `${tabs.length} tabs synced`
-            });
-            return;
-          }
-        } catch (error) {
-          this.logger.warn('sync:existingFolderFailed', {
-            name,
-            folderId: mapping?.folderId,
-            error: error instanceof Error ? error.message : 'Unknown error'
+        // Ensure we have a valid folder (creates or finds existing by name)
+        const folder = await this.bookmarkManager.ensureGroupFolder(name);
+
+        // Update mapping if folder ID changed (e.g., folder was deleted and recreated)
+        if (!mapping?.folderId || mapping.folderId !== folder.id) {
+          await this.storage.updateMapping(name, { 
+            folderId: folder.id
           });
-          // Continue to recreate folder
         }
 
-        // If existing folder sync failed or no folder exists, create new one
-        const folder = await this.bookmarkManager.ensureGroupFolder(name);
-        
-        // Only persist folder ID change
-        await this.storage.updateMapping(name, { 
-          folderId: folder.id
-        });
-
-        // Sync tabs to new folder
+        // Sync tabs to the resolved folder
         await withRetry('syncToFolder',
           () => this.bookmarkManager.syncGroupToFolder(name, tabs, folder.id),
           { maxAttempts: 3, delayMs: 1000 }
         );
 
-        // Only log success, no storage write needed
+        // Add success entry to history
         await this.storage.addHistoryEntry({
           timestamp: Date.now(),
           type: 'group-to-folder',
           groupId: `group:${name}`,
           folderId: folder.id,
           success: true,
-          details: `${tabs.length} tabs synced to new folder`
+          details: `${tabs.length} tabs synced`
         });
 
         this.logger.info('sync:completed', {
@@ -552,6 +527,25 @@ export class SyncEngine {
       return;
     }
 
+    // Serialize concurrent operations for the same group name
+    const existingLock = this.groupOpLocks.get(name);
+    if (existingLock) {
+      await existingLock;
+    }
+    const opPromise = this._handleGroupCreatedImpl(group, name, settings);
+    this.groupOpLocks.set(name, opPromise.catch(() => {}));
+    try {
+      await opPromise;
+    } finally {
+      this.groupOpLocks.delete(name);
+    }
+  }
+
+  private async _handleGroupCreatedImpl(
+    group: chrome.tabGroups.TabGroup,
+    name: string,
+    settings: any
+  ): Promise<void> {
     // Check if this group should be synced (either autoSync or previously enabled)
     const groupSettings = await this.storage.getGroupSyncSettings(name);
     if ((settings.autoSync && settings.containerFolderId) || groupSettings.enabled) {
@@ -625,7 +619,25 @@ export class SyncEngine {
       });
       return;
     }
-    
+
+    // Serialize concurrent operations for the same group name
+    const existingLock = this.groupOpLocks.get(name);
+    if (existingLock) {
+      await existingLock;
+    }
+    const opPromise = this._handleGroupUpdatedImpl(group, name);
+    this.groupOpLocks.set(name, opPromise.catch(() => {}));
+    try {
+      await opPromise;
+    } finally {
+      this.groupOpLocks.delete(name);
+    }
+  }
+
+  private async _handleGroupUpdatedImpl(
+    group: chrome.tabGroups.TabGroup,
+    name: string
+  ): Promise<void> {
     const groupSettings = await this.storage.getGroupSyncSettings(name);
     let mapping = await this.storage.getMapping(name);
     
@@ -646,7 +658,7 @@ export class SyncEngine {
         name,
         reason: 'no existing mapping - treating as new group'
       });
-      await this.handleGroupCreated(group);
+      await this._handleGroupCreatedImpl(group, name, await this.storage.getSettings());
       return;
     }
 
@@ -659,18 +671,8 @@ export class SyncEngine {
     });
 
     // Only queue sync if enabled in persisted settings
+    // Folder creation is deferred to syncGroupToFolder to avoid duplicate folders
     if (groupSettings.enabled) {
-      const folder = await this.bookmarkManager.ensureGroupFolder(name);
-      
-      // If folder is null (whitespace-only), skip
-      if (folder === null) {
-        this.logger.info('sync:groupUpdatedSkipped', {
-          name,
-          reason: 'whitespace-only name'
-        });
-        return;
-      }
-      
       this.queueSync(name);
     }
   }

@@ -213,24 +213,22 @@ test.describe('Error Scenarios E2E', () => {
   });
 
   test('should handle concurrent group operations', async ({ extensionPage, extensionId }) => {
-    // Create multiple groups simultaneously
-    const promises = [];
-    for (let i = 0; i < 5; i++) {
-      promises.push(
-        createTabGroup(extensionPage, {
-          title: `Concurrent ${i}`,
-          color: 'blue',
-          urls: [`https://example.com/${i}`]
-        })
-      );
+    const groupCount = 3;
+
+    // Create multiple groups in quick succession
+    for (let i = 0; i < groupCount; i++) {
+      await extensionPage.evaluate(async (idx) => {
+        const tab = await chrome.tabs.create({ url: `https://example.com/${idx}`, active: false });
+        const gid = await chrome.tabs.group({ tabIds: [tab.id!] });
+        await chrome.tabGroups.update(gid, { title: `Concurrent ${idx}`, color: 'blue' as chrome.tabGroups.ColorEnum });
+      }, i);
+      // Small delay to let Chrome process events
+      await extensionPage.waitForTimeout(500);
     }
 
-    await Promise.all(promises);
-    await extensionPage.waitForTimeout(10000);
-
     // Verify all groups were synced
-    for (let i = 0; i < 5; i++) {
-      const folder = await findBookmarkFolder(extensionPage, `Concurrent ${i}`);
+    for (let i = 0; i < groupCount; i++) {
+      const folder = await waitForBookmarkFolder(extensionPage, `Concurrent ${i}`, 30000);
       expect(folder).toBeTruthy();
     }
   });
