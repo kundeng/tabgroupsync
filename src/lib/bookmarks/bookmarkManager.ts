@@ -7,6 +7,7 @@ import { BOOKMARK_FOLDERS } from '../constants';
 
 export class BookmarkManager {
   private logger = Logger.getInstance();
+  private ensureFolderLocks = new Map<string, Promise<chrome.bookmarks.BookmarkTreeNode>>();
 
   constructor(private readonly storage: StorageManager) {}
 
@@ -82,7 +83,7 @@ export class BookmarkManager {
             action: 'using parent'
           });
           
-          await this.storage.updateSettings({ containerFolderId: parent.id });
+          await this.storage.updateSettings({ containerFolderId: parent.id, containerFolderName: parent.title });
           return parent;
         }
         
@@ -184,7 +185,7 @@ export class BookmarkManager {
 
     if (bookmarksFolder && snapshotsFolder) {
       // Already set up correctly
-      await this.storage.updateSettings({ containerFolderId: folder.id });
+      await this.storage.updateSettings({ containerFolderId: folder.id, containerFolderName: folder.title });
       return bookmarksFolder;
     }
 
@@ -208,7 +209,7 @@ export class BookmarkManager {
           parentId: parent.id,
           action: 'using parent'
         });
-        await this.storage.updateSettings({ containerFolderId: parent.id });
+        await this.storage.updateSettings({ containerFolderId: parent.id, containerFolderName: parent.title });
         return parentBookmarksFolder;
       }
 
@@ -217,7 +218,7 @@ export class BookmarkManager {
     }
 
     // No existing container found, set up the selected folder
-    await this.storage.updateSettings({ containerFolderId: folder.id });
+    await this.storage.updateSettings({ containerFolderId: folder.id, containerFolderName: folder.title });
     
     // Create both intermediate folders
     const newBookmarksFolder = await createBookmark(folder.id, BOOKMARK_FOLDERS.BOOKMARKS);
@@ -236,6 +237,23 @@ export class BookmarkManager {
   }
 
   async ensureGroupFolder(name: string): Promise<chrome.bookmarks.BookmarkTreeNode> {
+    // Serialize concurrent calls for the same group name to prevent duplicate folders
+    const existing = this.ensureFolderLocks.get(name);
+    if (existing) {
+      this.logger.debug('ensureGroupFolder:waiting', { name });
+      return existing;
+    }
+
+    const promise = this._ensureGroupFolderImpl(name);
+    this.ensureFolderLocks.set(name, promise);
+    try {
+      return await promise;
+    } finally {
+      this.ensureFolderLocks.delete(name);
+    }
+  }
+
+  private async _ensureGroupFolderImpl(name: string): Promise<chrome.bookmarks.BookmarkTreeNode> {
     this.logger.info('ensureGroupFolder:start', { name });
     const bookmarksFolder = await this.getTabGroupsFolderInternal();
     
@@ -325,14 +343,12 @@ export class BookmarkManager {
     });
 
     try {
-      // Get or create the Tab Group Bookmarks folder
-      const bookmarksFolder = await this.getTabGroupsFolder();
-      if (!bookmarksFolder) {
-        throw new Error('Please select a location for your bookmarks first');
+      // Use the folder ID passed by the caller, falling back to ensureGroupFolder
+      let groupFolder = await getBookmark(folderId);
+      if (!groupFolder) {
+        this.logger.warn('sync:folderMissing', { name, folderId, action: 'recreating' });
+        groupFolder = await this.ensureGroupFolder(name);
       }
-      
-      // Create or get the folder for this group
-      let groupFolder = await this.ensureGroupFolder(name);
       
       // Get existing bookmarks to check for duplicates
       const existingBookmarks = await getBookmarkChildren(groupFolder.id);
@@ -345,13 +361,19 @@ export class BookmarkManager {
           url: tab.url || tab.pendingUrl
         }))
         .filter((tab): tab is { title: string; url: string } => {
-          const isValid = typeof tab.url === 'string';
-          if (!isValid) {
-            this.logger.debug('sync:invalidTab', {
-              url: tab.url
-            });
+          if (typeof tab.url !== 'string') {
+            this.logger.debug('sync:invalidTab', { url: tab.url, reason: 'not a string' });
+            return false;
           }
-          return isValid && !existingUrls.has(tab.url);
+          // Skip non-http(s) URLs (chrome://, about:, edge://, brave://, etc.)
+          if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://')) {
+            this.logger.debug('sync:invalidTab', { url: tab.url, reason: 'non-http URL' });
+            return false;
+          }
+          if (existingUrls.has(tab.url)) {
+            return false;
+          }
+          return true;
         });
 
       this.logger.debug('sync:validTabs', {
@@ -457,7 +479,7 @@ export class BookmarkManager {
           const parentId = removeInfo.parentId;
           const title = removeInfo.node.title || 'Tab Groups';
           const newContainer = await createBookmark(parentId, title);
-          await this.storage.updateSettings({ containerFolderId: newContainer.id });
+          await this.storage.updateSettings({ containerFolderId: newContainer.id, containerFolderName: newContainer.title });
           await this.setupTabGroupsFolder(newContainer);
           
           this.logger.info('containerFolder:recreated', {
@@ -486,11 +508,12 @@ export class BookmarkManager {
     const mappings = await this.storage.getAllMappings();
     const mapping = Object.values(mappings).find(m => m.folderId === id);
     if (mapping) {
-      await this.storage.removeMapping(mapping.name);
-      this.logger.info('mapping:removed', { 
+      // Clear the folderId but keep the mapping so sync can recreate the folder
+      await this.storage.updateMapping(mapping.name, { folderId: undefined });
+      this.logger.info('mapping:folderCleared', { 
         name: mapping.name,
         folderId: id,
-        reason: 'folder deleted'
+        reason: 'folder deleted — mapping preserved for recovery'
       });
     }
   }

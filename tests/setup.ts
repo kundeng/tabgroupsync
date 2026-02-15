@@ -127,6 +127,16 @@ global.chrome = {
       return Promise.resolve(result);
     }),
   },
+  alarms: {
+    create: vi.fn(() => Promise.resolve()),
+    clear: vi.fn(() => Promise.resolve()),
+    get: vi.fn(() => Promise.resolve(undefined)),
+    getAll: vi.fn(() => Promise.resolve([])),
+    onAlarm: {
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+    },
+  },
   tabs: {
     query: vi.fn((queryInfo, callback) => {
       const result: chrome.tabs.Tab[] = [];

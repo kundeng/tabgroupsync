@@ -2,8 +2,9 @@ import { TabGroupManager } from '../lib/tabGroupManager';
 import { Logger } from '../lib/utils/logger';
 import { resolveGroupName } from '../lib/utils/groupNameResolver';
 
-export function initializeTabGroupListeners(tabGroupManager: TabGroupManager): void {
+export function initializeTabGroupListeners(tabGroupManager: TabGroupManager, workerStartTime?: number): void {
   const logger = Logger.getInstance();
+  const startTime = workerStartTime ?? Date.now();
 
   // Queue for handling group events
   let groupQueue: chrome.tabGroups.TabGroup[] = [];
@@ -37,7 +38,9 @@ export function initializeTabGroupListeners(tabGroupManager: TabGroupManager): v
     logger.debug('tabGroup:created', {
       groupId: group.id,
       title: group.title,
-      windowId: group.windowId
+      windowId: group.windowId,
+      timeSinceWorkerStart: Date.now() - startTime,
+      queueSize: groupQueue.length
     });
 
     groupQueue.push(group);
@@ -49,7 +52,8 @@ export function initializeTabGroupListeners(tabGroupManager: TabGroupManager): v
       groupId: group.id,
       title: group.title,
       windowId: group.windowId,
-      color: group.color
+      color: group.color,
+      timeSinceWorkerStart: Date.now() - startTime
     });
 
     try {
@@ -71,7 +75,8 @@ export function initializeTabGroupListeners(tabGroupManager: TabGroupManager): v
     logger.debug('tabGroup:removed', {
       groupId: group.id,
       title: group.title,
-      windowId: group.windowId
+      windowId: group.windowId,
+      timeSinceWorkerStart: Date.now() - startTime
     });
 
     try {

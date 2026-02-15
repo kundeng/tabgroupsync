@@ -63,6 +63,7 @@ export interface CleanupSettings {
 export interface GlobalSettings {
   autoSync: boolean;
   containerFolderId?: BookmarkFolderId;  // Stable across sessions and synced across devices
+  containerFolderName?: string;  // Folder title, used for cross-device signature-based relocation
   syncInterval?: number; // in minutes
   keepRemoved: boolean; // keep bookmarks when group is removed
   cleanup: CleanupSettings;
