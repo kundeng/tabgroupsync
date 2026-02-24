@@ -137,6 +137,26 @@ global.chrome = {
       removeListener: vi.fn(),
     },
   },
+  windows: {
+    getAll: vi.fn((getInfo, callback) => {
+      const result: chrome.windows.Window[] = [
+        { id: 1, focused: true, type: 'normal' as chrome.windows.WindowType },
+        { id: 2, focused: false, type: 'normal' as chrome.windows.WindowType },
+      ];
+      if (callback) callback(result);
+      return Promise.resolve(result);
+    }),
+    getCurrent: vi.fn((getInfo, callback) => {
+      const result: chrome.windows.Window = { id: 1, focused: true, type: 'normal' as chrome.windows.WindowType };
+      if (callback) callback(result);
+      return Promise.resolve(result);
+    }),
+    create: vi.fn((createData, callback) => {
+      const result: chrome.windows.Window = { id: Date.now(), focused: true, type: 'normal' as chrome.windows.WindowType };
+      if (callback) callback(result);
+      return Promise.resolve(result);
+    }),
+  },
   tabs: {
     query: vi.fn((queryInfo, callback) => {
       const result: chrome.tabs.Tab[] = [];
@@ -190,6 +210,23 @@ global.chrome = {
       };
       if (callback) callback(result);
       return Promise.resolve(result);
+    }),
+    move: vi.fn((tabIds, moveProperties, callback) => {
+      const ids = Array.isArray(tabIds) ? tabIds : [tabIds];
+      const result = ids.map((id, index) => ({
+        id,
+        url: 'https://example.com',
+        title: 'Moved Tab',
+        windowId: moveProperties.windowId || 1,
+        index: moveProperties.index === -1 ? index : (moveProperties.index || 0) + index,
+        pinned: false,
+        highlighted: false,
+        active: false,
+        incognito: false,
+        groupId: -1,
+      }));
+      if (callback) callback(Array.isArray(tabIds) ? result : result[0]);
+      return Promise.resolve(Array.isArray(tabIds) ? result : result[0]);
     }),
     remove: vi.fn((tabId, callback) => {
       if (callback) callback();

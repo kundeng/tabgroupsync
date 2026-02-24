@@ -265,6 +265,36 @@ export default function GroupList({ storage, syncEngine, bookmarkManager }: Grou
     }
   };
 
+  const handleMoveGroup = async (group: GroupViewModel, targetWindowId: number) => {
+    if (!group.isActive) {
+      throw new Error('Only active groups can be moved');
+    }
+
+    const sourceGroupId = parseInt(group.id, 10);
+    if (!Number.isFinite(sourceGroupId)) {
+      throw new Error('Invalid source group ID');
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      chrome.runtime.sendMessage({
+        type: 'MOVE_GROUP_TO_WINDOW',
+        sourceGroupId,
+        sourceGroupName: group.name,
+        targetWindowId
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else if (!response?.success) {
+          reject(new Error(response?.error || 'Failed to move group'));
+        } else {
+          resolve();
+        }
+      });
+    });
+
+    await loadGroups();
+  };
+
   // Group the tab groups by category
   const currentWindowGroups = groups.filter(g => g.isCurrentWindow);
   const otherWindowGroups = groups.filter(g => !g.isCurrentWindow && g.windowId);
@@ -284,6 +314,7 @@ export default function GroupList({ storage, syncEngine, bookmarkManager }: Grou
           parentFolder={parentFolder}
           onToggleSync={handleToggleSync}
           onFullResync={handleFullResync}
+          onMoveGroup={handleMoveGroup}
         />
       )}
 
@@ -295,6 +326,7 @@ export default function GroupList({ storage, syncEngine, bookmarkManager }: Grou
           parentFolder={parentFolder}
           onToggleSync={handleToggleSync}
           onFullResync={handleFullResync}
+          onMoveGroup={handleMoveGroup}
           // Other windows are active groups, should be controllable
           readOnly={false}
         />
@@ -308,6 +340,7 @@ export default function GroupList({ storage, syncEngine, bookmarkManager }: Grou
           parentFolder={parentFolder}
           onToggleSync={handleToggleSync}
           onFullResync={handleFullResync}
+          onMoveGroup={handleMoveGroup}
           // Inactive groups should be read-only
           readOnly={true}
         />

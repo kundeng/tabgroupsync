@@ -14,6 +14,12 @@ interface QueuedSync {
   retryCount?: number;
 }
 
+interface MoveGuard {
+  sourceGroupId?: number;
+  targetGroupId: number;
+  expiresAt: number;
+}
+
 export class SyncEngine {
   private logger = Logger.getInstance();
   private tracker = OperationTracker.getInstance();
@@ -24,6 +30,7 @@ export class SyncEngine {
   private readonly MAX_QUEUE_SIZE = 100;
   private readonly MAX_RETRIES = 3;
   private groupOpLocks: Map<string, Promise<void>> = new Map();
+  private moveGuards: Map<string, MoveGuard> = new Map();
 
   constructor(
     private storage: StorageManager,
@@ -113,6 +120,54 @@ export class SyncEngine {
     if (!this.processingQueue) {
       this.processSyncQueue();
     }
+  }
+
+  queueGroupSync(name: string): void {
+    this.queueSync(name);
+  }
+
+  registerMoveGuard(
+    name: string,
+    params: { sourceGroupId?: number; targetGroupId: number; ttlMs?: number }
+  ): void {
+    const ttlMs = params.ttlMs ?? 10000;
+    this.moveGuards.set(name, {
+      sourceGroupId: params.sourceGroupId,
+      targetGroupId: params.targetGroupId,
+      expiresAt: Date.now() + Math.max(ttlMs, 1000)
+    });
+
+    this.logger.info('sync:moveGuard:registered', {
+      name,
+      sourceGroupId: params.sourceGroupId,
+      targetGroupId: params.targetGroupId,
+      ttlMs
+    });
+  }
+
+  private shouldIgnoreMoveStaleEvent(name: string, incomingGroupId: number): boolean {
+    const guard = this.moveGuards.get(name);
+    if (!guard) return false;
+
+    if (Date.now() > guard.expiresAt) {
+      this.moveGuards.delete(name);
+      return false;
+    }
+
+    // Accept events for the intended destination group and clear guard.
+    if (incomingGroupId === guard.targetGroupId) {
+      this.moveGuards.delete(name);
+      return false;
+    }
+
+    // Ignore stale events that belong to the source or any unexpected group ID.
+    this.logger.warn('sync:moveGuard:ignoredEvent', {
+      name,
+      incomingGroupId,
+      sourceGroupId: guard.sourceGroupId,
+      targetGroupId: guard.targetGroupId
+    });
+    return true;
   }
 
   // Queue multiple syncs with staggered delay
@@ -527,6 +582,10 @@ export class SyncEngine {
       return;
     }
 
+    if (this.shouldIgnoreMoveStaleEvent(name, group.id)) {
+      return;
+    }
+
     // Serialize concurrent operations for the same group name
     const existingLock = this.groupOpLocks.get(name);
     if (existingLock) {
@@ -617,6 +676,10 @@ export class SyncEngine {
         groupTitle: group.title,
         reason: 'unnamed or whitespace-only name'
       });
+      return;
+    }
+
+    if (this.shouldIgnoreMoveStaleEvent(name, group.id)) {
       return;
     }
 

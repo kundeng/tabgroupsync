@@ -192,4 +192,75 @@ export class TabGroupManager {
       oldWindowId: detachInfo.oldWindowId
     });
   }
+
+  async moveGroupToWindow(params: {
+    sourceGroupId: number;
+    sourceGroupName: string;
+    targetWindowId: number;
+  }): Promise<{ targetGroupId: number; movedTabCount: number }> {
+    const sourceGroup = await this.getGroup(params.sourceGroupId);
+    if (!sourceGroup) {
+      throw new Error(`Source group ${params.sourceGroupId} not found`);
+    }
+
+    const tabs = await this.getGroupTabs(params.sourceGroupId);
+    if (!tabs.length) {
+      throw new Error('Source group has no tabs to move');
+    }
+
+    const sortedTabs = [...tabs].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+    const sourceTabIds = sortedTabs
+      .map(tab => tab.id)
+      .filter((id): id is number => typeof id === 'number');
+
+    if (!sourceTabIds.length) {
+      throw new Error('Could not determine source tab IDs');
+    }
+
+    const movedTabs = await chrome.tabs.move(sourceTabIds, {
+      windowId: params.targetWindowId,
+      index: -1
+    });
+    const movedTabList = Array.isArray(movedTabs) ? movedTabs : [movedTabs];
+    const movedTabIds = movedTabList
+      .map(tab => tab?.id)
+      .filter((id): id is number => typeof id === 'number');
+
+    if (!movedTabIds.length) {
+      throw new Error('No tabs were moved to the target window');
+    }
+
+    const targetGroupId = await chrome.tabs.group({
+      tabIds: movedTabIds,
+      createProperties: { windowId: params.targetWindowId }
+    });
+
+    await chrome.tabGroups.update(targetGroupId, {
+      title: sourceGroup.title,
+      color: sourceGroup.color
+    });
+
+    const existingMapping = await this.storage.getMapping(params.sourceGroupName);
+    this.syncEngine.registerMoveGuard(params.sourceGroupName, {
+      sourceGroupId: params.sourceGroupId,
+      targetGroupId
+    });
+    await this.storage.updateMapping(params.sourceGroupName, {
+      name: params.sourceGroupName,
+      currentGroupId: targetGroupId.toString(),
+      color: sourceGroup.color,
+      syncEnabled: existingMapping?.syncEnabled ?? true,
+      status: {
+        inProgress: false,
+        error: undefined
+      }
+    });
+
+    this.syncEngine.queueGroupSync(params.sourceGroupName);
+
+    return {
+      targetGroupId,
+      movedTabCount: movedTabIds.length
+    };
+  }
 }

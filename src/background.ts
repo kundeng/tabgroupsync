@@ -342,6 +342,56 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     });
   }
+  else if (message.type === 'MOVE_GROUP_TO_WINDOW') {
+    Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
+
+      try {
+        const sourceGroupId = Number(message.sourceGroupId);
+        const targetWindowId = Number(message.targetWindowId);
+        const sourceGroupName = typeof message.sourceGroupName === 'string'
+          ? message.sourceGroupName
+          : '';
+
+        if (!Number.isFinite(sourceGroupId) || !Number.isFinite(targetWindowId) || !sourceGroupName.trim()) {
+          sendResponse({ error: 'Invalid move request payload' });
+          return;
+        }
+
+        const sourceGroup = await tabGroupManager.getGroup(sourceGroupId);
+        if (!sourceGroup) {
+          sendResponse({ error: 'Source group not found' });
+          return;
+        }
+
+        if (sourceGroup.windowId === targetWindowId) {
+          sendResponse({ error: 'Target window must be different from source window' });
+          return;
+        }
+
+        const allWindows = await chrome.windows.getAll({ populate: false });
+        const targetExists = allWindows.some((window) => window.id === targetWindowId);
+        if (!targetExists) {
+          sendResponse({ error: 'Target window not found' });
+          return;
+        }
+
+        const result = await tabGroupManager.moveGroupToWindow({
+          sourceGroupId,
+          sourceGroupName,
+          targetWindowId
+        });
+
+        sendResponse({ success: true, result });
+      } catch (error) {
+        logger.error('group:move:failed', { error });
+        sendResponse({ error: error instanceof Error ? error.message : 'Failed to move group' });
+      }
+    });
+  }
   else if (message.type === 'SYNC_ALL') {
     Promise.resolve().then(async () => {
       if (!await ensureInitialized()) {

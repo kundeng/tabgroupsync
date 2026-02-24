@@ -16,11 +16,13 @@ import {
 import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
+  DriveFileMove as DriveFileMoveIcon,
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { GroupViewModel } from '../lib/types/storage';
 import { StorageManager } from '../lib/storage/storageManager';
 import SnapshotList from './SnapshotList';
+import MoveGroupDialog from './MoveGroupDialog';
 
 interface GroupSectionProps {
   title: string;
@@ -29,6 +31,7 @@ interface GroupSectionProps {
   parentFolder: chrome.bookmarks.BookmarkTreeNode | null;
   onToggleSync: (name: string) => void;
   onFullResync: (group: GroupViewModel) => void;
+  onMoveGroup?: (group: GroupViewModel, targetWindowId: number) => Promise<void>;
   readOnly?: boolean;
 }
 
@@ -44,11 +47,14 @@ export default function GroupSection({
   parentFolder,
   onToggleSync,
   onFullResync,
+  onMoveGroup,
   readOnly = false
 }: GroupSectionProps) {
   const [expanded, setExpanded] = React.useState(true);
   const [syncing, setSyncing] = React.useState<Record<string, boolean>>({});
+  const [moving, setMoving] = React.useState<Record<string, boolean>>({});
   const [errors, setErrors] = React.useState<Record<string, ErrorWithTimestamp>>({});
+  const [moveDialogGroup, setMoveDialogGroup] = React.useState<GroupViewModel | null>(null);
 
   const handleFullResync = async (group: GroupViewModel) => {
     if (!parentFolder) {
@@ -91,6 +97,7 @@ export default function GroupSection({
   };
 
   return (
+    <>
     <Box sx={{ mb: 2 }}>
       <Box
         sx={{
@@ -247,6 +254,23 @@ export default function GroupSection({
                         </span>
                       </Tooltip>
 
+                      <Tooltip title={!group.isActive ? 'Group must be active to move' : 'Move group to another window'}>
+                        <span>
+                          <IconButton
+                            onClick={() => setMoveDialogGroup(group)}
+                            disabled={!group.isActive || moving[group.id]}
+                            size="small"
+                            sx={{ padding: '6px' }}
+                          >
+                            {moving[group.id] ? (
+                              <CircularProgress size={16} />
+                            ) : (
+                              <DriveFileMoveIcon fontSize="small" />
+                            )}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+
                       <Divider orientation="vertical" flexItem sx={{ mx: 0.5, height: 24 }} />
 
                       {/* Snapshots */}
@@ -287,5 +311,37 @@ export default function GroupSection({
         </List>
       </Collapse>
     </Box>
+    {moveDialogGroup && onMoveGroup && (
+      <MoveGroupDialog
+        open={!!moveDialogGroup}
+        sourceWindowId={moveDialogGroup.windowId}
+        onClose={() => setMoveDialogGroup(null)}
+        onConfirm={async (targetWindowId) => {
+          const group = moveDialogGroup;
+          setMoving(prev => ({ ...prev, [group.id]: true }));
+          try {
+            await onMoveGroup(group, targetWindowId);
+            setErrors(prev => {
+              const next = { ...prev };
+              delete next[group.id];
+              return next;
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to move group';
+            setErrors(prev => ({
+              ...prev,
+              [group.id]: {
+                message,
+                timestamp: Date.now()
+              }
+            }));
+            throw error;
+          } finally {
+            setMoving(prev => ({ ...prev, [group.id]: false }));
+          }
+        }}
+      />
+    )}
+    </>
   );
 }

@@ -231,6 +231,30 @@ export async function fullResyncViaUI(
   await page.waitForTimeout(3000);
 }
 
+/**
+ * Moves a group to a target window via popup UI.
+ */
+export async function moveGroupToWindowViaUI(
+  page: Page,
+  extensionId: string,
+  groupName: string,
+  targetWindowId: number
+): Promise<void> {
+  if (!page.url().includes('popup.html')) {
+    await openExtensionPopup(page, extensionId);
+  }
+
+  const groupRow = page.locator('li', { has: page.locator(`text="${groupName}"`) });
+  await groupRow.waitFor({ state: 'visible', timeout: 10000 });
+
+  await groupRow.locator('button:has([data-testid="DriveFileMoveIcon"])').click();
+  await page.locator('text=Move Group To Window').waitFor({ state: 'visible', timeout: 5000 });
+
+  await page.locator(`label:has-text("Window ${targetWindowId}")`).click();
+  await page.locator('button:has-text("Move")').click();
+  await page.locator('text=Move Group To Window').waitFor({ state: 'hidden', timeout: 10000 });
+}
+
 // ============================================================================
 // COMPOSITE HELPERS (create + sync via UI)
 // ============================================================================
