@@ -5,4 +5,5 @@
 2026-02-19 05:42 DONE 3.1 - Add move-aware sync guard to ignore stale source-group event storms
 2026-02-19 05:42 DONE 3.2 - Verify cross-window portability via standard-API guard test
 2026-02-19 05:42 DONE 5.3 - Add E2E move-group-across-windows scenario and UI move helper
-# SUMMARY: 12/12 done | SPEC COMPLETE
+2026-03-12 19:20 IN_PROGRESS 6.1 - Spec refined: added Requirement 5 (human-friendly window labels) and tasks 6.1–6.4
+# SUMMARY: 12/16 done | next: 6.1
