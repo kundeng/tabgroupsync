@@ -95,7 +95,7 @@ Implement a built-in single-group move action across browser windows with sync-s
     - **Requirements**: 5.1, 5.2, 5.3, 5.4
     - **Properties**: 4
 
-  - [ ] 6.3 Write unit tests for `windowLabelBuilder`
+  - [x] 6.3 Write unit tests for `windowLabelBuilder`
     - Cover: windows with groups, windows without groups (active tab fallback), windows with no useful info (generic fallback), focused state, long group lists truncation
     - **Depends**: 6.1
     - **Requirements**: 5.1, 5.2, 5.3, 5.4
