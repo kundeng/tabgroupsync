@@ -75,7 +75,7 @@ Implement a built-in single-group move action across browser windows with sync-s
     - **Requirements**: 1.1, 1.4, 2.1, 4.3
 
 - [ ] 6. Human-friendly window identification
-  - [ ] 6.1 Implement `windowLabelBuilder` utility
+  - [x] 6.1 Implement `windowLabelBuilder` utility
     - Create `src/lib/utils/windowLabelBuilder.ts`
     - Pure function: `buildWindowLabels(windows, tabGroups) → WindowLabel[]`
     - Label tiers: group names → active tab title/domain → "Window — N tabs"
