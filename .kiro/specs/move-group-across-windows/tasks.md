@@ -74,7 +74,7 @@ Implement a built-in single-group move action across browser windows with sync-s
     - **Depends**: 3.2, 5.1
     - **Requirements**: 1.1, 1.4, 2.1, 4.3
 
-- [ ] 6. Human-friendly window identification
+- [x] 6. Human-friendly window identification
   - [x] 6.1 Implement `windowLabelBuilder` utility
     - Create `src/lib/utils/windowLabelBuilder.ts`
     - Pure function: `buildWindowLabels(windows, tabGroups) → WindowLabel[]`
@@ -101,7 +101,7 @@ Implement a built-in single-group move action across browser windows with sync-s
     - **Requirements**: 5.1, 5.2, 5.3, 5.4
     - **Properties**: 4
 
-  - [ ] 6.4 Update E2E test for move dialog window labels
+  - [x] 6.4 Update E2E test for move dialog window labels
     - Verify move dialog shows meaningful labels (not raw IDs)
     - **Depends**: 6.2, 6.3
     - **Requirements**: 5.1, 5.4

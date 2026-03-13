@@ -233,12 +233,14 @@ export async function fullResyncViaUI(
 
 /**
  * Moves a group to a target window via popup UI.
+ * @param labelMatch - text fragment to match in the window label (e.g. domain or group name)
  */
 export async function moveGroupToWindowViaUI(
   page: Page,
   extensionId: string,
   groupName: string,
-  targetWindowId: number
+  _targetWindowId: number,
+  labelMatch?: string
 ): Promise<void> {
   if (!page.url().includes('popup.html')) {
     await openExtensionPopup(page, extensionId);
@@ -250,7 +252,13 @@ export async function moveGroupToWindowViaUI(
   await groupRow.locator('button:has([data-testid="DriveFileMoveIcon"])').click();
   await page.locator('text=Move Group To Window').waitFor({ state: 'visible', timeout: 5000 });
 
-  await page.locator(`label:has-text("Window ${targetWindowId}")`).click();
+  if (labelMatch) {
+    // Select by human-friendly label content
+    await page.locator(`label:has-text("${labelMatch}")`).click();
+  } else {
+    // Select the first available radio option
+    await page.locator('input[type="radio"]').first().click();
+  }
   await page.locator('button:has-text("Move")').click();
   await page.locator('text=Move Group To Window').waitFor({ state: 'hidden', timeout: 10000 });
 }
