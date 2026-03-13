@@ -2,6 +2,7 @@ import React from 'react';
 import {
   Alert,
   Button,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -12,6 +13,7 @@ import {
   Stack,
   Typography
 } from '@mui/material';
+import { buildWindowLabels, WindowLabel } from '../lib/utils/windowLabelBuilder';
 
 interface MoveGroupDialogProps {
   open: boolean;
@@ -29,7 +31,7 @@ export default function MoveGroupDialog({
   const [loading, setLoading] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [windows, setWindows] = React.useState<chrome.windows.Window[]>([]);
+  const [windowLabels, setWindowLabels] = React.useState<WindowLabel[]>([]);
   const [targetWindowId, setTargetWindowId] = React.useState<number | null>(null);
 
   React.useEffect(() => {
@@ -40,13 +42,17 @@ export default function MoveGroupDialog({
     setError(null);
     setTargetWindowId(null);
 
-    chrome.windows.getAll({ populate: false })
-      .then((allWindows) => {
+    Promise.all([
+      chrome.windows.getAll({ populate: true }),
+      chrome.tabGroups.query({})
+    ])
+      .then(([allWindows, allTabGroups]) => {
         if (cancelled) return;
         const eligible = allWindows.filter((w) => w.id !== undefined && w.id !== sourceWindowId);
-        setWindows(eligible);
-        if (eligible.length > 0 && eligible[0].id !== undefined) {
-          setTargetWindowId(eligible[0].id);
+        const labels = buildWindowLabels(eligible, allTabGroups);
+        setWindowLabels(labels);
+        if (labels.length > 0) {
+          setTargetWindowId(labels[0].windowId);
         }
       })
       .catch((err) => {
@@ -86,21 +92,33 @@ export default function MoveGroupDialog({
         <Stack spacing={1.5} sx={{ pt: 0.5 }}>
           {loading && <Typography variant="body2">Loading windows…</Typography>}
 
-          {!loading && windows.length === 0 && (
+          {!loading && windowLabels.length === 0 && (
             <Alert severity="info">No eligible target windows are available.</Alert>
           )}
 
-          {!loading && windows.length > 0 && (
+          {!loading && windowLabels.length > 0 && (
             <RadioGroup
               value={targetWindowId === null ? '' : String(targetWindowId)}
               onChange={(event) => setTargetWindowId(Number(event.target.value))}
             >
-              {windows.map((window) => (
+              {windowLabels.map((wl) => (
                 <FormControlLabel
-                  key={window.id}
-                  value={String(window.id)}
+                  key={wl.windowId}
+                  value={String(wl.windowId)}
                   control={<Radio />}
-                  label={`Window ${window.id}${window.type ? ` (${window.type})` : ''}`}
+                  label={
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Typography variant="body2">
+                        {wl.label}
+                        <Typography component="span" variant="caption" sx={{ ml: 0.5, color: 'text.secondary' }}>
+                          — {wl.tabCount} tab{wl.tabCount !== 1 ? 's' : ''}
+                        </Typography>
+                      </Typography>
+                      {wl.isFocused && (
+                        <Chip label="focused" size="small" color="primary" variant="outlined" />
+                      )}
+                    </Stack>
+                  }
                 />
               ))}
             </RadioGroup>
@@ -114,7 +132,7 @@ export default function MoveGroupDialog({
         <Button
           variant="contained"
           onClick={handleConfirm}
-          disabled={submitting || loading || windows.length === 0 || targetWindowId === null}
+          disabled={submitting || loading || windowLabels.length === 0 || targetWindowId === null}
         >
           Move
         </Button>

@@ -85,7 +85,7 @@ Implement a built-in single-group move action across browser windows with sync-s
     - **Requirements**: 5.1, 5.2, 5.3, 5.5
     - **Properties**: 4
 
-  - [ ] 6.2 Update `MoveGroupDialog` to use human-friendly labels
+  - [x] 6.2 Update `MoveGroupDialog` to use human-friendly labels
     - Switch from `populate: false` to `populate: true` in `chrome.windows.getAll`
     - Query `chrome.tabGroups.query({})` to get all tab groups
     - Call `buildWindowLabels` and render labels instead of raw window IDs
