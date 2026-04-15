@@ -1,9 +1,10 @@
 import React from 'react';
-import { 
-  ThemeProvider, 
-  createTheme, 
-  CssBaseline, 
+import {
+  ThemeProvider,
+  createTheme,
+  CssBaseline,
   Box,
+  Button,
   CircularProgress,
   Typography
 } from '@mui/material';
@@ -226,29 +227,87 @@ export default function App() {
     void init();
   }, [logger]);
 
+  const handleRetry = React.useCallback(() => {
+    setError(null);
+    setIsInitialized(false);
+    setManagers(null);
+    // Re-trigger the init effect by incrementing a counter
+    setRetryCount(c => c + 1);
+  }, []);
+
+  const [retryCount, setRetryCount] = React.useState(0);
+
+  // Re-run init when retryCount changes (added as dependency below)
+  React.useEffect(() => {
+    if (retryCount === 0) return; // skip initial — the main effect handles that
+    const init = async () => {
+      try {
+        const port = chrome.runtime.connect({ name: 'popup' });
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => { cleanup(); reject(new Error('Background service connection timeout')); }, 5000);
+          const messageHandler = (message: { type: string; error?: string }) => {
+            if (message.type === 'PONG') { cleanup(); resolve(undefined); }
+            else if (message.type === 'NOT_READY') { cleanup(); reject(new Error(message.error || 'Background service not ready')); }
+          };
+          const cleanup = () => { clearTimeout(timeout); port.onMessage.removeListener(messageHandler); };
+          port.onMessage.addListener(messageHandler);
+          port.postMessage({ type: 'PING' });
+        });
+        // Re-create managers (same as main init)
+        const storage = { getSettings: async () => new Promise((resolve, reject) => { chrome.runtime.sendMessage({ type: 'GET_SETTINGS' }, r => { if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message)); else if (r.error) reject(new Error(r.error)); else resolve(r.settings); }); }), updateSettings: async (s: any) => new Promise((resolve, reject) => { chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', settings: s }, r => { if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message)); else if (r.error) reject(new Error(r.error)); else resolve(undefined); }); }), getHistory: async () => new Promise((resolve, reject) => { chrome.runtime.sendMessage({ type: 'GET_HISTORY' }, r => { if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message)); else if (r.error) reject(new Error(r.error)); else resolve(r.history); }); }) } as StorageManager;
+        const bookmarkManager = { getTabGroupsFolder: async () => new Promise((resolve, reject) => { chrome.runtime.sendMessage({ type: 'GET_TAB_GROUPS_FOLDER' }, r => { if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message)); else if (r.error) reject(new Error(r.error)); else resolve(r.folder); }); }), setupTabGroupsFolder: async (c: any) => new Promise((resolve, reject) => { chrome.runtime.sendMessage({ type: 'SETUP_TAB_GROUPS_FOLDER', containerFolder: c }, r => { if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message)); else if (r.error) reject(new Error(r.error)); else resolve(r.folder); }); }) } as BookmarkManager;
+        const syncEngine = { syncAll: async () => new Promise((resolve, reject) => { chrome.runtime.sendMessage({ type: 'SYNC_ALL' }, r => { if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message)); else if (r.error) reject(new Error(r.error)); else resolve(undefined); }); }), syncGroupToFolder: async (name: string) => new Promise((resolve, reject) => { chrome.runtime.sendMessage({ type: 'SYNC_GROUP', name }, r => { if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message)); else if (r.error) reject(new Error(r.error)); else resolve(undefined); }); }) } as SyncEngine;
+        const tabGroupManager = {} as TabGroupManager;
+        setManagers({ storage, bookmarkManager, syncEngine, tabGroupManager });
+        setIsInitialized(true);
+      } catch (error) {
+        setError(error instanceof Error ? error : new Error('Failed to initialize'));
+      }
+    };
+    void init();
+  }, [retryCount]);
+
   if (!isInitialized || !managers) {
     return (
-      <Box sx={{ 
-        display: 'flex', 
-        flexDirection: 'column',
-        alignItems: 'center', 
-        justifyContent: 'center',
-        height: '100vh',
-        gap: 2
-      }}>
-        {error ? (
-          <Typography color="error" variant="body2">
-            {error.message}
-          </Typography>
-        ) : (
-          <>
-            <CircularProgress size={24} />
-            <Typography color="text.secondary" variant="body2">
-              Initializing...
-            </Typography>
-          </>
-        )}
-      </Box>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Box sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100vh',
+          gap: 2,
+          px: 3,
+          textAlign: 'center',
+        }}>
+          {error ? (
+            <>
+              <Typography color="error" variant="body2" sx={{ fontWeight: 500 }}>
+                Connection lost
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 300 }}>
+                The background service isn't responding. This usually resolves itself — try again.
+              </Typography>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={handleRetry}
+                sx={{ mt: 1 }}
+              >
+                Retry
+              </Button>
+            </>
+          ) : (
+            <>
+              <CircularProgress size={24} />
+              <Typography color="text.secondary" variant="body2">
+                Initializing...
+              </Typography>
+            </>
+          )}
+        </Box>
+      </ThemeProvider>
     );
   }
 
@@ -293,8 +352,29 @@ export default function App() {
         >
           <GroupList storage={storage} syncEngine={syncEngine} bookmarkManager={bookmarkManager} />
         </Box>
-        <Box sx={{ px: 3, py: 1, borderTop: 1, borderColor: 'divider', position: 'relative' }}>
-          <SyncStatus storage={storage} />
+        <Box sx={{ px: 3, py: 1, borderTop: 1, borderColor: 'divider', position: 'relative', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ flex: 1 }}>
+            <SyncStatus storage={storage} />
+          </Box>
+          <Box
+            component="a"
+            href="https://www.paypal.com/ncp/payment/ED8J8ALQYKRMA"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Support this project"
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              color: '#ccc',
+              transition: 'color 0.2s',
+              '&:hover': { color: '#e91e63' },
+              fontSize: '1rem',
+              textDecoration: 'none',
+              flexShrink: 0,
+            }}
+          >
+            ♥
+          </Box>
         </Box>
       </Box>
     </ThemeProvider>

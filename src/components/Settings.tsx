@@ -14,9 +14,14 @@ import {
   CircularProgress,
   Divider,
   Slider,
+  Alert,
 } from '@mui/material';
 import FolderPicker from './FolderPicker';
-import { Settings as SettingsIcon } from '@mui/icons-material';
+import {
+  Settings as SettingsIcon,
+  FileDownload as ExportIcon,
+  FileUpload as ImportIcon,
+} from '@mui/icons-material';
 import { StorageManager } from '../lib/storage/storageManager';
 import { SyncEngine } from '../lib/sync/syncEngine';
 import { BookmarkManager } from '../lib/bookmarks/bookmarkManager';
@@ -38,6 +43,8 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
   const [isSelectingFolder, setIsSelectingFolder] = React.useState(false);
   const [showFolderPicker, setShowFolderPicker] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [exportImportStatus, setExportImportStatus] = React.useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
   const logger = Logger.getInstance();
 
   const loadSettings = React.useCallback(async () => {
@@ -454,6 +461,98 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
               </Box>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, ml: 4 }}>
                 Remove groups that haven't been seen for {inactiveThreshold} days
+              </Typography>
+            </Box>
+
+            <Divider sx={{ my: 2 }} />
+
+            {/* Export / Import */}
+            <Box sx={{ mb: 1 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1.5, color: 'text.secondary' }}>
+                Export & Import
+              </Typography>
+
+              {exportImportStatus && (
+                <Alert
+                  severity={exportImportStatus.type}
+                  onClose={() => setExportImportStatus(null)}
+                  sx={{ mb: 1.5 }}
+                >
+                  {exportImportStatus.message}
+                </Alert>
+              )}
+
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<ExportIcon />}
+                  onClick={async () => {
+                    try {
+                      const response = await new Promise<{ data?: any; error?: string }>((resolve, reject) => {
+                        chrome.runtime.sendMessage({ type: 'EXPORT_DATA' }, response => {
+                          if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+                          else resolve(response);
+                        });
+                      });
+                      if (response.error) throw new Error(response.error);
+
+                      const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `tab-group-sync-backup-${new Date().toISOString().slice(0, 10)}.json`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                      setExportImportStatus({ type: 'success', message: `Exported ${response.data.groups.length} group(s)` });
+                    } catch (error) {
+                      setExportImportStatus({ type: 'error', message: error instanceof Error ? error.message : 'Export failed' });
+                    }
+                  }}
+                >
+                  Export
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<ImportIcon />}
+                  disabled={!containerFolder}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  Import
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json"
+                  style={{ display: 'none' }}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    try {
+                      const text = await file.text();
+                      const data = JSON.parse(text);
+                      const response = await new Promise<{ success?: boolean; imported?: number; error?: string }>((resolve, reject) => {
+                        chrome.runtime.sendMessage({ type: 'IMPORT_DATA', data }, response => {
+                          if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+                          else resolve(response);
+                        });
+                      });
+                      if (response.error) throw new Error(response.error);
+                      setExportImportStatus({ type: 'success', message: `Imported ${response.imported} group(s)` });
+                    } catch (error) {
+                      setExportImportStatus({
+                        type: 'error',
+                        message: error instanceof Error ? error.message : 'Import failed — invalid file format',
+                      });
+                    }
+                    // Reset file input
+                    e.target.value = '';
+                  }}
+                />
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                Export your tab groups as JSON. Useful before uninstalling or for sharing across profiles.
               </Typography>
             </Box>
           </Box>

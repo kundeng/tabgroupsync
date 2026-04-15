@@ -10,7 +10,9 @@ const files = [
   ['src/popup.html', 'popup.html'],
   ['public/icons/icon16.png', 'icons/icon16.png'],
   ['public/icons/icon48.png', 'icons/icon48.png'],
-  ['public/icons/icon128.png', 'icons/icon128.png']
+  ['public/icons/icon128.png', 'icons/icon128.png'],
+  ['public/welcome.html', 'welcome.html'],
+  ['public/privacy-policy.html', 'privacy-policy.html'],
 ];
 
 // Create dist directory if it doesn't exist

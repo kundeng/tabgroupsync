@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tab Group Sync — Privacy Policy</title>
+  <style>
+    :root {
+      --blue: #1a73e8;
+      --text: #202124;
+      --muted: #5f6368;
+      --bg: #fff;
+      --border: #dadce0;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --text: #e8eaed;
+        --muted: #9aa0a6;
+        --bg: #202124;
+        --border: #3c4043;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.7;
+      padding: 2rem 1rem;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    h1 { font-size: 1.75rem; margin-bottom: 0.5rem; }
+    h2 { font-size: 1.2rem; margin: 2rem 0 0.75rem; color: var(--blue); }
+    p, li { color: var(--muted); margin-bottom: 0.75rem; }
+    ul { padding-left: 1.5rem; }
+    .updated { font-size: 0.85rem; color: var(--muted); margin-bottom: 2rem; }
+    .highlight {
+      background: #e8f0fe;
+      border-left: 4px solid var(--blue);
+      padding: 1rem 1.25rem;
+      border-radius: 0 8px 8px 0;
+      margin: 1.5rem 0;
+    }
+    @media (prefers-color-scheme: dark) {
+      .highlight { background: #1a2733; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: March 31, 2026</p>
+
+  <div class="highlight">
+    <strong>TL;DR:</strong> Tab Group Sync does not collect, transmit, or store any of your data outside your browser. Everything stays on your device (or syncs via your own Google account through Chrome's built-in bookmark sync).
+  </div>
+
+  <h2>What data does the extension access?</h2>
+  <p>Tab Group Sync requires the following Chrome permissions to function:</p>
+  <ul>
+    <li><strong>tabs / tabGroups</strong> — to read your tab group names, colors, and URLs so they can be saved to bookmarks.</li>
+    <li><strong>bookmarks</strong> — to create, read, and update bookmark folders that store your backed-up tab groups.</li>
+    <li><strong>storage</strong> — to save your extension preferences (e.g., auto-sync toggle, cleanup settings) using Chrome's sync storage.</li>
+    <li><strong>alarms</strong> — to schedule periodic sync operations that survive service worker restarts.</li>
+  </ul>
+
+  <h2>Where does data go?</h2>
+  <p>Nowhere outside your browser. Specifically:</p>
+  <ul>
+    <li><strong>No external servers.</strong> The extension does not make any network requests. There is no backend, no API, no analytics endpoint.</li>
+    <li><strong>No accounts.</strong> You are never asked to create an account or sign in.</li>
+    <li><strong>No tracking.</strong> No analytics, telemetry, cookies, or fingerprinting of any kind.</li>
+    <li><strong>No third-party code.</strong> The extension does not load scripts from external sources.</li>
+  </ul>
+  <p>Your tab group data is stored as bookmarks in your Chrome profile. If you have Chrome Sync enabled in your Google account, those bookmarks will sync across your devices through Google's infrastructure — the same way any bookmark does. The extension has no involvement in or visibility into that sync process.</p>
+
+  <h2>What data is stored locally?</h2>
+  <ul>
+    <li><strong>Extension settings</strong> (auto-sync preference, cleanup threshold, container folder ID) — stored in <code>chrome.storage.sync</code>.</li>
+    <li><strong>Bookmark folders</strong> containing your backed-up tab URLs — stored in Chrome's bookmark tree.</li>
+    <li><strong>Snapshots</strong> (point-in-time backups) — also stored as bookmark folders.</li>
+  </ul>
+  <p>All data is accessible through Chrome's built-in bookmark manager and can be exported or deleted at any time.</p>
+
+  <h2>Data sharing</h2>
+  <p>Your data is never shared with anyone. Since no data leaves your browser, there is no data to share.</p>
+
+  <h2>Data deletion</h2>
+  <p>Uninstalling the extension removes all extension settings from <code>chrome.storage</code>. Your bookmark folders will remain in Chrome's bookmarks (they are yours, not the extension's). You can delete them manually through Chrome's bookmark manager.</p>
+
+  <h2>Children's privacy</h2>
+  <p>This extension does not knowingly collect any information from anyone, including children under 13.</p>
+
+  <h2>Changes to this policy</h2>
+  <p>If we ever change how data is handled, we will update this page and the "Last updated" date above.</p>
+
+  <h2>Contact</h2>
+  <p>Questions or concerns? Open an issue on our <a href="https://github.com" style="color: var(--blue);">GitHub repository</a>.</p>
+</body>
+</html>
