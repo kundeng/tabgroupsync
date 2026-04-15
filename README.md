@@ -1,6 +1,13 @@
 # Tab Group Sync
 
+[![CI](https://github.com/kundeng/tabgroupsync/actions/workflows/ci.yml/badge.svg)](https://github.com/kundeng/tabgroupsync/actions/workflows/ci.yml)
+
 A Chrome extension that automatically synchronizes tab groups with bookmark folders, enabling users to save and restore tab group layouts across devices and browser sessions.
+
+## Install
+
+- **Releases**: download the latest `tab-group-sync-v*.zip` from [GitHub Releases](https://github.com/kundeng/tabgroupsync/releases), unzip, then load in Chrome via `chrome://extensions` → Developer mode → Load unpacked.
+- **Chrome Web Store**: _coming soon_
 
 ## Features
 
@@ -59,6 +66,10 @@ See [Property Coverage](tests/property/PROPERTY_COVERAGE.md) and [E2E README](te
 | [Spec: tasks.md](.kiro/specs/tab-group-sync/tasks.md) | Implementation tasks and status |
 | [docs/TECHNICAL.md](docs/TECHNICAL.md) | Learning guide and technical reference |
 | [KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | Known limitations and edge cases |
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the spec-driven workflow and release process.
 
 ## License
 
