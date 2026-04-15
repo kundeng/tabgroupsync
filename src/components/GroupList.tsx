@@ -1,6 +1,10 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
-import { Info as InfoIcon } from '@mui/icons-material';
+import { Box, Typography, Button } from '@mui/material';
+import {
+  Info as InfoIcon,
+  FolderOpen as FolderOpenIcon,
+  TabUnselected as TabIcon,
+} from '@mui/icons-material';
 import { StorageManager } from '../lib/storage/storageManager';
 import { SyncEngine } from '../lib/sync/syncEngine';
 import { GroupViewModel } from '../lib/types/storage';
@@ -265,6 +269,30 @@ export default function GroupList({ storage, syncEngine, bookmarkManager }: Grou
     }
   };
 
+  const handleRestoreGroup = async (group: GroupViewModel) => {
+    if (!group.folder) {
+      throw new Error('No bookmark folder found for this group');
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      chrome.runtime.sendMessage({
+        type: 'RESTORE_GROUP_FROM_BOOKMARKS',
+        folderId: group.folder!.id,
+        groupName: group.name,
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else if (!response?.success) {
+          reject(new Error(response?.error || 'Failed to restore group'));
+        } else {
+          resolve();
+        }
+      });
+    });
+
+    await loadGroups();
+  };
+
   const handleMoveGroup = async (group: GroupViewModel, targetWindowId: number) => {
     if (!group.isActive) {
       throw new Error('Only active groups can be moved');
@@ -341,26 +369,54 @@ export default function GroupList({ storage, syncEngine, bookmarkManager }: Grou
           onToggleSync={handleToggleSync}
           onFullResync={handleFullResync}
           onMoveGroup={handleMoveGroup}
-          // Inactive groups should be read-only
+          onRestoreGroup={handleRestoreGroup}
           readOnly={true}
         />
       )}
 
-      {groups.length === 0 && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
-          <InfoIcon fontSize="small" />
-          <Typography variant="body2">
-            No tab groups found. Create a tab group to start backing up.
+      {groups.length === 0 && !parentFolder && (
+        <Box sx={{
+          textAlign: 'center',
+          py: 4,
+          px: 2,
+        }}>
+          <FolderOpenIcon sx={{ fontSize: 48, color: 'action.disabled', mb: 1.5 }} />
+          <Typography variant="body1" sx={{ fontWeight: 500, mb: 0.5 }}>
+            Set up your backup location
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2, maxWidth: 300, mx: 'auto' }}>
+            Choose a bookmark folder to store your tab group backups. Click the gear icon above to get started.
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Your data stays 100% in your browser — no accounts or servers needed.
           </Typography>
         </Box>
       )}
 
-      <Box sx={{ mt: 2, color: 'text.secondary' }}>
-        <Typography variant="caption" component="div" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <InfoIcon fontSize="small" />
-          Enable sync for each group to back up tabs to bookmarks. Bookmarks are preserved even when tabs are closed.
-        </Typography>
-      </Box>
+      {groups.length === 0 && parentFolder && (
+        <Box sx={{
+          textAlign: 'center',
+          py: 4,
+          px: 2,
+        }}>
+          <TabIcon sx={{ fontSize: 48, color: 'action.disabled', mb: 1.5 }} />
+          <Typography variant="body1" sx={{ fontWeight: 500, mb: 0.5 }}>
+            No tab groups yet
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 320, mx: 'auto' }}>
+            Right-click a tab and choose "Add tab to group" to create your first tab group. It will appear here automatically.
+          </Typography>
+        </Box>
+      )}
+
+      {groups.length > 0 && (
+        <Box sx={{ mt: 2, color: 'text.secondary' }}>
+          <Typography variant="caption" component="div" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <InfoIcon fontSize="small" />
+            Enable sync for each group to back up tabs to bookmarks. Bookmarks are preserved even when tabs are closed.
+          </Typography>
+        </Box>
+      )}
     </Box>
   );
 }

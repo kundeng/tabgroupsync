@@ -18,6 +18,7 @@ import {
   ExpandLess as ExpandLessIcon,
   DriveFileMove as DriveFileMoveIcon,
   Refresh as RefreshIcon,
+  OpenInNew as RestoreIcon,
 } from '@mui/icons-material';
 import { GroupViewModel } from '../lib/types/storage';
 import { StorageManager } from '../lib/storage/storageManager';
@@ -32,6 +33,7 @@ interface GroupSectionProps {
   onToggleSync: (name: string) => void;
   onFullResync: (group: GroupViewModel) => void;
   onMoveGroup?: (group: GroupViewModel, targetWindowId: number) => Promise<void>;
+  onRestoreGroup?: (group: GroupViewModel) => Promise<void>;
   readOnly?: boolean;
 }
 
@@ -48,11 +50,13 @@ export default function GroupSection({
   onToggleSync,
   onFullResync,
   onMoveGroup,
+  onRestoreGroup,
   readOnly = false
 }: GroupSectionProps) {
   const [expanded, setExpanded] = React.useState(true);
   const [syncing, setSyncing] = React.useState<Record<string, boolean>>({});
   const [moving, setMoving] = React.useState<Record<string, boolean>>({});
+  const [restoring, setRestoring] = React.useState<Record<string, boolean>>({});
   const [errors, setErrors] = React.useState<Record<string, ErrorWithTimestamp>>({});
   const [moveDialogGroup, setMoveDialogGroup] = React.useState<GroupViewModel | null>(null);
 
@@ -295,9 +299,39 @@ export default function GroupSection({
                 ) : (
                   <Grid item style={{ flexShrink: 0 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
+                      {group.folder && onRestoreGroup && (
+                        <Tooltip title="Open as tab group">
+                          <span>
+                            <IconButton
+                              onClick={async () => {
+                                setRestoring(prev => ({ ...prev, [group.id]: true }));
+                                try {
+                                  await onRestoreGroup(group);
+                                  setErrors(prev => { const next = { ...prev }; delete next[group.id]; return next; });
+                                } catch (error) {
+                                  const message = error instanceof Error ? error.message : 'Failed to restore';
+                                  setErrors(prev => ({ ...prev, [group.id]: { message, timestamp: Date.now() } }));
+                                } finally {
+                                  setRestoring(prev => ({ ...prev, [group.id]: false }));
+                                }
+                              }}
+                              disabled={restoring[group.id]}
+                              size="small"
+                              color="primary"
+                              sx={{ padding: '6px' }}
+                            >
+                              {restoring[group.id] ? (
+                                <CircularProgress size={16} />
+                              ) : (
+                                <RestoreIcon fontSize="small" />
+                              )}
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      )}
                       <Typography variant="caption">
                         {group.syncEnabled ? (
-                          group.status.lastSynced ? 
+                          group.status.lastSynced ?
                             `Last backup: ${new Date(group.status.lastSynced).toLocaleTimeString()}` :
                             'Not backed up yet'
                         ) : 'Not configured for backup'}

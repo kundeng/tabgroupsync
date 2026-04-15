@@ -10,8 +10,12 @@ import {
   List,
   ListItem,
   ListItemText,
-  Divider
+  Divider,
+  Link,
 } from '@mui/material';
+import FavoriteIcon from '@mui/icons-material/Favorite';
+import ShieldIcon from '@mui/icons-material/Shield';
+import TipsAndUpdatesIcon from '@mui/icons-material/TipsAndUpdates';
 
 interface HelpDialogProps {
   open: boolean;
@@ -19,6 +23,10 @@ interface HelpDialogProps {
 }
 
 export default function HelpDialog({ open, onClose }: HelpDialogProps) {
+  const version = typeof chrome !== 'undefined' && chrome.runtime?.getManifest
+    ? chrome.runtime.getManifest().version
+    : '';
+
   return (
     <Dialog 
       open={open} 
@@ -27,7 +35,14 @@ export default function HelpDialog({ open, onClose }: HelpDialogProps) {
       fullWidth
       scroll="paper"
     >
-      <DialogTitle>Help & Information</DialogTitle>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        Help & Information
+        {version && (
+          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 400 }}>
+            v{version}
+          </Typography>
+        )}
+      </DialogTitle>
       <DialogContent dividers>
         <Box sx={{ mb: 3 }}>
           <Typography variant="h6" gutterBottom>
@@ -110,8 +125,107 @@ export default function HelpDialog({ open, onClose }: HelpDialogProps) {
             </ListItem>
           </List>
         </Box>
+
+        <Divider sx={{ my: 2 }} />
+
+        <Box sx={{
+          bgcolor: 'action.hover',
+          borderRadius: 2,
+          p: 2,
+          mb: 1,
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+            <ShieldIcon color="success" fontSize="small" />
+            <Typography variant="h6" sx={{ fontSize: '1rem' }}>
+              Why Tab Group Sync?
+            </Typography>
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Unlike other tab managers that require accounts and send your browsing data to external servers,
+            Tab Group Sync keeps everything 100% in your browser.
+          </Typography>
+          <Box component="ul" sx={{ pl: 2.5, m: 0 }}>
+            <Typography component="li" variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+              <strong>No accounts</strong> — no sign-ups, no logins, ever
+            </Typography>
+            <Typography component="li" variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+              <strong>No servers</strong> — your data never leaves your browser
+            </Typography>
+            <Typography component="li" variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+              <strong>No tracking</strong> — zero analytics, telemetry, or fingerprinting
+            </Typography>
+            <Typography component="li" variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+              <strong>No subscriptions</strong> — all features free, no paywalls
+            </Typography>
+            <Typography component="li" variant="body2" color="text.secondary">
+              <strong>Cross-device sync</strong> — through Chrome's built-in bookmark sync, using your own Google account
+            </Typography>
+          </Box>
+        </Box>
+
+        <Divider sx={{ my: 2 }} />
+
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 1 }}>
+          <TipsAndUpdatesIcon color="primary" fontSize="small" sx={{ mt: 0.25 }} />
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
+              Pro Tip: Search your backed-up groups
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Pair with{' '}
+              <Link
+                href="https://github.com/Fannon/search-bookmarks-history-and-tabs"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Search Bookmarks, History and Tabs
+              </Link>
+              {' '}for powerful search across all your backed-up tab groups. It's a perfect companion extension.
+            </Typography>
+          </Box>
+        </Box>
+
+        <Divider sx={{ my: 2 }} />
+
+        <Box>
+          <Typography variant="h6" gutterBottom>
+            Support Development
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Tab Group Sync is free and open source. If you find it useful, consider supporting
+            its continued development.
+          </Typography>
+          <Button
+            variant="outlined"
+            size="small"
+            href="https://www.paypal.com/ncp/payment/ED8J8ALQYKRMA"
+            target="_blank"
+            rel="noopener noreferrer"
+            startIcon={<FavoriteIcon sx={{ color: '#e91e63' }} />}
+            sx={{ mt: 1.5, textTransform: 'none' }}
+          >
+            Donate via PayPal
+          </Button>
+        </Box>
       </DialogContent>
-      <DialogActions>
+      <DialogActions sx={{ justifyContent: 'space-between', px: 3 }}>
+        <Link
+          href="https://www.paypal.com/ncp/payment/ED8J8ALQYKRMA"
+          target="_blank"
+          rel="noopener noreferrer"
+          underline="hover"
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.5,
+            fontSize: '0.85rem',
+            color: 'text.secondary',
+            '&:hover': { color: 'primary.main' },
+          }}
+        >
+          <FavoriteIcon sx={{ fontSize: '0.95rem', color: '#e91e63' }} />
+          Support this project
+        </Link>
         <Button onClick={onClose}>Close</Button>
       </DialogActions>
     </Dialog>

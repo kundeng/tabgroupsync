@@ -34,7 +34,7 @@ test.describe('Move Group Across Windows E2E', () => {
     });
 
     await openExtensionPopup(extensionPage, extensionId);
-    await moveGroupToWindowViaUI(extensionPage, extensionId, 'Move Me', targetWindowId);
+    await moveGroupToWindowViaUI(extensionPage, extensionId, 'Move Me', targetWindowId, 'developer.mozilla.org');
     await extensionPage.waitForTimeout(3000);
 
     const movedGroups = await extensionPage.evaluate(async () => {

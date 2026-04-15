@@ -67,6 +67,18 @@ Users need a built-in way to move a tab group to another window (including Edge 
 
 1. Moving a typical group (<= 20 tabs) SHALL complete within a user-acceptable interaction window under normal browser conditions
 
+### Requirement 5: Human-Friendly Window Identification
+
+**User Story:** As a user, I want to recognize target windows by meaningful labels instead of opaque numeric IDs, so I can confidently pick the right destination.
+
+#### Acceptance Criteria
+
+1. WHEN the move dialog lists eligible windows, THE UI SHALL label each window primarily by the tab group names it contains (comma-separated)
+2. WHEN a window contains no tab groups, THE UI SHALL fall back to showing the active tab's title or domain
+3. WHEN a window has neither groups nor a resolvable active tab, THE UI SHALL display a generic label with tab count (e.g., "Window — 3 tabs")
+4. WHEN the currently focused window is listed, THE UI SHALL visually distinguish it (e.g., a "focused" badge or indicator)
+5. WHEN window data is queried, THE system SHALL use `chrome.windows.getAll({ populate: true })` and `chrome.tabGroups.query` to build labels without requiring additional permissions
+
 ## Out of Scope
 
 - Bulk moving multiple groups in one action

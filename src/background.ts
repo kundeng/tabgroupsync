@@ -487,6 +487,155 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     });
   }
+  else if (message.type === 'EXPORT_DATA') {
+    Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
+      try {
+        const settings = await storage.getSettings();
+        const folder = await bookmarkManager.getTabGroupsFolder();
+
+        let groups: Array<{ name: string; urls: Array<{ title: string; url: string }> }> = [];
+        if (folder) {
+          const children = await chrome.bookmarks.getChildren(folder.id);
+          for (const child of children) {
+            if (child.url) continue; // Skip non-folders
+            const bookmarks = await chrome.bookmarks.getChildren(child.id);
+            groups.push({
+              name: child.title,
+              urls: bookmarks
+                .filter(b => b.url)
+                .map(b => ({ title: b.title, url: b.url! })),
+            });
+          }
+        }
+
+        const exportData = {
+          version: chrome.runtime.getManifest().version,
+          exportedAt: new Date().toISOString(),
+          settings: {
+            autoSync: settings.autoSync,
+            cleanup: settings.cleanup,
+          },
+          groups,
+        };
+
+        sendResponse({ data: exportData });
+      } catch (error) {
+        logger.error('export:failed', { error });
+        sendResponse({ error: error instanceof Error ? error.message : 'Failed to export data' });
+      }
+    });
+  }
+  else if (message.type === 'IMPORT_DATA') {
+    Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
+      try {
+        const importData = message.data;
+        if (!importData?.groups || !Array.isArray(importData.groups)) {
+          sendResponse({ error: 'Invalid import data format' });
+          return;
+        }
+
+        const folder = await bookmarkManager.getTabGroupsFolder();
+        if (!folder) {
+          sendResponse({ error: 'Please set up a backup location first' });
+          return;
+        }
+
+        let imported = 0;
+        for (const group of importData.groups) {
+          if (!group.name || !Array.isArray(group.urls)) continue;
+
+          // Check if folder already exists
+          const existing = await chrome.bookmarks.getChildren(folder.id);
+          let groupFolder = existing.find(f => f.title === group.name);
+
+          if (!groupFolder) {
+            groupFolder = await chrome.bookmarks.create({
+              parentId: folder.id,
+              title: group.name,
+            });
+          }
+
+          for (const bookmark of group.urls) {
+            if (!bookmark.url) continue;
+            await chrome.bookmarks.create({
+              parentId: groupFolder.id,
+              title: bookmark.title || bookmark.url,
+              url: bookmark.url,
+            });
+          }
+          imported++;
+        }
+
+        logger.info('import:completed', { groupCount: imported });
+        sendResponse({ success: true, imported });
+      } catch (error) {
+        logger.error('import:failed', { error });
+        sendResponse({ error: error instanceof Error ? error.message : 'Failed to import data' });
+      }
+    });
+  }
+  else if (message.type === 'RESTORE_GROUP_FROM_BOOKMARKS') {
+    Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
+      try {
+        const { folderId, groupName } = message;
+        if (!folderId || !groupName) {
+          sendResponse({ error: 'Missing folder ID or group name' });
+          return;
+        }
+
+        // Get bookmarks from the folder
+        const bookmarks = await chrome.bookmarks.getChildren(folderId);
+        const urls = bookmarks.filter(b => b.url).map(b => b.url!);
+
+        if (urls.length === 0) {
+          sendResponse({ error: 'No bookmarks found in this group folder' });
+          return;
+        }
+
+        // Create tabs for each URL
+        const createdTabs: chrome.tabs.Tab[] = [];
+        for (const url of urls) {
+          const tab = await chrome.tabs.create({ url, active: false });
+          createdTabs.push(tab);
+        }
+
+        // Group the tabs
+        if (createdTabs.length > 0) {
+          const tabIds = createdTabs.map(t => t.id!).filter(id => id !== undefined);
+          const groupId = await chrome.tabs.group({ tabIds });
+
+          // Set group properties
+          await chrome.tabGroups.update(groupId, {
+            title: groupName,
+            collapsed: false,
+          });
+
+          logger.info('restore:fromBookmarks:completed', {
+            groupName,
+            tabCount: tabIds.length
+          });
+          sendResponse({ success: true, groupId, tabCount: tabIds.length });
+        } else {
+          sendResponse({ error: 'Failed to create tabs' });
+        }
+      } catch (error) {
+        logger.error('restore:fromBookmarks:failed', { error });
+        sendResponse({ error: error instanceof Error ? error.message : 'Failed to restore group' });
+      }
+    });
+  }
   else if (message.type === 'GET_HISTORY') {
     Promise.resolve().then(async () => {
       if (!await ensureInitialized()) {
@@ -531,6 +680,14 @@ ctx.addEventListener('install', (event: ExtendableEvent) => {
   logger.info('serviceWorker:install', { timestamp: Date.now() });
   // Skip waiting to become active immediately
   event.waitUntil(ctx.skipWaiting());
+});
+
+// Open welcome page on first install (not on updates)
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === 'install') {
+    chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
+    logger.info('onboarding:welcomePageOpened', { timestamp: Date.now() });
+  }
 });
 
 ctx.addEventListener('activate', (event: ExtendableEvent) => {
