@@ -46,8 +46,8 @@ Thumbs.db
 # Chrome Extension specific
 *.zip
 
-# Generated documentation
+# Generated documentation (Pandoc output from TECHNICAL.md)
 TECHNICAL.html
 TECHNICAL_files/
-docs/*.html
-docs/*_files/
+docs/TECHNICAL.html
+docs/TECHNICAL_files/
