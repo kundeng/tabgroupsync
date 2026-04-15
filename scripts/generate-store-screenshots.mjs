@@ -197,6 +197,143 @@ async function composeFullViewport(browser, rawPng, { title, subtitle, gradient 
   await page.close();
 }
 
+async function makeBookmarkManagerMockup(browser, outfile) {
+  // Renders a clean Chrome-bookmarks-style mockup at 1280x800 showing
+  // "Tab Group Bookmarks" expanded with each group folder and its tabs.
+  // Not a pixel-perfect copy of chrome://bookmarks — a stylized, honest
+  // representation that makes the feature legible at thumbnail size.
+
+  const rows = [];
+  const favicons = {
+    'github.com':        '#24292f',
+    'linear.app':        '#5e6ad2',
+    'mail.google.com':   '#ea4335',
+    'arxiv.org':         '#b31b1b',
+    'en.wikipedia.org':  '#000000',
+    'scholar.google.com':'#4285f4',
+    'www.nature.com':    '#006633',
+    'www.amazon.com':    '#ff9900',
+    'www.target.com':    '#cc0000',
+    'www.bestbuy.com':   '#0046be',
+    'www.kayak.com':     '#ff690f',
+    'www.airbnb.com':    '#ff5a5f',
+  };
+  const colorDots = { Work: '#1a73e8', Research: '#d93025', Shopping: '#1e8e3e', Travel: '#f9ab00' };
+
+  for (const g of MOCK_GROUPS) {
+    rows.push(`
+      <div class="folder-row folder-group">
+        <div class="dot" style="background:${colorDots[g.title] || '#5f6368'}"></div>
+        <svg class="icon" viewBox="0 0 24 24" fill="#5f6368"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+        <span class="title">${g.title}</span>
+        <span class="count">${g.urls.length} ${g.urls.length === 1 ? 'tab' : 'tabs'}</span>
+      </div>
+    `);
+    for (const url of g.urls) {
+      const u = new URL(url);
+      const host = u.hostname;
+      const path = u.pathname === '/' ? '' : u.pathname;
+      const accent = favicons[host] || '#9aa0a6';
+      const initial = host.replace(/^www\./, '').charAt(0).toUpperCase();
+      rows.push(`
+        <div class="bookmark-row">
+          <div class="favicon" style="background:${accent}">${initial}</div>
+          <span class="bm-host">${host}</span><span class="bm-path">${path}</span>
+        </div>
+      `);
+    }
+  }
+
+  const html = `<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: ${SCREENSHOT_W}px; height: ${SCREENSHOT_H}px; overflow: hidden; }
+  body {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #37474f 0%, #1c2a33 100%);
+    font-family: 'Google Sans', -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+    color: #fff; padding: 30px 48px;
+  }
+  h1 { font-size: 34px; font-weight: 700; letter-spacing: -0.3px; margin-bottom: 8px; }
+  .sub { font-size: 16px; color: rgba(255,255,255,0.9); margin-bottom: 22px; }
+  .window {
+    width: 1140px; height: 620px; background: #fff; color: #202124;
+    border-radius: 12px; overflow: hidden; display: flex;
+    box-shadow: 0 25px 70px rgba(0,0,0,0.35), 0 8px 25px rgba(0,0,0,0.25);
+  }
+  .toolbar {
+    position: absolute; width: 1140px; height: 58px;
+    background: #fff; border-bottom: 1px solid #e8eaed;
+    display: flex; align-items: center; padding: 0 24px; gap: 16px;
+    font-size: 20px; font-weight: 500; color: #202124;
+  }
+  .toolbar .search {
+    flex: 1; max-width: 520px; margin: 0 auto; background: #f1f3f4;
+    border-radius: 999px; height: 36px; display: flex; align-items: center;
+    padding: 0 14px; font-size: 14px; color: #5f6368; font-weight: 400;
+  }
+  .sidebar {
+    width: 260px; background: #f8f9fa; border-right: 1px solid #e8eaed;
+    padding-top: 70px; padding-bottom: 12px;
+  }
+  .nav {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 16px 8px 20px; font-size: 14px; color: #3c4043; cursor: default;
+  }
+  .nav.active { background: #e8f0fe; color: #1967d2; font-weight: 500; border-radius: 0 999px 999px 0; margin-right: 12px; }
+  .nav svg { width: 18px; height: 18px; }
+  .content { flex: 1; padding: 70px 28px 24px; overflow: hidden; }
+  .breadcrumb { font-size: 13px; color: #5f6368; margin-bottom: 12px; }
+  .folder-row {
+    display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+    font-size: 14px; color: #202124; border-radius: 6px;
+  }
+  .folder-row.folder-group { font-weight: 500; background: #f8f9fa; margin-bottom: 2px; }
+  .folder-row .icon { width: 20px; height: 20px; }
+  .folder-row .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .folder-row .title { flex: 1; }
+  .folder-row .count { color: #5f6368; font-size: 12px; }
+  .bookmark-row {
+    display: flex; align-items: center; gap: 10px; padding: 7px 12px 7px 46px;
+    font-size: 13px; color: #3c4043; border-radius: 6px;
+  }
+  .bookmark-row .favicon {
+    width: 16px; height: 16px; border-radius: 3px; color: #fff;
+    font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .bm-host { color: #202124; }
+  .bm-path { color: #5f6368; }
+  .rows { height: 470px; overflow: hidden; }
+</style></head>
+<body>
+  <h1>Your tab groups, safely stored as bookmarks</h1>
+  <div class="sub">Every synced group becomes a folder in Chrome’s bookmark manager — portable and private.</div>
+  <div class="window">
+    <div class="toolbar">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="#5f6368"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+      <span>Bookmarks</span>
+      <div class="search">Search bookmarks</div>
+    </div>
+    <div class="sidebar">
+      <div class="nav"><svg viewBox="0 0 24 24" fill="#5f6368"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>Bookmarks bar</div>
+      <div class="nav active" style="padding-left:40px"><svg viewBox="0 0 24 24" fill="#1967d2"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>Tab Group Bookmarks</div>
+      <div class="nav"><svg viewBox="0 0 24 24" fill="#5f6368"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>Other bookmarks</div>
+    </div>
+    <div class="content">
+      <div class="breadcrumb">Bookmarks bar &nbsp;›&nbsp; Tab Group Bookmarks</div>
+      <div class="rows">${rows.join('')}</div>
+    </div>
+  </div>
+</body></html>`;
+
+  const page = await browser.newPage();
+  await page.setViewportSize({ width: SCREENSHOT_W, height: SCREENSHOT_H });
+  await page.setContent(html, { waitUntil: 'load' });
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: outfile, type: 'png' });
+  await page.close();
+}
+
 async function makePromoTile(browser, outfile) {
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
@@ -449,51 +586,9 @@ async function main() {
     console.log('wrote 04-move-group.png');
   }
 
-  // ── Screenshot 5: bookmark folders in Chrome ────────────────────────────
-  {
-    // Resolve the container folder id and ensure each group has bookmarks
-    // inside, then deep-link chrome://bookmarks into the container folder.
-    const probe = await context.newPage();
-    await probe.goto(`chrome-extension://${extensionId}/popup.html`);
-    await probe.waitForLoadState('networkidle');
-    await probe.waitForTimeout(500);
-
-    const containerId = await probe.evaluate(async () => {
-      const results = await chrome.bookmarks.search({ title: 'Tab Group Bookmarks' });
-      const folder = results.find(r => !r.url);
-      return folder ? folder.id : null;
-    });
-
-    // Wait until each mock group has its own subfolder with bookmarks populated.
-    const expected = ['Work', 'Research', 'Shopping', 'Travel'];
-    const deadline = Date.now() + 20000;
-    while (Date.now() < deadline) {
-      const ready = await probe.evaluate(async (names) => {
-        const children = await chrome.bookmarks.getChildren(
-          (await chrome.bookmarks.search({ title: 'Tab Group Bookmarks' })).find(r => !r.url).id
-        );
-        const folderNames = children.filter(c => !c.url).map(c => c.title);
-        return names.every(n => folderNames.includes(n));
-      }, expected).catch(() => false);
-      if (ready) break;
-      await probe.waitForTimeout(500);
-    }
-    await probe.close();
-
-    const bm = await context.newPage();
-    await bm.setViewportSize({ width: 1280, height: 800 });
-    const url = containerId ? `chrome://bookmarks/?id=${containerId}` : 'chrome://bookmarks/';
-    await bm.goto(url);
-    await bm.waitForTimeout(3000);
-    const png = await bm.screenshot({ type: 'png', fullPage: false });
-    await composeFullViewport(context, png,
-      { title: 'Your tab groups, safely stored as bookmarks',
-        subtitle: 'Every synced group becomes a folder in Chrome’s bookmark manager — portable and private.',
-        gradient: gradients.slate },
-      path.join(OUT_DIR, '05-bookmark-folders.png'));
-    await bm.close();
-    console.log('wrote 05-bookmark-folders.png');
-  }
+  // ── Screenshot 5: bookmark folders (Chrome-style HTML mockup) ───────────
+  await makeBookmarkManagerMockup(context, path.join(OUT_DIR, '05-bookmark-folders.png'));
+  console.log('wrote 05-bookmark-folders.png');
 
   // ── Promo tile 440x280 ──────────────────────────────────────────────────
   await makePromoTile(context, path.join(OUT_DIR, 'promo-tile-440x280.png'));
