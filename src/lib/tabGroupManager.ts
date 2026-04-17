@@ -139,14 +139,17 @@ export class TabGroupManager {
         newTitle: currentTitle
       });
 
-      // If title changed, notify sync engine with old title for cleanup
-      // Per Req 1.4: title changes create a new folder, old folder preserved
+      // If the group was previously tracked under a different title, rename
+      // the existing bookmark folder in-place rather than orphaning it.
+      // Together with the listener-level debounce, this keeps renames correct
+      // for any typing duration.
       if (lastTitle) {
-        await this.syncEngine.handleGroupRemoved(lastTitle);
+        await this.syncEngine.handleGroupRenamed(lastTitle, currentTitle, group);
+        return;
       }
     }
 
-    // Notify sync engine of group update
+    // First title assignment, or non-rename update.
     await this.syncEngine.handleGroupUpdated(group);
   }
 

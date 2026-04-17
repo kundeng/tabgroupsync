@@ -47,7 +47,15 @@ export function initializeTabGroupListeners(tabGroupManager: TabGroupManager, wo
     processGroupQueue();
   });
 
-  chrome.tabGroups.onUpdated.addListener(async (group) => {
+  // Debounce per-group updates so keystroke-level onUpdated storms (one event per
+  // character while the user types a title) collapse into a single sync once the
+  // title settles. Without this, typing "splunk" creates folders "s", "sp", "spl",
+  // "splu", "splun", "splunk" — one per intermediate state.
+  const UPDATE_DEBOUNCE_MS = 750;
+  const updateTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  const latestUpdateByGroupId = new Map<number, chrome.tabGroups.TabGroup>();
+
+  chrome.tabGroups.onUpdated.addListener((group) => {
     logger.debug('tabGroup:updated', {
       groupId: group.id,
       title: group.title,
@@ -56,19 +64,34 @@ export function initializeTabGroupListeners(tabGroupManager: TabGroupManager, wo
       timeSinceWorkerStart: Date.now() - startTime
     });
 
-    try {
-      await tabGroupManager.handleGroupUpdated(group);
-      logger.info('tabGroup:updated:handled', {
-        groupId: group.id,
-        title: group.title
-      });
-    } catch (error) {
-      logger.error('tabGroup:updated:failed', {
-        groupId: group.id,
-        title: group.title,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }, error instanceof Error ? error : undefined);
-    }
+    // Always record the newest state for this group.
+    latestUpdateByGroupId.set(group.id, group);
+
+    // Reset the timer — the user might still be typing.
+    const existing = updateTimers.get(group.id);
+    if (existing) clearTimeout(existing);
+
+    updateTimers.set(group.id, setTimeout(async () => {
+      updateTimers.delete(group.id);
+      const latest = latestUpdateByGroupId.get(group.id);
+      latestUpdateByGroupId.delete(group.id);
+      if (!latest) return;
+
+      try {
+        await tabGroupManager.handleGroupUpdated(latest);
+        logger.info('tabGroup:updated:handled', {
+          groupId: latest.id,
+          title: latest.title,
+          debounced: true
+        });
+      } catch (error) {
+        logger.error('tabGroup:updated:failed', {
+          groupId: latest.id,
+          title: latest.title,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }, error instanceof Error ? error : undefined);
+      }
+    }, UPDATE_DEBOUNCE_MS));
   });
 
   chrome.tabGroups.onRemoved.addListener(async (group) => {
@@ -78,6 +101,14 @@ export function initializeTabGroupListeners(tabGroupManager: TabGroupManager, wo
       windowId: group.windowId,
       timeSinceWorkerStart: Date.now() - startTime
     });
+
+    // Cancel any pending debounced update for a group that no longer exists.
+    const pending = updateTimers.get(group.id);
+    if (pending) {
+      clearTimeout(pending);
+      updateTimers.delete(group.id);
+      latestUpdateByGroupId.delete(group.id);
+    }
 
     try {
       // Pass group name to preserve folder mapping

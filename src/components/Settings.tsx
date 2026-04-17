@@ -21,7 +21,9 @@ import {
   Settings as SettingsIcon,
   FileDownload as ExportIcon,
   FileUpload as ImportIcon,
+  CleaningServices as CleanupIcon,
 } from '@mui/icons-material';
+import type { CruftCandidate } from '../lib/bookmarks/cleanupPrefixCruft';
 import { StorageManager } from '../lib/storage/storageManager';
 import { SyncEngine } from '../lib/sync/syncEngine';
 import { BookmarkManager } from '../lib/bookmarks/bookmarkManager';
@@ -38,6 +40,10 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
   const [open, setOpen] = React.useState(false);
   const [autoSync, setAutoSync] = React.useState(false);
   const [cleanupEnabled, setCleanupEnabled] = React.useState(false);
+  const [cruftCandidates, setCruftCandidates] = React.useState<CruftCandidate[] | null>(null);
+  const [cruftScanning, setCruftScanning] = React.useState(false);
+  const [cruftCleaning, setCruftCleaning] = React.useState(false);
+  const [cruftResult, setCruftResult] = React.useState<string | null>(null);
   const [inactiveThreshold, setInactiveThreshold] = React.useState(30);
   const [containerFolder, setContainerFolder] = React.useState<chrome.bookmarks.BookmarkTreeNode | null>(null);
   const [isSelectingFolder, setIsSelectingFolder] = React.useState(false);
@@ -462,6 +468,130 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, ml: 4 }}>
                 Remove groups that haven't been seen for {inactiveThreshold} days
               </Typography>
+            </Box>
+
+            <Divider sx={{ my: 2 }} />
+
+            {/* Bookmark Folder Cleanup */}
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1.5, color: 'text.secondary' }}>
+                Bookmark Folder Cleanup
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                Scan for leftover bookmark folders from partial renames (e.g. "s", "sp" alongside "splunk").
+                Any bookmarks inside will be merged into the full-name folder before removal.
+              </Typography>
+
+              {cruftResult && (
+                <Alert
+                  severity="success"
+                  onClose={() => setCruftResult(null)}
+                  sx={{ mb: 1.5 }}
+                >
+                  {cruftResult}
+                </Alert>
+              )}
+
+              {cruftCandidates === null ? (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={cruftScanning ? <CircularProgress size={16} /> : <CleanupIcon />}
+                  disabled={cruftScanning}
+                  onClick={async () => {
+                    setCruftScanning(true);
+                    setCruftResult(null);
+                    try {
+                      const response = await new Promise<any>((resolve, reject) => {
+                        chrome.runtime.sendMessage({ type: 'SCAN_PREFIX_CRUFT' }, r => {
+                          if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+                          else if (r.error) reject(new Error(r.error));
+                          else resolve(r);
+                        });
+                      });
+                      const candidates = response.result?.candidates || [];
+                      setCruftCandidates(candidates);
+                      if (candidates.length === 0) {
+                        setCruftResult('No leftover folders found.');
+                        setCruftCandidates(null);
+                      }
+                    } catch (error) {
+                      setCruftResult(null);
+                      logger.error('cleanup:scanFailed', {
+                        error: error instanceof Error ? error.message : 'Unknown',
+                      });
+                    } finally {
+                      setCruftScanning(false);
+                    }
+                  }}
+                >
+                  Scan for leftovers
+                </Button>
+              ) : (
+                <Box>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    Found {cruftCandidates.length} leftover folder{cruftCandidates.length !== 1 ? 's' : ''}:
+                  </Typography>
+                  <Box
+                    component="ul"
+                    sx={{ m: 0, pl: 2, mb: 1.5, maxHeight: 150, overflowY: 'auto', fontSize: '13px' }}
+                  >
+                    {cruftCandidates.map(c => (
+                      <li key={c.id}>
+                        <strong>{c.title}</strong>
+                        {c.bookmarkCount > 0 && (
+                          <span> ({c.bookmarkCount} bookmark{c.bookmarkCount !== 1 ? 's' : ''} → {c.mergeTargetTitle})</span>
+                        )}
+                      </li>
+                    ))}
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="error"
+                      startIcon={cruftCleaning ? <CircularProgress size={16} color="inherit" /> : <CleanupIcon />}
+                      disabled={cruftCleaning}
+                      onClick={async () => {
+                        setCruftCleaning(true);
+                        try {
+                          const response = await new Promise<any>((resolve, reject) => {
+                            chrome.runtime.sendMessage(
+                              { type: 'EXECUTE_PREFIX_CRUFT_CLEANUP', candidates: cruftCandidates },
+                              r => {
+                                if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+                                else if (r.error) reject(new Error(r.error));
+                                else resolve(r);
+                              }
+                            );
+                          });
+                          const { mergedUrls, deletedFolders } = response.result;
+                          setCruftResult(
+                            `Cleaned up ${deletedFolders} folder${deletedFolders !== 1 ? 's' : ''}` +
+                            (mergedUrls > 0 ? `, merged ${mergedUrls} bookmark${mergedUrls !== 1 ? 's' : ''}` : '')
+                          );
+                          setCruftCandidates(null);
+                        } catch (error) {
+                          logger.error('cleanup:executeFailed', {
+                            error: error instanceof Error ? error.message : 'Unknown',
+                          });
+                        } finally {
+                          setCruftCleaning(false);
+                        }
+                      }}
+                    >
+                      Delete {cruftCandidates.length} folder{cruftCandidates.length !== 1 ? 's' : ''}
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => setCruftCandidates(null)}
+                    >
+                      Cancel
+                    </Button>
+                  </Box>
+                </Box>
+              )}
             </Box>
 
             <Divider sx={{ my: 2 }} />

@@ -740,6 +740,53 @@ export class SyncEngine {
     }
   }
 
+  // Rename an existing synced group in-place: renames the existing bookmark
+  // folder rather than orphaning it and creating a new one. Combined with the
+  // listener-level debounce, this keeps renames correct regardless of how long
+  // the user takes to settle on the final title — every intermediate rename
+  // just renames the same folder.
+  async handleGroupRenamed(
+    oldName: string,
+    newName: string,
+    group: chrome.tabGroups.TabGroup
+  ): Promise<void> {
+    const oldMapping = await this.storage.getMapping(oldName);
+
+    if (oldMapping?.folderId) {
+      try {
+        await chrome.bookmarks.update(oldMapping.folderId, { title: newName });
+        this.logger.info('sync:groupRenamed:folderRenamed', {
+          oldName, newName, folderId: oldMapping.folderId
+        });
+      } catch (error) {
+        this.logger.error('sync:groupRenamed:folderRenameFailed', {
+          oldName, newName, folderId: oldMapping.folderId,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }, error instanceof Error ? error : undefined);
+      }
+
+      // Migrate mapping from oldName to newName, preserving the folder link.
+      await this.storage.updateMapping(newName, {
+        name: newName,
+        folderId: oldMapping.folderId,
+        currentGroupId: group.id.toString(),
+        color: group.color,
+        syncEnabled: oldMapping.syncEnabled,
+        status: oldMapping.status
+      });
+      await this.storage.removeMapping(oldName);
+
+      if (oldMapping.syncEnabled) {
+        this.queueSync(newName);
+      }
+    } else {
+      // No existing folder under oldName — handle as a fresh update.
+      await this.handleGroupUpdated(group);
+    }
+
+    this.logger.info('sync:groupRenamed', { oldName, newName, groupId: group.id });
+  }
+
   async handleGroupRemoved(name: string): Promise<void> {
     // Update mapping to remove current group ID but keep the folder
     await this.storage.updateMapping(name, {

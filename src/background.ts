@@ -7,6 +7,7 @@ import { StorageManager } from './lib/storage/storageManager';
 import { Logger } from './lib/utils/logger';
 import { SyncEngine } from './lib/sync/syncEngine';
 import { SnapshotManager } from './lib/bookmarks/snapshotManager';
+import { scanPrefixCruft, executePrefixCruftCleanup } from './lib/bookmarks/cleanupPrefixCruft';
 
 // Initialize logger
 const logger = Logger.getInstance();
@@ -648,6 +649,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } catch (error) {
         logger.error('history:get:failed', { error });
         sendResponse({ error: error instanceof Error ? error.message : 'Failed to get history' });
+      }
+    });
+  }
+  else if (message.type === 'SCAN_PREFIX_CRUFT') {
+    Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
+      try {
+        const result = await scanPrefixCruft(storage);
+        sendResponse({ result });
+      } catch (error) {
+        logger.error('cleanup:scan:failed', { error });
+        sendResponse({ error: error instanceof Error ? error.message : 'Scan failed' });
+      }
+    });
+  }
+  else if (message.type === 'EXECUTE_PREFIX_CRUFT_CLEANUP') {
+    Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
+      try {
+        const result = await executePrefixCruftCleanup(message.candidates);
+        sendResponse({ result });
+      } catch (error) {
+        logger.error('cleanup:execute:failed', { error });
+        sendResponse({ error: error instanceof Error ? error.message : 'Cleanup failed' });
       }
     });
   }
