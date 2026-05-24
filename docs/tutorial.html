@@ -36,7 +36,7 @@
     text-transform: uppercase; color: var(--muted); margin-bottom: 4px;
   }
   nav.side h1 { font-size: 19px; font-weight: 700; margin: 0 0 24px; line-height: 1.3; }
-  nav.side ol { list-style: none; padding: 0; margin: 0; counter-reset: n; }
+  nav.side ol { list-style: none; padding: 0; margin: 0; }
   nav.side li { counter-increment: n; margin: 2px 0; }
   nav.side a {
     display: block; padding: 7px 12px; border-radius: 6px;
@@ -202,7 +202,7 @@
   <a href="#reading-order" style="display: block; padding: 7px 12px; border-radius: 6px; color: var(--text); text-decoration: none; font-size: 13.5px; border-left: 2px solid transparent; font-weight: 500;">Reading order</a>
 
   <div class="section-label">Foundations</div>
-  <ol>
+  <ol style="counter-reset: n 0">
     <li><a href="#p1">Anatomy of an MV3 extension</a></li>
     <li><a href="#p2">Project scaffold &amp; dual build</a></li>
     <li><a href="#p3">Code organization</a></li>
@@ -210,7 +210,7 @@
   </ol>
 
   <div class="section-label">Runtime</div>
-  <ol start="5">
+  <ol style="counter-reset: n 4">
     <li><a href="#p5">The service worker lifecycle</a></li>
     <li><a href="#p6">Listening to browser events</a></li>
     <li><a href="#p7">Calling Chrome APIs</a></li>
@@ -220,7 +220,7 @@
   </ol>
 
   <div class="section-label">Deep dives</div>
-  <ol start="11">
+  <ol style="counter-reset: n 10">
     <li><a href="#p11">The distributed sync model</a></li>
     <li><a href="#p12">Special algorithms</a></li>
     <li><a href="#p13">Testing: unit, property, E2E</a></li>
@@ -229,7 +229,7 @@
   </ol>
 
   <div class="section-label">v1.4 — File URLs &amp; Search</div>
-  <ol start="16">
+  <ol style="counter-reset: n 15">
     <li><a href="#p16">file:// URL sync</a></li>
     <li><a href="#p17">Cross-machine path mapping</a></li>
     <li><a href="#p18">Fuzzy search &amp; restore</a></li>
