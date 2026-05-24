@@ -33,7 +33,7 @@
     - **Requirements**: 2.3, 2.4
 
 - [ ] 2. Core — Capture
-  - [ ] 2.1 Modify URL filter in bookmarkManager.ts
+  - [x] 2.1 Modify URL filter in bookmarkManager.ts
     - Replace http/https-only check at line 369 with `isSyncableUrl()`
     - Add `file://` to allowed schemes, keep filtering chrome:// edge:// about:// brave://
     - Load path mapping config before filter loop
