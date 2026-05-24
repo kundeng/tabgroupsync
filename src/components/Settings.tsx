@@ -132,10 +132,12 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
         if (data.machineId) setMachineId(data.machineId as string);
       });
       chrome.storage.sync.get('state:pathMappings').then((data: Record<string, unknown>) => {
+
         const store = data['state:pathMappings'] as { machines: Record<string, { rules: Array<{ canonicalPrefix: string; localPrefix: string }> }> } | undefined;
         if (store) {
           chrome.storage.local.get('machineId').then((local: Record<string, unknown>) => {
             const mid = local.machineId as string;
+
             if (mid && store.machines[mid]?.rules?.length > 0) {
               setMappingRules(store.machines[mid].rules);
             }
@@ -155,6 +157,7 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
       rules: rules.filter(r => r.canonicalPrefix.trim() && r.localPrefix.trim())
     };
     await chrome.storage.sync.set({ 'state:pathMappings': store });
+
   }, []);
 
   // Auto-save path mappings on change (debounced)
