@@ -644,6 +644,35 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
                     </Alert>
                   )}
 
+                  <Box sx={{ mt: 1.5 }}>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      onClick={async () => {
+                        try {
+                          const resp = await new Promise<{ success?: boolean; totalOpened?: number; error?: string }>((resolve, reject) => {
+                            chrome.runtime.sendMessage({ type: 'RESTORE_FILE_URLS' }, r => {
+                              if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+                              else resolve(r);
+                            });
+                          });
+                          if (resp.error) {
+                            alert('Error: ' + resp.error);
+                          } else {
+                            alert(`Opened ${resp.totalOpened} file tab(s) across all groups.`);
+                          }
+                        } catch (e) {
+                          alert('Failed: ' + (e instanceof Error ? e.message : e));
+                        }
+                      }}
+                    >
+                      Open all file:// tabs from bookmarks
+                    </Button>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                      Opens every file:// URL from all synced groups, with path mapping applied.
+                    </Typography>
+                  </Box>
+
                   {typeof chrome !== 'undefined' && chrome.extension?.isAllowedFileSchemeAccess && (
                     <FileAccessBanner />
                   )}
