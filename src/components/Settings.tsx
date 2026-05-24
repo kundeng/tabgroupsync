@@ -160,6 +160,15 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
     await chrome.storage.sync.set({ 'state:settings': settings });
   }, []);
 
+  // Auto-save path mappings on change (debounced)
+  React.useEffect(() => {
+    if (!pathMappingsExpanded || !machineId.trim()) return;
+    const timer = setTimeout(() => {
+      savePathMappings(machineId, mappingRules);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [machineId, mappingRules, pathMappingsExpanded, savePathMappings]);
+
   React.useEffect(() => {
     loadSettings();
 
@@ -558,7 +567,6 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
                       type="text"
                       value={machineId}
                       onChange={e => setMachineId(e.target.value)}
-                      onBlur={() => savePathMappings(machineId, mappingRules)}
                       placeholder="e.g., linux-home, macbook-work"
                       style={{
                         width: '100%', padding: '6px 8px', fontSize: '13px',
@@ -577,7 +585,6 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
                           updated[i] = { ...updated[i], canonicalPrefix: e.target.value };
                           setMappingRules(updated);
                         }}
-                        onBlur={() => savePathMappings(machineId, mappingRules)}
                         placeholder="Canonical prefix"
                         style={{
                           flex: 1, padding: '4px 6px', fontSize: '12px',
@@ -596,7 +603,6 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
                           updated[i] = { ...updated[i], localPrefix: e.target.value };
                           setMappingRules(updated);
                         }}
-                        onBlur={() => savePathMappings(machineId, mappingRules)}
                         placeholder="This machine's prefix"
                         style={{
                           flex: 1, padding: '4px 6px', fontSize: '12px',

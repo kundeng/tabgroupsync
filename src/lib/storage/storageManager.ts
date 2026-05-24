@@ -11,6 +11,7 @@ import {
   CombinedState,
   GroupSyncPreferences,
   PathMappingConfig,
+  PathMappingRule,
   PathMappingStore
 } from '../types/storage';
 import { validateStorageState, validateSyncHistoryEntry } from '../utils/validators';
@@ -508,15 +509,30 @@ export class StorageManager {
     };
   }
 
-  // Path Mapping Operations
+  // Path Mapping Operations — read live from storage, not stale in-memory state,
+  // because the popup writes directly to chrome.storage.sync
   async getPathMappingConfig(): Promise<PathMappingConfig> {
     const machineId = await this.getCurrentMachineId();
     if (!machineId) return { machineId: '', rules: [] };
 
-    const store = this.persistedState.settings.pathMappings;
+    const data = await chrome.storage.sync.get('state:settings');
+    const settings = data['state:settings'] as GlobalSettings | undefined;
+    const store = settings?.pathMappings;
     if (!store?.machines[machineId]) return { machineId, rules: [] };
 
     return store.machines[machineId];
+  }
+
+  async getAllPathMappingRules(): Promise<PathMappingRule[]> {
+    const data = await chrome.storage.sync.get('state:settings');
+    const settings = data['state:settings'] as GlobalSettings | undefined;
+    const store = settings?.pathMappings;
+    if (!store) return [];
+    const allRules: PathMappingRule[] = [];
+    for (const config of Object.values(store.machines)) {
+      allRules.push(...(config as PathMappingConfig).rules);
+    }
+    return allRules;
   }
 
   async setPathMappingConfig(config: PathMappingConfig): Promise<void> {
@@ -528,7 +544,9 @@ export class StorageManager {
   }
 
   async getAllMachineConfigs(): Promise<PathMappingStore> {
-    return this.persistedState.settings.pathMappings ?? { machines: {} };
+    const data = await chrome.storage.sync.get('state:settings');
+    const settings = data['state:settings'] as GlobalSettings | undefined;
+    return settings?.pathMappings ?? { machines: {} };
   }
 
   async getCurrentMachineId(): Promise<string | undefined> {

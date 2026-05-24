@@ -354,12 +354,20 @@ export class BookmarkManager {
       // Get existing bookmarks and canonicalize for dedup
       const existingBookmarks = await getBookmarkChildren(groupFolder.id);
       const mappingConfig = await this.storage.getPathMappingConfig();
-      const existingUrls = new Set(
-        existingBookmarks.map(b => {
-          if (b.url && isFileUrl(b.url)) return canonicalize(b.url, mappingConfig);
-          return b.url;
-        })
-      );
+
+      // Re-canonicalize existing file:// bookmarks that have stale local paths
+      for (const bm of existingBookmarks) {
+        if (bm.url && isFileUrl(bm.url)) {
+          const canonical = canonicalize(bm.url, mappingConfig);
+          if (canonical !== bm.url) {
+            await updateBookmark(bm.id, { url: canonical });
+            bm.url = canonical;
+            this.logger.info('sync:recanonicalized', { old: bm.url, canonical });
+          }
+        }
+      }
+
+      const existingUrls = new Set(existingBookmarks.map(b => b.url));
 
       // Filter valid tabs and remove duplicates
       const validTabs = tabs
