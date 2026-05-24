@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Open Local File — Tab Group Sync</title>
+  <style>
+    :root {
+      --blue: #1a73e8;
+      --blue-light: #e8f0fe;
+      --green: #1e8e3e;
+      --text: #202124;
+      --muted: #5f6368;
+      --bg: #fff;
+      --card-bg: #f8f9fa;
+      --border: #dadce0;
+      --orange: #e8710a;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --text: #e8eaed;
+        --muted: #9aa0a6;
+        --bg: #202124;
+        --card-bg: #292a2d;
+        --border: #3c4043;
+        --blue-light: #1a2733;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 1.5rem;
+    }
+    h1 span { color: var(--blue); }
+    .path-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+      word-break: break-all;
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 0.9rem;
+    }
+    .path-label {
+      font-family: 'Segoe UI', Roboto, sans-serif;
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.25rem;
+    }
+    .mapping-info {
+      background: var(--blue-light);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.25rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .btn {
+      display: inline-block;
+      padding: 0.75rem 1.5rem;
+      border-radius: 4px;
+      font-size: 1rem;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      text-decoration: none;
+    }
+    .btn-primary {
+      background: var(--blue);
+      color: #fff;
+    }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-secondary {
+      background: transparent;
+      color: var(--blue);
+      border: 1px solid var(--border);
+      margin-left: 0.5rem;
+    }
+    .actions { margin: 1.5rem 0; }
+    .manual-input {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 0.9rem;
+      background: var(--card-bg);
+      color: var(--text);
+      margin-top: 0.5rem;
+    }
+    .help {
+      margin-top: 2rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+    }
+    .help h2 {
+      font-size: 1.1rem;
+      margin-bottom: 0.75rem;
+    }
+    .help ol {
+      padding-left: 1.25rem;
+      color: var(--muted);
+    }
+    .help li { margin-bottom: 0.5rem; }
+    .help code {
+      background: var(--card-bg);
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.85rem;
+    }
+    .help a { color: var(--blue); }
+    .status {
+      margin-top: 1rem;
+      font-size: 0.9rem;
+    }
+    .status-success { color: var(--green); }
+    .status-error { color: var(--orange); }
+    #mapping-section { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1><span>Tab Group Sync</span> — Open Local File</h1>
+
+    <p style="color: var(--muted); margin-bottom: 1.25rem;">
+      This tab was restored from a synced tab group. The original file
+      could not be opened directly.
+    </p>
+
+    <div class="path-card">
+      <div class="path-label">Target path</div>
+      <div id="target-path"></div>
+    </div>
+
+    <div id="mapping-section">
+      <div class="mapping-info">
+        <div class="path-label">Original (canonical) path</div>
+        <div id="original-path"></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="try-open">Try opening file</button>
+      <button class="btn btn-secondary" id="copy-path">Copy path</button>
+    </div>
+
+    <div id="status" class="status"></div>
+
+    <div style="margin-top: 1.25rem;">
+      <div class="path-label">Or enter a different path:</div>
+      <input type="text" class="manual-input" id="manual-path" placeholder="file:///path/to/file">
+      <button class="btn btn-secondary" style="margin-top: 0.5rem; margin-left: 0;" id="open-manual">Open</button>
+    </div>
+
+    <div class="help">
+      <h2>Why am I seeing this?</h2>
+      <ol>
+        <li>This tab was part of a synced tab group that contained a local
+            file (<code>file://</code> URL).</li>
+        <li>The browser could not open it directly. This usually means
+            <strong>"Allow access to file URLs"</strong> is not enabled
+            for this extension.</li>
+        <li>To fix: go to <a href="#" id="ext-settings-link">extension settings</a>,
+            find <strong>Tab Group Sync</strong>, and enable
+            <strong>"Allow access to file URLs"</strong>.</li>
+      </ol>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      var params = new URLSearchParams(window.location.search);
+      var target = params.get('target') || '';
+      var original = params.get('original') || '';
+
+      document.getElementById('target-path').textContent = target;
+      document.getElementById('manual-path').value = target;
+
+      if (original && original !== target) {
+        document.getElementById('mapping-section').style.display = 'block';
+        document.getElementById('original-path').textContent = original;
+      }
+
+      var extId = '';
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) {
+        extId = chrome.runtime.id;
+      }
+      var settingsUrl = 'chrome://extensions/?id=' + extId;
+      document.getElementById('ext-settings-link').href = settingsUrl;
+
+      document.getElementById('try-open').addEventListener('click', function() {
+        tryOpen(target);
+      });
+
+      document.getElementById('open-manual').addEventListener('click', function() {
+        var manualUrl = document.getElementById('manual-path').value.trim();
+        if (manualUrl) tryOpen(manualUrl);
+      });
+
+      document.getElementById('copy-path').addEventListener('click', function() {
+        navigator.clipboard.writeText(target).then(function() {
+          showStatus('Path copied to clipboard', false);
+        });
+      });
+
+      function tryOpen(url) {
+        try {
+          window.location.href = url;
+          setTimeout(function() {
+            showStatus('Navigation attempted. If nothing happened, enable "Allow access to file URLs" in extension settings.', true);
+          }, 1000);
+        } catch (e) {
+          showStatus('Could not navigate: ' + e.message, true);
+        }
+      }
+
+      function showStatus(msg, isError) {
+        var el = document.getElementById('status');
+        el.textContent = msg;
+        el.className = 'status ' + (isError ? 'status-error' : 'status-success');
+      }
+    })();
+  </script>
+</body>
+</html>

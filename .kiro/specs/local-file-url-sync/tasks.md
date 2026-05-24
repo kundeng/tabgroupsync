@@ -53,7 +53,7 @@
     - **Depends**: 1.2, 1.3
     - **Requirements**: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6
 
-  - [ ] 3.2 Create opener.html fallback page
+  - [x] 3.2 Create opener.html fallback page
     - Plain HTML/CSS/JS page in `public/`
     - Display target file path, original canonical path, mapping info
     - "Try opening" button using `window.location.href`
