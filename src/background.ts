@@ -732,6 +732,70 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     });
   }
+  else if (message.type === 'RESTORE_GROUP_FILE_URLS') {
+    Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
+      try {
+        const { folderId, groupName } = message;
+        if (!folderId) {
+          sendResponse({ error: 'Missing folder ID' });
+          return;
+        }
+
+        const mappingConfig = await storage.getPathMappingConfig();
+        const bookmarks = await chrome.bookmarks.getChildren(folderId);
+        const fileUrls = bookmarks.filter(b => b.url && isFileUrl(b.url));
+
+        if (fileUrls.length === 0) {
+          sendResponse({ success: true, totalOpened: 0 });
+          return;
+        }
+
+        // Find existing group and its open tabs
+        const allTabGroups = await chrome.tabGroups.query({});
+        const existingGroup = allTabGroups.find(g => g.title === groupName);
+        let existingTabUrls = new Set<string>();
+        if (existingGroup) {
+          const tabs = await chrome.tabs.query({ groupId: existingGroup.id });
+          existingTabUrls = new Set(tabs.map(t => t.url || ''));
+        }
+
+        const createdTabs: chrome.tabs.Tab[] = [];
+        for (const bm of fileUrls) {
+          const resolvedUrl = localize(bm.url!, mappingConfig);
+          if (existingTabUrls.has(resolvedUrl)) continue;
+          try {
+            const tab = await chrome.tabs.create({ url: resolvedUrl, active: false });
+            createdTabs.push(tab);
+          } catch {
+            const openerUrl = chrome.runtime.getURL('opener.html')
+              + '?target=' + encodeURIComponent(resolvedUrl)
+              + '&original=' + encodeURIComponent(bm.url!);
+            const tab = await chrome.tabs.create({ url: openerUrl, active: false });
+            createdTabs.push(tab);
+          }
+        }
+
+        if (createdTabs.length > 0) {
+          const tabIds = createdTabs.map(t => t.id!).filter(id => id !== undefined);
+          if (existingGroup) {
+            await chrome.tabs.group({ tabIds, groupId: existingGroup.id });
+          } else {
+            const gid = await chrome.tabs.group({ tabIds });
+            await chrome.tabGroups.update(gid, { title: groupName, collapsed: true });
+          }
+        }
+
+        sendResponse({ success: true, totalOpened: createdTabs.length });
+      } catch (error) {
+        logger.error('restore:groupFileUrls:failed', { error });
+        sendResponse({ error: error instanceof Error ? error.message : 'Failed' });
+      }
+    });
+  }
   else if (message.type === 'GET_HISTORY') {
     Promise.resolve().then(async () => {
       if (!await ensureInitialized()) {

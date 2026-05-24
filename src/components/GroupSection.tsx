@@ -19,6 +19,7 @@ import {
   DriveFileMove as DriveFileMoveIcon,
   Refresh as RefreshIcon,
   OpenInNew as RestoreIcon,
+  InsertDriveFile as FileIcon,
 } from '@mui/icons-material';
 import { GroupViewModel } from '../lib/types/storage';
 import { StorageManager } from '../lib/storage/storageManager';
@@ -59,6 +60,7 @@ export default function GroupSection({
   const [restoring, setRestoring] = React.useState<Record<string, boolean>>({});
   const [errors, setErrors] = React.useState<Record<string, ErrorWithTimestamp>>({});
   const [moveDialogGroup, setMoveDialogGroup] = React.useState<GroupViewModel | null>(null);
+  const [restoringFiles, setRestoringFiles] = React.useState<Record<string, boolean>>({});
 
   const handleFullResync = async (group: GroupViewModel) => {
     if (!parentFolder) {
@@ -253,6 +255,45 @@ export default function GroupSection({
                               <CircularProgress size={16} />
                             ) : (
                               <RefreshIcon fontSize="small" />
+                            )}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+
+                      <Tooltip title={!group.folder?.id ? 'No bookmark folder' : 'Open file:// tabs from bookmarks'}>
+                        <span>
+                          <IconButton
+                            onClick={async () => {
+                              if (!group.folder?.id) return;
+                              setRestoringFiles(prev => ({ ...prev, [group.id]: true }));
+                              try {
+                                const resp = await new Promise<{ success?: boolean; totalOpened?: number; error?: string }>((resolve, reject) => {
+                                  chrome.runtime.sendMessage({
+                                    type: 'RESTORE_GROUP_FILE_URLS',
+                                    folderId: group.folder!.id,
+                                    groupName: group.name
+                                  }, r => {
+                                    if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+                                    else resolve(r);
+                                  });
+                                });
+                                if (resp.error) {
+                                  setErrors(prev => ({ ...prev, [group.id]: { message: resp.error!, timestamp: Date.now() } }));
+                                }
+                              } catch (error) {
+                                setErrors(prev => ({ ...prev, [group.id]: { message: error instanceof Error ? error.message : 'Failed', timestamp: Date.now() } }));
+                              } finally {
+                                setRestoringFiles(prev => ({ ...prev, [group.id]: false }));
+                              }
+                            }}
+                            disabled={!group.folder?.id || restoringFiles[group.id]}
+                            size="small"
+                            sx={{ padding: '6px' }}
+                          >
+                            {restoringFiles[group.id] ? (
+                              <CircularProgress size={16} />
+                            ) : (
+                              <FileIcon fontSize="small" />
                             )}
                           </IconButton>
                         </span>
