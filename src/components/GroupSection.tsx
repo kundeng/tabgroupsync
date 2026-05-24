@@ -19,6 +19,7 @@ import {
   DriveFileMove as DriveFileMoveIcon,
   Refresh as RefreshIcon,
   OpenInNew as RestoreIcon,
+  InsertDriveFile as FileIcon,
 } from '@mui/icons-material';
 import { GroupViewModel } from '../lib/types/storage';
 import { StorageManager } from '../lib/storage/storageManager';
@@ -59,6 +60,7 @@ export default function GroupSection({
   const [restoring, setRestoring] = React.useState<Record<string, boolean>>({});
   const [errors, setErrors] = React.useState<Record<string, ErrorWithTimestamp>>({});
   const [moveDialogGroup, setMoveDialogGroup] = React.useState<GroupViewModel | null>(null);
+  const [restoringFiles, setRestoringFiles] = React.useState<Record<string, boolean>>({});
 
   const handleFullResync = async (group: GroupViewModel) => {
     if (!parentFolder) {
@@ -253,6 +255,80 @@ export default function GroupSection({
                               <CircularProgress size={16} />
                             ) : (
                               <RefreshIcon fontSize="small" />
+                            )}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+
+                      <Tooltip title={!group.folder?.id ? 'No bookmark folder' : 'Open file:// tabs from bookmarks'}>
+                        <span>
+                          <IconButton
+                            onClick={async () => {
+                              if (!group.folder?.id) return;
+                              setRestoringFiles(prev => ({ ...prev, [group.id]: true }));
+                              try {
+                                const [syncData, localData] = await Promise.all([
+                                  chrome.storage.sync.get('state:pathMappings'),
+                                  chrome.storage.local.get('machineId')
+                                ]);
+                                const store = syncData['state:pathMappings'] as any;
+                                const mid = localData.machineId as string;
+                                const rules = (store?.machines?.[mid]?.rules || []) as Array<{canonicalPrefix: string; localPrefix: string}>;
+
+                                const bookmarks = await chrome.bookmarks.getChildren(group.folder!.id);
+                                const fileUrls = bookmarks.filter(b => b.url?.startsWith('file://'));
+                                if (fileUrls.length === 0) {
+                                  setErrors(prev => ({ ...prev, [group.id]: { message: 'No file:// URLs in this group', timestamp: Date.now() } }));
+                                  return;
+                                }
+
+                                const existingTabs = await chrome.tabs.query({});
+                                const groupTabs = existingTabs.filter(t => t.groupId !== -1);
+                                const matchingGroup = await chrome.tabGroups.query({}).then(gs => gs.find(g => g.title === group.name));
+                                const openUrls = new Set(
+                                  matchingGroup ? groupTabs.filter(t => t.groupId === matchingGroup.id).map(t => t.url || '') : []
+                                );
+
+                                const created: chrome.tabs.Tab[] = [];
+                                for (const bm of fileUrls) {
+                                  let resolved = bm.url!;
+                                  for (const rule of rules) {
+                                    const canon = rule.canonicalPrefix.replace(/\/$/, '');
+                                    if (resolved.startsWith('file://' + canon + '/') || resolved === 'file://' + canon) {
+                                      resolved = 'file://' + rule.localPrefix.replace(/\/$/, '') + resolved.slice(7 + canon.length);
+                                      break;
+                                    }
+                                  }
+                                  if (openUrls.has(resolved)) continue;
+                                  const tab = await chrome.tabs.create({ url: resolved, active: false });
+                                  created.push(tab);
+                                }
+
+                                if (created.length > 0) {
+                                  const tabIds = created.map(t => t.id!).filter(Boolean);
+                                  if (matchingGroup) {
+                                    await chrome.tabs.group({ tabIds, groupId: matchingGroup.id });
+                                  } else {
+                                    const gid = await chrome.tabs.group({ tabIds });
+                                    await chrome.tabGroups.update(gid, { title: group.name, collapsed: true });
+                                  }
+                                }
+
+                                setErrors(prev => { const n = {...prev}; delete n[group.id]; return n; });
+                              } catch (error) {
+                                setErrors(prev => ({ ...prev, [group.id]: { message: error instanceof Error ? error.message : 'Failed', timestamp: Date.now() } }));
+                              } finally {
+                                setRestoringFiles(prev => ({ ...prev, [group.id]: false }));
+                              }
+                            }}
+                            disabled={!group.folder?.id || restoringFiles[group.id]}
+                            size="small"
+                            sx={{ padding: '6px' }}
+                          >
+                            {restoringFiles[group.id] ? (
+                              <CircularProgress size={16} />
+                            ) : (
+                              <FileIcon fontSize="small" />
                             )}
                           </IconButton>
                         </span>

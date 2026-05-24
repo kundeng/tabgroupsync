@@ -8,6 +8,7 @@ import { Logger } from './lib/utils/logger';
 import { SyncEngine } from './lib/sync/syncEngine';
 import { SnapshotManager } from './lib/bookmarks/snapshotManager';
 import { scanPrefixCruft, executePrefixCruftCleanup } from './lib/bookmarks/cleanupPrefixCruft';
+import { isFileUrl, localize } from './lib/utils/pathMapper';
 
 // Initialize logger
 const logger = Logger.getInstance();
@@ -605,11 +606,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return;
         }
 
-        // Create tabs for each URL
+        // Create tabs for each URL, applying path mapping for file:// URLs
+        const mappingConfig = await storage.getPathMappingConfig();
         const createdTabs: chrome.tabs.Tab[] = [];
         for (const url of urls) {
-          const tab = await chrome.tabs.create({ url, active: false });
-          createdTabs.push(tab);
+          const resolvedUrl = isFileUrl(url) ? localize(url, mappingConfig) : url;
+          try {
+            const tab = await chrome.tabs.create({ url: resolvedUrl, active: false });
+            createdTabs.push(tab);
+          } catch (error) {
+            if (isFileUrl(resolvedUrl)) {
+              const openerUrl = chrome.runtime.getURL('opener.html')
+                + '?target=' + encodeURIComponent(resolvedUrl)
+                + '&original=' + encodeURIComponent(url);
+              const tab = await chrome.tabs.create({ url: openerUrl, active: false });
+              createdTabs.push(tab);
+              logger.warn('restore:fileUrlFallback', { resolvedUrl, original: url });
+            } else {
+              throw error;
+            }
+          }
         }
 
         // Group the tabs
@@ -634,6 +650,149 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } catch (error) {
         logger.error('restore:fromBookmarks:failed', { error });
         sendResponse({ error: error instanceof Error ? error.message : 'Failed to restore group' });
+      }
+    });
+  }
+  else if (message.type === 'RESTORE_FILE_URLS') {
+    Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
+      try {
+        const mappingConfig = await storage.getPathMappingConfig();
+        const settings = await storage.getSettings();
+        if (!settings.containerFolderId) {
+          sendResponse({ error: 'No container folder configured' });
+          return;
+        }
+
+        const tgbFolder = await bookmarkManager.getTabGroupsFolder();
+        if (!tgbFolder) {
+          sendResponse({ error: 'Tab Group Bookmarks folder not found' });
+          return;
+        }
+
+        const groups = await chrome.bookmarks.getChildren(tgbFolder.id);
+        let totalOpened = 0;
+
+        // Find existing tab groups by name
+        const allTabGroups = await chrome.tabGroups.query({});
+        const groupByName: Record<string, number> = {};
+        for (const tg of allTabGroups) {
+          if (tg.title) groupByName[tg.title] = tg.id;
+        }
+
+        for (const group of groups) {
+          if (group.url) continue;
+          const bookmarks = await chrome.bookmarks.getChildren(group.id);
+          const fileUrls = bookmarks.filter(b => b.url && isFileUrl(b.url));
+          if (fileUrls.length === 0) continue;
+
+          // Check which file URLs are already open in the existing group
+          let existingTabUrls = new Set<string>();
+          if (groupByName[group.title]) {
+            const existingTabs = await chrome.tabs.query({ groupId: groupByName[group.title] });
+            existingTabUrls = new Set(existingTabs.map(t => t.url || ''));
+          }
+
+          const createdTabs: chrome.tabs.Tab[] = [];
+          for (const bm of fileUrls) {
+            const resolvedUrl = localize(bm.url!, mappingConfig);
+            if (existingTabUrls.has(resolvedUrl)) continue;
+            try {
+              const tab = await chrome.tabs.create({ url: resolvedUrl, active: false });
+              createdTabs.push(tab);
+            } catch {
+              const openerUrl = chrome.runtime.getURL('opener.html')
+                + '?target=' + encodeURIComponent(resolvedUrl)
+                + '&original=' + encodeURIComponent(bm.url!);
+              const tab = await chrome.tabs.create({ url: openerUrl, active: false });
+              createdTabs.push(tab);
+            }
+          }
+
+          if (createdTabs.length > 0) {
+            const tabIds = createdTabs.map(t => t.id!).filter(id => id !== undefined);
+            if (groupByName[group.title]) {
+              await chrome.tabs.group({ tabIds, groupId: groupByName[group.title] });
+            } else {
+              const groupId = await chrome.tabs.group({ tabIds });
+              await chrome.tabGroups.update(groupId, { title: group.title, collapsed: true });
+            }
+            totalOpened += tabIds.length;
+          }
+        }
+
+        logger.info('restore:fileUrls:completed', { totalOpened });
+        sendResponse({ success: true, totalOpened });
+      } catch (error) {
+        logger.error('restore:fileUrls:failed', { error });
+        sendResponse({ error: error instanceof Error ? error.message : 'Failed to restore file URLs' });
+      }
+    });
+  }
+  else if (message.type === 'RESTORE_GROUP_FILE_URLS') {
+    Promise.resolve().then(async () => {
+      if (!await ensureInitialized()) {
+        sendResponse({ error: 'Extension failed to initialize' });
+        return;
+      }
+      try {
+        const { folderId, groupName } = message;
+        if (!folderId) {
+          sendResponse({ error: 'Missing folder ID' });
+          return;
+        }
+
+        const mappingConfig = await storage.getPathMappingConfig();
+        const bookmarks = await chrome.bookmarks.getChildren(folderId);
+        const fileUrls = bookmarks.filter(b => b.url && isFileUrl(b.url));
+
+        if (fileUrls.length === 0) {
+          sendResponse({ success: true, totalOpened: 0 });
+          return;
+        }
+
+        // Find existing group and its open tabs
+        const allTabGroups = await chrome.tabGroups.query({});
+        const existingGroup = allTabGroups.find(g => g.title === groupName);
+        let existingTabUrls = new Set<string>();
+        if (existingGroup) {
+          const tabs = await chrome.tabs.query({ groupId: existingGroup.id });
+          existingTabUrls = new Set(tabs.map(t => t.url || ''));
+        }
+
+        const createdTabs: chrome.tabs.Tab[] = [];
+        for (const bm of fileUrls) {
+          const resolvedUrl = localize(bm.url!, mappingConfig);
+          if (existingTabUrls.has(resolvedUrl)) continue;
+          try {
+            const tab = await chrome.tabs.create({ url: resolvedUrl, active: false });
+            createdTabs.push(tab);
+          } catch {
+            const openerUrl = chrome.runtime.getURL('opener.html')
+              + '?target=' + encodeURIComponent(resolvedUrl)
+              + '&original=' + encodeURIComponent(bm.url!);
+            const tab = await chrome.tabs.create({ url: openerUrl, active: false });
+            createdTabs.push(tab);
+          }
+        }
+
+        if (createdTabs.length > 0) {
+          const tabIds = createdTabs.map(t => t.id!).filter(id => id !== undefined);
+          if (existingGroup) {
+            await chrome.tabs.group({ tabIds, groupId: existingGroup.id });
+          } else {
+            const gid = await chrome.tabs.group({ tabIds });
+            await chrome.tabGroups.update(gid, { title: groupName, collapsed: true });
+          }
+        }
+
+        sendResponse({ success: true, totalOpened: createdTabs.length });
+      } catch (error) {
+        logger.error('restore:groupFileUrls:failed', { error });
+        sendResponse({ error: error instanceof Error ? error.message : 'Failed' });
       }
     });
   }
