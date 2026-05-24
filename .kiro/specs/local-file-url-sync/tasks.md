@@ -5,7 +5,7 @@
 
 ## Tasks
 
-- [ ] 1. Foundation
+- [x] 1. Foundation
   - [x] 1.1 Add PathMapping types to storage.ts
     - Add `PathMappingRule`, `PathMappingConfig`, `PathMappingStore` interfaces
     - Add `pathMappings?` and `currentMachineId?` to `GlobalSettings`
@@ -32,7 +32,7 @@
     - **Depends**: 1.1
     - **Requirements**: 2.3, 2.4
 
-- [ ] 2. Core — Capture
+- [x] 2. Core — Capture
   - [x] 2.1 Modify URL filter in bookmarkManager.ts
     - Replace http/https-only check at line 369 with `isSyncableUrl()`
     - Add `file://` to allowed schemes, keep filtering chrome:// edge:// about:// brave://
@@ -43,7 +43,7 @@
     - **Depends**: 1.2, 1.3
     - **Requirements**: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7
 
-- [ ] 3. Core — Restore
+- [x] 3. Core — Restore
   - [x] 3.1 Modify restore handler in background.ts
     - Load path mapping config before restore loop
     - Apply `localize()` to file:// bookmark URLs before `chrome.tabs.create()`
@@ -64,7 +64,7 @@
     - **Depends**: —
     - **Requirements**: 4.1, 4.2, 4.3, 4.4, 4.5
 
-- [ ] 4. UI
+- [x] 4. UI
   - [x] 4.1 Add Path Mappings section to Settings.tsx
     - Collapsible "Path Mappings (file:// sync)" section
     - Machine ID text input (persisted to chrome.storage.local)
@@ -89,7 +89,7 @@
     - **Depends**: 4.1
     - **Requirements**: 5.1, 5.2, 5.3, 5.4
 
-- [ ] 5. Tests
+- [x] 5. Tests
   - [x] 5.1 Unit tests for pathMapper.ts
     - canonicalize: with mapping, without mapping, longest-prefix match
     - localize: with mapping, without mapping, no matching rule

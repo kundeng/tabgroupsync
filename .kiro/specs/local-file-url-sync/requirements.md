@@ -1,6 +1,6 @@
 ---
 spec_id: local-file-url-sync
-status: DRAFT
+status: ACTIVE
 since: 2026-05-23
 until: null
 epic: sync
