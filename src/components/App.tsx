@@ -16,6 +16,7 @@ import Header from './Header';
 import Settings from './Settings';
 import GroupList from './GroupList';
 import SyncStatus from './SyncStatus';
+import SearchBar from './SearchBar';
 import { Logger } from '../lib/utils/logger';
 
 const theme = createTheme({
@@ -327,6 +328,7 @@ export default function App() {
       >
         <Box sx={{ px: 3, pt: 2, pb: 1 }}>
           <Header />
+          <SearchBar />
           <Settings storage={storage} syncEngine={syncEngine} bookmarkManager={bookmarkManager} />
         </Box>
         <Box 
