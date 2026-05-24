@@ -8,6 +8,7 @@ import { Logger } from './lib/utils/logger';
 import { SyncEngine } from './lib/sync/syncEngine';
 import { SnapshotManager } from './lib/bookmarks/snapshotManager';
 import { scanPrefixCruft, executePrefixCruftCleanup } from './lib/bookmarks/cleanupPrefixCruft';
+import { isFileUrl, localize } from './lib/utils/pathMapper';
 
 // Initialize logger
 const logger = Logger.getInstance();
@@ -605,11 +606,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return;
         }
 
-        // Create tabs for each URL
+        // Create tabs for each URL, applying path mapping for file:// URLs
+        const mappingConfig = await storage.getPathMappingConfig();
         const createdTabs: chrome.tabs.Tab[] = [];
         for (const url of urls) {
-          const tab = await chrome.tabs.create({ url, active: false });
-          createdTabs.push(tab);
+          const resolvedUrl = isFileUrl(url) ? localize(url, mappingConfig) : url;
+          try {
+            const tab = await chrome.tabs.create({ url: resolvedUrl, active: false });
+            createdTabs.push(tab);
+          } catch (error) {
+            if (isFileUrl(resolvedUrl)) {
+              const openerUrl = chrome.runtime.getURL('opener.html')
+                + '?target=' + encodeURIComponent(resolvedUrl)
+                + '&original=' + encodeURIComponent(url);
+              const tab = await chrome.tabs.create({ url: openerUrl, active: false });
+              createdTabs.push(tab);
+              logger.warn('restore:fileUrlFallback', { resolvedUrl, original: url });
+            } else {
+              throw error;
+            }
+          }
         }
 
         // Group the tabs

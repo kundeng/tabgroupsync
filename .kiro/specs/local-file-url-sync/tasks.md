@@ -44,7 +44,7 @@
     - **Requirements**: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7
 
 - [ ] 3. Core — Restore
-  - [ ] 3.1 Modify restore handler in background.ts
+  - [x] 3.1 Modify restore handler in background.ts
     - Load path mapping config before restore loop
     - Apply `localize()` to file:// bookmark URLs before `chrome.tabs.create()`
     - Wrap file:// `chrome.tabs.create()` in try/catch — fallback to opener page on failure
