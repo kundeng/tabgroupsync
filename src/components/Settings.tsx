@@ -131,14 +131,13 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
       chrome.storage.local.get('machineId').then((data: Record<string, unknown>) => {
         if (data.machineId) setMachineId(data.machineId as string);
       });
-      chrome.storage.sync.get('state:settings').then((data: Record<string, unknown>) => {
-        const settings = data['state:settings'] as Record<string, unknown> | undefined;
-        const mappings = settings?.pathMappings as { machines: Record<string, { rules: Array<{ canonicalPrefix: string; localPrefix: string }> }> } | undefined;
-        if (mappings) {
+      chrome.storage.sync.get('state:pathMappings').then((data: Record<string, unknown>) => {
+        const store = data['state:pathMappings'] as { machines: Record<string, { rules: Array<{ canonicalPrefix: string; localPrefix: string }> }> } | undefined;
+        if (store) {
           chrome.storage.local.get('machineId').then((local: Record<string, unknown>) => {
             const mid = local.machineId as string;
-            if (mid && mappings.machines[mid]?.rules?.length > 0) {
-              setMappingRules(mappings.machines[mid].rules);
+            if (mid && store.machines[mid]?.rules?.length > 0) {
+              setMappingRules(store.machines[mid].rules);
             }
           });
         }
@@ -149,15 +148,13 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
   const savePathMappings = React.useCallback(async (id: string, rules: Array<{ canonicalPrefix: string; localPrefix: string }>) => {
     if (!id.trim()) return;
     await chrome.storage.local.set({ machineId: id.trim() });
-    const data = await chrome.storage.sync.get('state:settings') as Record<string, unknown>;
-    const settings = (data['state:settings'] || {}) as Record<string, unknown>;
-    const pathMappings = (settings.pathMappings || { machines: {} }) as { machines: Record<string, unknown> };
-    pathMappings.machines[id.trim()] = {
+    const data = await chrome.storage.sync.get('state:pathMappings') as Record<string, unknown>;
+    const store = (data['state:pathMappings'] || { machines: {} }) as { machines: Record<string, unknown> };
+    store.machines[id.trim()] = {
       machineId: id.trim(),
       rules: rules.filter(r => r.canonicalPrefix.trim() && r.localPrefix.trim())
     };
-    settings.pathMappings = pathMappings;
-    await chrome.storage.sync.set({ 'state:settings': settings });
+    await chrome.storage.sync.set({ 'state:pathMappings': store });
   }, []);
 
   // Auto-save path mappings on change (debounced)
