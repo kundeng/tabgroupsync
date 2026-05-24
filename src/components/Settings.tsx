@@ -128,23 +128,37 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
 
   React.useEffect(() => {
     if (open) {
-      storage.getCurrentMachineId().then(id => {
-        if (id) setMachineId(id);
+      chrome.storage.local.get('machineId').then((data: Record<string, unknown>) => {
+        if (data.machineId) setMachineId(data.machineId as string);
       });
-      storage.getPathMappingConfig().then(config => {
-        if (config.rules.length > 0) setMappingRules(config.rules);
+      chrome.storage.sync.get('state:settings').then((data: Record<string, unknown>) => {
+        const settings = data['state:settings'] as Record<string, unknown> | undefined;
+        const mappings = settings?.pathMappings as { machines: Record<string, { rules: Array<{ canonicalPrefix: string; localPrefix: string }> }> } | undefined;
+        if (mappings) {
+          chrome.storage.local.get('machineId').then((local: Record<string, unknown>) => {
+            const mid = local.machineId as string;
+            if (mid && mappings.machines[mid]?.rules?.length > 0) {
+              setMappingRules(mappings.machines[mid].rules);
+            }
+          });
+        }
       });
     }
-  }, [open, storage]);
+  }, [open]);
 
   const savePathMappings = React.useCallback(async (id: string, rules: Array<{ canonicalPrefix: string; localPrefix: string }>) => {
     if (!id.trim()) return;
-    await storage.setCurrentMachineId(id.trim());
-    await storage.setPathMappingConfig({
+    await chrome.storage.local.set({ machineId: id.trim() });
+    const data = await chrome.storage.sync.get('state:settings') as Record<string, unknown>;
+    const settings = (data['state:settings'] || {}) as Record<string, unknown>;
+    const pathMappings = (settings.pathMappings || { machines: {} }) as { machines: Record<string, unknown> };
+    pathMappings.machines[id.trim()] = {
       machineId: id.trim(),
       rules: rules.filter(r => r.canonicalPrefix.trim() && r.localPrefix.trim())
-    });
-  }, [storage]);
+    };
+    settings.pathMappings = pathMappings;
+    await chrome.storage.sync.set({ 'state:settings': settings });
+  }, []);
 
   React.useEffect(() => {
     loadSettings();
