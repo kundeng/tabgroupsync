@@ -6,7 +6,7 @@
 ## Tasks
 
 - [ ] 1. Foundation
-  - [ ] 1.1 Add PathMapping types to storage.ts
+  - [x] 1.1 Add PathMapping types to storage.ts
     - Add `PathMappingRule`, `PathMappingConfig`, `PathMappingStore` interfaces
     - Add `pathMappings?` and `currentMachineId?` to `GlobalSettings`
     - **Depends**: —
