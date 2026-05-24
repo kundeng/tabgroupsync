@@ -676,15 +676,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const groups = await chrome.bookmarks.getChildren(tgbFolder.id);
         let totalOpened = 0;
 
+        // Find existing tab groups by name
+        const allTabGroups = await chrome.tabGroups.query({});
+        const groupByName: Record<string, number> = {};
+        for (const tg of allTabGroups) {
+          if (tg.title) groupByName[tg.title] = tg.id;
+        }
+
         for (const group of groups) {
           if (group.url) continue;
           const bookmarks = await chrome.bookmarks.getChildren(group.id);
           const fileUrls = bookmarks.filter(b => b.url && isFileUrl(b.url));
           if (fileUrls.length === 0) continue;
 
+          // Check which file URLs are already open in the existing group
+          let existingTabUrls = new Set<string>();
+          if (groupByName[group.title]) {
+            const existingTabs = await chrome.tabs.query({ groupId: groupByName[group.title] });
+            existingTabUrls = new Set(existingTabs.map(t => t.url || ''));
+          }
+
           const createdTabs: chrome.tabs.Tab[] = [];
           for (const bm of fileUrls) {
             const resolvedUrl = localize(bm.url!, mappingConfig);
+            if (existingTabUrls.has(resolvedUrl)) continue;
             try {
               const tab = await chrome.tabs.create({ url: resolvedUrl, active: false });
               createdTabs.push(tab);
@@ -699,8 +714,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           if (createdTabs.length > 0) {
             const tabIds = createdTabs.map(t => t.id!).filter(id => id !== undefined);
-            const groupId = await chrome.tabs.group({ tabIds });
-            await chrome.tabGroups.update(groupId, { title: group.title, collapsed: true });
+            if (groupByName[group.title]) {
+              await chrome.tabs.group({ tabIds, groupId: groupByName[group.title] });
+            } else {
+              const groupId = await chrome.tabs.group({ tabIds });
+              await chrome.tabGroups.update(groupId, { title: group.title, collapsed: true });
+            }
             totalOpened += tabIds.length;
           }
         }
