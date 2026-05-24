@@ -12,6 +12,7 @@ const files = [
   ['public/icons/icon48.png', 'icons/icon48.png'],
   ['public/icons/icon128.png', 'icons/icon128.png'],
   ['public/welcome.html', 'welcome.html'],
+  ['public/opener.html', 'opener.html'],
   ['public/privacy-policy.html', 'privacy-policy.html'],
 ];
 
