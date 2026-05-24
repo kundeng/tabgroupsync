@@ -15,6 +15,7 @@ A Chrome extension that automatically synchronizes tab groups with bookmark fold
 
 - **Tab Group Backup** (Req 1): Automatically backs up Chrome tab groups to bookmark folders
 - **Cross-Device Sync** (Req 2): Syncs tab groups across devices using Chrome's bookmark sync
+- **Local File URL Sync** _(new in 1.3.0)_: Syncs `file://` URLs across machines with bidirectional path prefix mapping — your Dropbox books, local docs, and offline references survive backup and restore across macOS, Linux, and Windows
 - **Selective Sync** (Req 3): Per-group sync control — enable/disable sync for individual groups
 - **Container Folder** (Req 4): Organized storage in a user-selected bookmark folder
 - **Snapshots** (Req 5): Point-in-time backups with create, restore, and cleanup
@@ -61,9 +62,10 @@ See [Property Coverage](tests/property/PROPERTY_COVERAGE.md) and [E2E README](te
 
 | Document | Purpose |
 |----------|---------|
-| [Spec: requirements.md](.kiro/specs/tab-group-sync/requirements.md) | **System of record** — all requirements |
+| [Spec: requirements.md](.kiro/specs/tab-group-sync/requirements.md) | **System of record** — core requirements |
 | [Spec: design.md](.kiro/specs/tab-group-sync/design.md) | Architecture, properties, pseudocode |
 | [Spec: tasks.md](.kiro/specs/tab-group-sync/tasks.md) | Implementation tasks and status |
+| [Spec: local-file-url-sync](.kiro/specs/local-file-url-sync/) | file:// URL sync feature spec |
 | [docs/TECHNICAL.md](docs/TECHNICAL.md) | Learning guide and technical reference |
 | [KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | Known limitations and edge cases |
 
