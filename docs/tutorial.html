@@ -153,15 +153,16 @@
     background: var(--surface);
   }
   ol.reading-order li {
-    counter-increment: r; display: flex; gap: 14px; align-items: baseline;
-    padding: 10px 16px; border-top: 1px solid var(--border); margin: 0;
-    font-size: 14.5px;
+    counter-increment: r; position: relative;
+    padding: 10px 16px 10px 52px; border-top: 1px solid var(--border); margin: 0;
+    font-size: 14.5px; line-height: 1.5;
   }
   ol.reading-order li:first-child { border-top: none; }
   ol.reading-order li::before {
     content: counter(r, decimal-leading-zero);
     font-family: 'JetBrains Mono', monospace; font-size: 12px;
-    color: var(--accent); font-weight: 600; flex-shrink: 0;
+    color: var(--accent); font-weight: 600;
+    position: absolute; left: 16px; top: 12px;
   }
   ol.reading-order code {
     background: #eeece7; padding: 1px 6px; border-radius: 4px; font-size: 13px;
