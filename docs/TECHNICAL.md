@@ -30,6 +30,9 @@ This documentation serves two purposes:
 16. [Storage Optimization Deep Dive](#16-storage-optimization-deep-dive)
 17. [Help System Implementation](#17-help-system-implementation)
 18. [Snapshot System Implementation](#18-snapshot-system-implementation)
+19. [File URL Sync &amp; Path Mapping](#19-file-url-sync--path-mapping)
+20. [Fuzzy Search](#20-fuzzy-search)
+21. [Restore Actions](#21-restore-actions)
 
 ## Part 1: Learning Guide
 
@@ -1135,3 +1138,196 @@ This system provides:
 - Version control
 - Recovery options
 - Storage management
+
+### 19. File URL Sync & Path Mapping
+
+#### The Problem
+
+Every Chromium browser (Chrome, Edge, Brave) silently drops `file://` URLs from saved tab groups ([Chromium bug #372978298](https://issues.chromium.org/issues/372978298)). Users who read local documentation, Dropbox-synced books, Zotero PDFs, or offline references in tab groups lose those tabs on browser restart. Edge Workspaces shows them as "workspace unsupported" on remote machines.
+
+Tab Group Sync solves this by storing `file://` URLs as regular bookmarks — the one storage mechanism that Chromium doesn't filter.
+
+#### Architecture
+
+```
+Capture (Source Machine)                 Restore (Target Machine)
+┌─────────────────────────┐             ┌─────────────────────────┐
+│ Tab: file:///home/bar/  │             │ Bookmark: file:///Users/│
+│       Dropbox/ch1.html  │             │       foo/Dropbox/      │
+│           │              │             │       ch1.html          │
+│     canonicalize()       │             │           │              │
+│           │              │             │      localize()          │
+│           ▼              │             │           │              │
+│ Bookmark: file:///Users/ │             │           ▼              │
+│       foo/Dropbox/       │  ──sync──>  │ Tab: file:///home/bar/  │
+│       ch1.html           │             │       Dropbox/ch1.html  │
+└─────────────────────────┘             └─────────────────────────┘
+```
+
+#### PathMapper Module
+
+`src/lib/utils/pathMapper.ts` — Pure functions, no state, no Chrome API calls.
+
+```typescript
+// Core functions
+function canonicalize(fileUrl: string, config: PathMappingConfig): string;
+function localize(fileUrl: string, config: PathMappingConfig): string;
+function areSameFile(url1: string, url2: string, config: PathMappingConfig): boolean;
+function isFileUrl(url: string): boolean;
+function isSyncableUrl(url: string): boolean;
+function extractFilename(fileUrl: string): string;
+```
+
+**Design decision: pure functions, not a Manager class.** Path mapping is a stateless transformation — it takes a URL and config, returns a rewritten URL. No lifecycle, no initialization, trivially testable. This deliberately breaks the Manager pattern used elsewhere in the codebase.
+
+#### Bidirectional Mapping (The Flip-Flop Fix)
+
+Without canonicalization, each machine writes its own local path to bookmarks. After a few restore-then-sync cycles, you'd have N copies of every file:// bookmark — one per machine. The dedup check (`existingUrls.has(tab.url)`) fails because the URLs are different strings.
+
+The fix: mappings are bidirectional.
+
+- **Capture time**: `canonicalize()` rewrites local→canonical before writing bookmarks
+- **Restore time**: `localize()` rewrites canonical→local before opening tabs
+- **Dedup time**: both sides are canonicalized before comparison
+
+```typescript
+// Mapping config
+interface PathMappingRule {
+  canonicalPrefix: string;   // Stored in bookmarks: /Users/foo/Dropbox
+  localPrefix: string;       // This machine: /home/bar/Dropbox
+}
+
+// Example: Linux machine captures a tab
+canonicalize('file:///home/bar/Dropbox/ch1.html', config)
+// → 'file:///Users/foo/Dropbox/ch1.html'  (canonical form)
+
+// Mac restores from bookmarks
+localize('file:///Users/foo/Dropbox/ch1.html', config)
+// → 'file:///Users/foo/Dropbox/ch1.html'  (already local — no rewrite)
+
+// Linux restores from bookmarks
+localize('file:///Users/foo/Dropbox/ch1.html', config)
+// → 'file:///home/bar/Dropbox/ch1.html'  (rewritten to local path)
+```
+
+**Correctness properties** (verified by fast-check property tests):
+1. Round-trip: `localize(canonicalize(url, c), c) === url`
+2. Idempotency: `canonicalize(canonicalize(url, c), c) === canonicalize(url, c)`
+3. http(s) passthrough: `canonicalize(httpUrl, anyConfig) === httpUrl`
+4. No-mapping passthrough: `canonicalize(url, emptyConfig) === url`
+
+#### Storage Design
+
+Path mappings live in their own `chrome.storage.sync` key (`state:pathMappings`), separate from `state:settings`. This prevents the background's `saveState()` from overwriting mapping config that the popup writes directly.
+
+```
+chrome.storage.sync:
+  state:pathMappings → {
+    machines: {
+      "linux": { machineId: "linux", rules: [...] },
+      "mac":   { machineId: "mac",   rules: [...] }
+    }
+  }
+
+chrome.storage.local:
+  machineId → "linux"  (per-machine, not synced)
+```
+
+**Why machine ID is in local storage**: Each machine must independently know its own identity. If machine ID were in sync storage, all machines would overwrite each other.
+
+#### URL Filter Change
+
+The single most critical change. In `bookmarkManager.ts`, the filter at the sync gate:
+
+```typescript
+// Before (dropped file:// URLs):
+if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://'))
+
+// After (allows file://):
+if (!isSyncableUrl(tab.url))  // http, https, OR file
+```
+
+During sync, existing bookmarks with stale local paths are re-canonicalized via `updateBookmark()`.
+
+#### Opener Page
+
+`public/opener.html` — Plain HTML fallback page when `chrome.tabs.create()` fails for a `file://` URL (typically because "Allow access to file URLs" is not enabled).
+
+Shows the target path, original canonical path, a "Try opening" button, a manual path input, and setup instructions. Matches the `welcome.html` visual style with dark mode support.
+
+#### Edge Workspace Interaction
+
+Edge Workspaces shows `file://` tabs as "workspace unsupported" on remote machines. Investigation (2026-05-23) confirmed:
+
+- The original `file://` URL exists in Edge's sync layer (Sessions/History types) but is inaccessible to extensions
+- The `chrome.tabs.Tab` object for unsupported tabs shows only `url: "edge://workspaces-unsupported/"` — no original URL
+- Closing an "unsupported" tab on the remote machine kills the real tab on the source machine (via Microsoft Fluid WebSocket)
+- The extension can only warn about this behavior, not prevent it
+
+### 20. Fuzzy Search
+
+#### Overview
+
+The SearchBar component provides unified fuzzy search across all backed-up bookmarks and open tabs, powered by the [uFuzzy](https://github.com/leeoniya/uFuzzy) library (~3KB).
+
+```typescript
+// src/components/SearchBar.tsx
+import uFuzzy from '@leeoniya/ufuzzy';
+const uf = new uFuzzy({ intraMode: 1 });
+```
+
+#### How It Works
+
+1. **On focus**: loads all open tabs (grouped only) and all bookmarks from Tab Group Bookmarks folder
+2. **Merges by URL**: items that exist both as an open tab AND a bookmark are marked as "synced"
+3. **On keystroke**: runs uFuzzy against a haystack of `"${title} ${url} ${groupName}"` strings
+4. **Results**: grouped by tab group name, with sync status chips
+
+#### Sync Status Indicators
+
+| Chip | Meaning |
+|------|---------|
+| `synced` (green) | Open in a tab AND backed up in bookmarks |
+| `tab` | Open in a tab but not yet backed up |
+| `saved` | Backed up in bookmarks but not currently open |
+| `file` (blue) | A `file://` URL |
+
+#### Click Behavior
+
+- **Tab result**: switches to the existing tab (`chrome.tabs.update` + `chrome.windows.update`)
+- **Saved result**: opens a new tab with the URL, applying path mapping for `file://` URLs
+- **File result**: localizes the canonical path before opening
+
+#### Design Decisions
+
+- **uFuzzy over Fuse.js**: smaller (~3KB vs ~25KB), faster, better match quality for URL patterns
+- **Runs in popup context**: no service worker involvement, avoids MV3 lifecycle issues
+- **Loads data on focus, not on mount**: avoids unnecessary API calls when search isn't being used
+- **Groups results by tab group**: aligns with the extension's core concept of group-based organization
+
+### 21. Restore Actions
+
+#### Per-Group Restore Dropdown
+
+Each group has a cloud-download icon button that opens a dropdown menu with four restore modes:
+
+| Action | Behavior |
+|--------|----------|
+| **Restore all tabs** | Opens all bookmarks from this group's folder. Skips URLs already open in the group. |
+| **Add missing tabs** | Same as "Restore all" — only opens tabs not already in the group. |
+| **Add file:// tabs only** | Opens only `file://` bookmarks with path mapping applied. |
+| **Replace group** (destructive) | Closes all existing tabs in the group, then restores fresh from bookmarks. |
+
+All four modes:
+- Apply path mapping for `file://` URLs via `localize()`
+- Add tabs to the existing group if one with the same name exists
+- Create a new group if no matching group is found
+- Fall back to the opener page if `chrome.tabs.create()` fails for `file://` URLs
+
+#### Bulk Restore
+
+The "Open all file:// tabs from bookmarks" button in Settings scans every group's bookmark folder, finds all `file://` URLs, localizes them, and opens them — each group's file tabs added to their matching existing group.
+
+#### Why Restore Runs in Popup Context
+
+The restore logic runs directly in the popup using `chrome.bookmarks` and `chrome.tabs` APIs, not via message passing to the background service worker. This avoids MV3 service worker lifecycle issues where the SW would terminate before async restore operations complete. The popup has access to the same Chrome APIs and stays alive as long as it's open.
