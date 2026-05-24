@@ -65,7 +65,7 @@
     - **Requirements**: 4.1, 4.2, 4.3, 4.4, 4.5
 
 - [ ] 4. UI
-  - [ ] 4.1 Add Path Mappings section to Settings.tsx
+  - [x] 4.1 Add Path Mappings section to Settings.tsx
     - Collapsible "Path Mappings (file:// sync)" section
     - Machine ID text input (persisted to chrome.storage.local)
     - Mapping rule list: canonical prefix + local prefix, editable inline
@@ -74,7 +74,7 @@
     - **Depends**: 1.3
     - **Requirements**: 2.1, 2.2, 2.4, 2.7
 
-  - [ ] 4.2 Add Edge Workspace warning to Settings
+  - [x] 4.2 Add Edge Workspace warning to Settings
     - Detect Edge via `navigator.userAgent.includes('Edg/')`
     - Show MUI Alert (warning severity) below path mappings section
     - Explain: workspace unsupported tabs, close-kills-source behavior
@@ -82,7 +82,7 @@
     - **Depends**: 4.1
     - **Requirements**: 7.1, 7.2, 7.3, 7.4
 
-  - [ ] 4.3 Add file:// permission detection banner
+  - [x] 4.3 Add file:// permission detection banner
     - Use `chrome.extension.isAllowedFileSchemeAccess()` to detect
     - Show informational banner in Settings when file:// access not enabled
     - Provide link to extension settings page

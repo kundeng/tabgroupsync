@@ -36,6 +36,31 @@ interface SettingsProps {
   bookmarkManager: BookmarkManager;
 }
 
+function FileAccessBanner() {
+  const [hasAccess, setHasAccess] = React.useState<boolean | null>(null);
+  React.useEffect(() => {
+    chrome.extension.isAllowedFileSchemeAccess((allowed) => {
+      setHasAccess(allowed);
+    });
+  }, []);
+  if (hasAccess === null || hasAccess) return null;
+  const extUrl = `chrome://extensions/?id=${chrome.runtime.id}`;
+  return (
+    <Alert severity="info" sx={{ mt: 1.5, fontSize: '12px' }}>
+      <strong>File URL access not enabled.</strong> To open file:// tabs,
+      go to{' '}
+      <a
+        href={extUrl}
+        onClick={(e) => { e.preventDefault(); chrome.tabs.create({ url: extUrl }); }}
+        style={{ color: 'inherit' }}
+      >
+        extension settings
+      </a>{' '}
+      and enable "Allow access to file URLs".
+    </Alert>
+  );
+}
+
 export default function Settings({ storage, syncEngine, bookmarkManager }: SettingsProps) {
   const [open, setOpen] = React.useState(false);
   const [autoSync, setAutoSync] = React.useState(false);
@@ -50,6 +75,10 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
   const [showFolderPicker, setShowFolderPicker] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [exportImportStatus, setExportImportStatus] = React.useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [pathMappingsExpanded, setPathMappingsExpanded] = React.useState(false);
+  const [machineId, setMachineId] = React.useState('');
+  const [mappingRules, setMappingRules] = React.useState<Array<{ canonicalPrefix: string; localPrefix: string }>>([]);
+  const [isEdge, setIsEdge] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const logger = Logger.getInstance();
 
@@ -92,6 +121,30 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
       });
     }
   }, [logger]);
+
+  React.useEffect(() => {
+    setIsEdge(navigator.userAgent.includes('Edg/'));
+  }, []);
+
+  React.useEffect(() => {
+    if (open) {
+      storage.getCurrentMachineId().then(id => {
+        if (id) setMachineId(id);
+      });
+      storage.getPathMappingConfig().then(config => {
+        if (config.rules.length > 0) setMappingRules(config.rules);
+      });
+    }
+  }, [open, storage]);
+
+  const savePathMappings = React.useCallback(async (id: string, rules: Array<{ canonicalPrefix: string; localPrefix: string }>) => {
+    if (!id.trim()) return;
+    await storage.setCurrentMachineId(id.trim());
+    await storage.setPathMappingConfig({
+      machineId: id.trim(),
+      rules: rules.filter(r => r.canonicalPrefix.trim() && r.localPrefix.trim())
+    });
+  }, [storage]);
 
   React.useEffect(() => {
     loadSettings();
@@ -468,6 +521,114 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, ml: 4 }}>
                 Remove groups that haven't been seen for {inactiveThreshold} days
               </Typography>
+            </Box>
+
+            <Divider sx={{ my: 2 }} />
+
+            {/* Path Mappings for file:// sync */}
+            <Box sx={{ mb: 3 }}>
+              <Typography
+                variant="subtitle2"
+                sx={{ mb: 1.5, color: 'text.secondary', cursor: 'pointer', userSelect: 'none' }}
+                onClick={() => setPathMappingsExpanded(!pathMappingsExpanded)}
+              >
+                {pathMappingsExpanded ? '▾' : '▸'} Path Mappings (file:// sync)
+              </Typography>
+              {pathMappingsExpanded && (
+                <Box sx={{ ml: 1 }}>
+                  <Box sx={{ mb: 1.5 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                      Machine ID
+                    </Typography>
+                    <input
+                      type="text"
+                      value={machineId}
+                      onChange={e => setMachineId(e.target.value)}
+                      onBlur={() => savePathMappings(machineId, mappingRules)}
+                      placeholder="e.g., linux-home, macbook-work"
+                      style={{
+                        width: '100%', padding: '6px 8px', fontSize: '13px',
+                        border: '1px solid #dadce0', borderRadius: '4px',
+                        fontFamily: 'inherit', background: 'transparent', color: 'inherit'
+                      }}
+                    />
+                  </Box>
+                  {mappingRules.map((rule, i) => (
+                    <Box key={i} sx={{ display: 'flex', gap: 0.5, mb: 0.75, alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        value={rule.canonicalPrefix}
+                        onChange={e => {
+                          const updated = [...mappingRules];
+                          updated[i] = { ...updated[i], canonicalPrefix: e.target.value };
+                          setMappingRules(updated);
+                        }}
+                        onBlur={() => savePathMappings(machineId, mappingRules)}
+                        placeholder="Canonical prefix"
+                        style={{
+                          flex: 1, padding: '4px 6px', fontSize: '12px',
+                          border: '1px solid #dadce0', borderRadius: '4px',
+                          fontFamily: 'monospace', background: 'transparent', color: 'inherit'
+                        }}
+                      />
+                      <Typography variant="caption" sx={{ color: 'text.secondary', px: 0.25 }}>
+                        {'→'}
+                      </Typography>
+                      <input
+                        type="text"
+                        value={rule.localPrefix}
+                        onChange={e => {
+                          const updated = [...mappingRules];
+                          updated[i] = { ...updated[i], localPrefix: e.target.value };
+                          setMappingRules(updated);
+                        }}
+                        onBlur={() => savePathMappings(machineId, mappingRules)}
+                        placeholder="This machine's prefix"
+                        style={{
+                          flex: 1, padding: '4px 6px', fontSize: '12px',
+                          border: '1px solid #dadce0', borderRadius: '4px',
+                          fontFamily: 'monospace', background: 'transparent', color: 'inherit'
+                        }}
+                      />
+                      <Button
+                        size="small"
+                        sx={{ minWidth: 24, p: 0, fontSize: '14px' }}
+                        onClick={() => {
+                          const updated = mappingRules.filter((_, j) => j !== i);
+                          setMappingRules(updated);
+                          savePathMappings(machineId, updated);
+                        }}
+                      >
+                        {'✕'}
+                      </Button>
+                    </Box>
+                  ))}
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => setMappingRules([...mappingRules, { canonicalPrefix: '', localPrefix: '' }])}
+                  >
+                    + Add mapping
+                  </Button>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                    Map path prefixes so file:// bookmarks open correctly across machines.
+                    The canonical prefix is what gets stored in bookmarks.
+                  </Typography>
+
+                  {isEdge && mappingRules.length > 0 && (
+                    <Alert severity="warning" sx={{ mt: 1.5, fontSize: '12px' }}>
+                      <strong>Edge Workspace warning:</strong> Edge shows file:// tabs as
+                      "workspace unsupported" on remote machines. Closing these phantom
+                      tabs will close the real tab on the source machine. Consider removing
+                      file:// tab groups from Edge Workspaces.
+                    </Alert>
+                  )}
+
+                  {typeof chrome !== 'undefined' && chrome.extension?.isAllowedFileSchemeAccess && (
+                    <FileAccessBanner />
+                  )}
+                </Box>
+              )}
             </Box>
 
             <Divider sx={{ my: 2 }} />
