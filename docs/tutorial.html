@@ -228,6 +228,13 @@
     <li><a href="#p15">Packaging &amp; shipping</a></li>
   </ol>
 
+  <div class="section-label">v1.4 — File URLs &amp; Search</div>
+  <ol start="16">
+    <li><a href="#p16">file:// URL sync</a></li>
+    <li><a href="#p17">Cross-machine path mapping</a></li>
+    <li><a href="#p18">Fuzzy search &amp; restore</a></li>
+  </ol>
+
   <div class="foot">
     Grounded in the <a href="https://github.com/kundeng/tabgroupsync">Tab&nbsp;Group&nbsp;Sync</a> repo.
     All file paths reference real source — open them alongside each part.
@@ -239,7 +246,7 @@
   <div class="eyebrow">A learning walkthrough</div>
   <h1>Building a Chrome extension, one honest layer at a time.</h1>
   <p class="lede">
-    Fifteen parts through a real Manifest V3 extension written in TypeScript with React.
+    Eighteen parts through a real Manifest V3 extension written in TypeScript with React.
     We start from the manifest, descend into the service worker, the popup, the Chrome APIs,
     then rise back up through the architecture, the distributed sync model, the custom
     algorithms, and the testing harness. Read each part next to the file it cites — the
@@ -273,6 +280,8 @@
     <li><code>src/lib/utils/logger.ts</code> — the <code>subject:verb:outcome</code> event naming you'll see everywhere. (Part 14)</li>
     <li><code>tests/unit/groupNameResolver.test.ts</code> — a 20-line Vitest file. See how <code>chrome.*</code> mocking is avoided entirely for pure utils. (Part 13)</li>
     <li><code>tests/property/sync/</code> and <code>tests/e2e/</code> — skim one of each. Three test layers, three different truths. (Part 13)</li>
+    <li><code>src/lib/utils/pathMapper.ts</code> — pure functions for bidirectional URL prefix rewriting. No state, no Chrome APIs. (Part 16, 17)</li>
+    <li><code>src/components/SearchBar.tsx</code> — fuzzy search across tabs + bookmarks with sync-status chips. (Part 18)</li>
   </ol>
 
   <div class="callout">
@@ -1413,6 +1422,188 @@ jobs:
     <code>declarativeNetRequest</code>, offscreen documents. Then skim
     <a href="https://github.com/kundeng/tabgroupsync/tree/main/.kiro/specs">.kiro/specs/</a>
     — it's the spec-driven record of how each feature was thought through before it was coded.
+  </div>
+</section>
+
+<!-- ═════════════════════════════════════ FILE URLs & SEARCH ═════════════════════════════════════ -->
+
+<section id="p16">
+  <div class="part-no">Part 16 — File URLs &amp; Search</div>
+  <h2>file:// URL sync — working around a Chromium limitation</h2>
+  <p class="intro">
+    Every Chromium browser silently drops <code>file://</code> URLs from saved tab groups
+    (<a href="https://issues.chromium.org/issues/372978298">bug&nbsp;#372978298</a>). Bookmarks
+    don't have this filter. This extension exploits that gap.
+  </p>
+
+  <h3>The one-line fix</h3>
+  <p>The entire capture path was blocked by a single filter in <code>bookmarkManager.ts</code>:</p>
+<pre><code class="language-typescript">// Before — dropped file:// URLs:
+if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://'))
+
+// After — allows file://:
+if (!isSyncableUrl(tab.url))   // http, https, OR file</code></pre>
+  <div class="code-caption">src/lib/bookmarks/bookmarkManager.ts — the gate that was blocking file:// tabs</div>
+
+  <p>That's it for capture. The restore path in <code>background.ts</code> already opened any URL from bookmarks without filtering — so file:// bookmarks "just work" on restore, as long as the browser has <em>"Allow access to file URLs"</em> enabled for the extension.</p>
+
+  <h3>The opener page fallback</h3>
+  <p>When <code>chrome.tabs.create({url: 'file://...'})</code> fails (usually because file access isn't enabled), the extension opens <code>opener.html</code> instead — a plain HTML page that shows the target path, setup instructions, and a "Try opening" button.</p>
+
+  <div class="diagram">Tab has file:// URL
+       │
+  isSyncableUrl() ── yes ──▶ canonicalize() ──▶ bookmark created
+       │
+  chrome:// edge:// ── no ──▶ dropped (as before)
+</div>
+
+  <div class="callout">
+    <div class="label">Why bookmarks work but saved groups don't</div>
+    Chrome's "Saved Tab Group" feature uses a separate sync type that explicitly filters <code>file://</code> at save time. Bookmarks are older, simpler infrastructure — they store any URL string. Our extension rides the bookmark path, bypassing the saved-group filter entirely.
+  </div>
+
+  <div class="spec">
+    <div class="label">Spec</div>
+    Full requirements, design, and task tracking: <a href="https://github.com/kundeng/tabgroupsync/tree/main/.kiro/specs/local-file-url-sync" class="file-ref">.kiro/specs/local-file-url-sync/</a>
+  </div>
+</section>
+
+
+<section id="p17">
+  <div class="part-no">Part 17 — File URLs &amp; Search</div>
+  <h2>Cross-machine path mapping — the flip-flop fix</h2>
+  <p class="intro">
+    File paths differ across machines: <code>/Users/foo/Dropbox</code> on Mac,
+    <code>/home/foo/Dropbox</code> on Linux, <code>C:\Users\foo\Dropbox</code> on Windows.
+    Without canonicalization, each machine writes its own path variant to bookmarks —
+    creating duplicates that compound on every sync cycle.
+  </p>
+
+  <h3>Bidirectional mapping</h3>
+  <p>Each machine has a config: a <em>canonical prefix</em> (what goes in bookmarks) and a <em>local prefix</em> (what opens on this machine). Mapping works in both directions:</p>
+
+<pre><code class="language-typescript">// src/lib/utils/pathMapper.ts — pure functions, no state
+
+// At capture time: local → canonical (for bookmarks)
+canonicalize('file:///home/bar/Dropbox/ch1.html', config)
+// → 'file:///Users/foo/Dropbox/ch1.html'
+
+// At restore time: canonical → local (for opening)
+localize('file:///Users/foo/Dropbox/ch1.html', config)
+// → 'file:///home/bar/Dropbox/ch1.html'</code></pre>
+
+  <h3>Why pure functions, not a Manager</h3>
+  <p>
+    Every other domain concern in this codebase uses a Manager class. PathMapper deliberately
+    breaks the pattern. Mapping is a stateless transformation — URL in, URL out. No lifecycle,
+    no initialization, no Chrome API calls. It takes a config argument; it doesn't read storage.
+    This makes it trivially testable with fast-check:
+  </p>
+
+<pre><code class="language-typescript">// Correctness property: round-trip
+fc.assert(fc.property(arbUrl, arbConfig, (url, config) => {
+  expect(localize(canonicalize(url, config), config)).toBe(url);
+}));</code></pre>
+
+  <h3>Storage design</h3>
+  <p>
+    Path mappings live under their own <code>chrome.storage.sync</code> key
+    (<code>state:pathMappings</code>), separate from <code>state:settings</code>. This prevents
+    the background's <code>saveState()</code> from overwriting mapping config — a bug that
+    took three rounds to fix (the popup writes directly to sync storage, bypassing the
+    background's in-memory state).
+  </p>
+
+  <div class="diagram">chrome.storage.sync:
+  state:pathMappings → {           ← separate key, never clobbered
+    machines: {
+      "mac":   { rules: [{ canonical: "/Users/foo/Dropbox",
+                            local:     "/Users/foo/Dropbox" }] },
+      "linux": { rules: [{ canonical: "/Users/foo/Dropbox",
+                            local:     "/home/bar/Dropbox" }] }
+    }
+  }
+
+chrome.storage.local:
+  machineId → "linux"              ← per-machine, not synced</div>
+
+  <div class="callout">
+    <div class="label">Lesson learned</div>
+    Never nest transient config inside a storage object that another subsystem
+    reads and writes. The background's <code>saveState()</code> does a full overwrite of
+    <code>state:settings</code> — any field added by the popup gets silently wiped. Separate
+    keys are the fix.
+  </div>
+</section>
+
+
+<section id="p18">
+  <div class="part-no">Part 18 — File URLs &amp; Search</div>
+  <h2>Fuzzy search and restore actions</h2>
+  <p class="intro">
+    A search bar at the top of the popup that merges bookmarks and open tabs into one
+    fuzzy-searchable index, showing the sync relationship between each URL.
+  </p>
+
+  <h3>The search index</h3>
+  <p>On focus, the SearchBar component loads two datasets and merges them by URL:</p>
+<pre><code class="language-typescript">// 1. Open tabs (grouped only)
+const tabs = await chrome.tabs.query({});
+const grouped = tabs.filter(t => t.groupId !== -1 && groupMap[t.groupId]);
+
+// 2. Backed-up bookmarks (from Tab Group Bookmarks folder)
+const bookmarks = await chrome.bookmarks.getChildren(tgb.id);
+
+// 3. Merge by URL — items in both get inTab=true AND inBookmark=true
+if (seen.has(bm.url)) {
+  existing.inBookmark = true;  // "synced" — open AND backed up
+}</code></pre>
+
+  <h3>Sync status chips</h3>
+  <table class="compare">
+    <tr><th>Chip</th><th>Meaning</th><th>Click action</th></tr>
+    <tr><td><code>synced</code> (green)</td><td>Open in tab + backed up in bookmarks</td><td>Switch to tab</td></tr>
+    <tr><td><code>tab</code></td><td>Open but not yet backed up</td><td>Switch to tab</td></tr>
+    <tr><td><code>saved</code></td><td>Backed up but not currently open</td><td>Open as new tab</td></tr>
+    <tr><td><code>file</code> (blue)</td><td>A <code>file://</code> URL</td><td>Open with path mapping</td></tr>
+  </table>
+
+  <h3>Why uFuzzy</h3>
+  <p>
+    <a href="https://github.com/leeoniya/uFuzzy">uFuzzy</a> is ~3KB, faster than Fuse.js (~25KB),
+    and handles URL patterns well with its <code>intraMode: 1</code> setting (allows gaps within
+    words). The haystack is <code>"${title} ${url} ${groupName}"</code> — searching "react hooks"
+    matches a tab titled "React Hooks Guide" in any group.
+  </p>
+
+  <h3>The restore dropdown</h3>
+  <p>Each group has a cloud-download icon that opens a menu with four restore modes:</p>
+  <ul>
+    <li><strong>Restore all tabs</strong> — opens all bookmarks, skips already-open URLs</li>
+    <li><strong>Add missing tabs</strong> — same as restore all (only missing)</li>
+    <li><strong>Add file:// tabs only</strong> — opens local file bookmarks with path mapping</li>
+    <li><strong>Replace group</strong> (destructive) — closes existing tabs, restores fresh</li>
+  </ul>
+
+  <p>All restore logic runs in the <em>popup context</em>, not the service worker. This avoids
+  MV3 service worker lifecycle issues where the SW dies before async restore operations complete.
+  The popup has access to the same <code>chrome.bookmarks</code> and <code>chrome.tabs</code>
+  APIs and stays alive as long as it's open.</p>
+
+  <div class="callout">
+    <div class="label">Architecture decision</div>
+    The original implementation sent messages to the background service worker for restore
+    operations. The service worker kept dying mid-execution — a known MV3 limitation for
+    long-running async work triggered by one-shot messages. Moving the logic to the popup
+    fixed it completely, at the cost of duplicating some Chrome API calls between contexts.
+    Pragmatism over purity.
+  </div>
+
+  <div class="try">
+    <div class="label">Try this</div>
+    Open the extension popup, type a keyword in the search bar. Watch results appear grouped by
+    tab group, with sync status chips. Click a "saved" result — it opens a new tab. Click a "tab"
+    result — it switches to the existing tab. Try a file:// result with path mapping configured.
   </div>
 </section>
 
