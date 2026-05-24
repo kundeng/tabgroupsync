@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Tab Group Sync</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline'">
+  <link rel="stylesheet" href="./assets/popup.css">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      width: 480px;
+      height: 600px;
+      overflow: hidden;
+      background: #ffffff;
+    }
+    #root {
+      height: 100%;
+    }
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      color: #666;
+      font-family: system-ui;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div class="loading">Initializing...</div>
+  </div>
+  <script src="./popup.js" type="module"></script>
+</body>
+</html>

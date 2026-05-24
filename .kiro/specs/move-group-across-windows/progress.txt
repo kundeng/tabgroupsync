@@ -1,0 +1,12 @@
+# Progress Log: move-group-across-windows
+# Auto-updated by spec-go workflow
+# Format: [TIMESTAMP] [STATUS] [TASK_ID] - [DESCRIPTION]
+# STATUS: DONE | BLOCKED | SKIPPED | IN_PROGRESS
+2026-02-19 05:42 DONE 3.1 - Add move-aware sync guard to ignore stale source-group event storms
+2026-02-19 05:42 DONE 3.2 - Verify cross-window portability via standard-API guard test
+2026-02-19 05:42 DONE 5.3 - Add E2E move-group-across-windows scenario and UI move helper
+2026-03-12 19:20 DONE 6.1 - Implement windowLabelBuilder utility (pure function, 3-tier label logic)
+2026-03-13 10:28 DONE 6.2 - Update MoveGroupDialog with human-friendly window labels
+2026-03-13 10:30 DONE 6.3 - Unit tests for windowLabelBuilder (14 tests)
+2026-03-13 10:33 DONE 6.4 - Update E2E test for move dialog window labels
+# SUMMARY: 16/16 done | SPEC COMPLETE

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tab Group Sync</title>
+  <style>
+    :root { --blue: #1a73e8; --text: #202124; --muted: #5f6368; --border: #dadce0; }
+    @media (prefers-color-scheme: dark) {
+      :root { --text: #e8eaed; --muted: #9aa0a6; --border: #3c4043; }
+      body { background: #202124; }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      color: var(--text); line-height: 1.6; padding: 3rem 1.5rem;
+      max-width: 720px; margin: 0 auto;
+    }
+    h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+    .tagline { color: var(--muted); margin-bottom: 2rem; }
+    h2 { margin: 2rem 0 0.75rem; color: var(--blue); font-size: 1.15rem; }
+    ul { padding-left: 1.25rem; }
+    li { color: var(--muted); margin-bottom: 0.5rem; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>Tab Group Sync</h1>
+  <p class="tagline">A Chrome extension that backs up your tab groups as bookmark folders — privately, on your own machine.</p>
+
+  <h2>Links</h2>
+  <ul>
+    <li><a href="privacy-policy.html">Privacy Policy</a></li>
+    <li><a href="https://github.com/kundeng/tabgroupsync/releases">Latest release (download zip)</a></li>
+    <li><a href="https://github.com/kundeng/tabgroupsync">Source code</a></li>
+  </ul>
+</body>
+</html>

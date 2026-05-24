@@ -1,0 +1,1444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tab Group Sync — Chrome Extensions with TypeScript</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
+<style>
+  :root {
+    --bg: #fbfbfa; --surface: #ffffff; --border: #e6e4e0;
+    --text: #1c1b1a; --muted: #6b6864;
+    --accent: #1a73e8; --accent-soft: #e8f0fe;
+    --callout-bg: #fff8e6; --callout-border: #f4c430;
+    --spec-bg: #eef3fb; --spec-border: #1a73e8;
+    --try-bg: #edf6ec; --try-border: #2e7d32;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+    line-height: 1.65; font-size: 16px;
+  }
+  code, pre, .mono { font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace; }
+  .layout { display: flex; min-height: 100vh; }
+
+  nav.side {
+    position: sticky; top: 0; align-self: flex-start;
+    width: 300px; height: 100vh; overflow-y: auto;
+    padding: 32px 24px; border-right: 1px solid var(--border);
+    background: var(--surface);
+  }
+  nav.side .brand {
+    font-size: 13px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 4px;
+  }
+  nav.side h1 { font-size: 19px; font-weight: 700; margin: 0 0 24px; line-height: 1.3; }
+  nav.side ol { list-style: none; padding: 0; margin: 0; counter-reset: n; }
+  nav.side li { counter-increment: n; margin: 2px 0; }
+  nav.side a {
+    display: block; padding: 7px 12px; border-radius: 6px;
+    color: var(--text); text-decoration: none; font-size: 13.5px;
+    border-left: 2px solid transparent; transition: background 0.15s;
+  }
+  nav.side a::before {
+    content: counter(n, decimal-leading-zero); color: var(--muted);
+    font-family: 'JetBrains Mono', monospace; font-size: 11.5px; margin-right: 10px;
+  }
+  nav.side a:hover { background: var(--accent-soft); color: var(--accent); }
+  nav.side a.active {
+    background: var(--accent-soft); color: var(--accent);
+    border-left-color: var(--accent); font-weight: 500;
+  }
+  nav.side .section-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted);
+    margin: 18px 12px 6px;
+  }
+  nav.side .foot {
+    margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--border);
+    font-size: 12px; color: var(--muted); line-height: 1.5;
+  }
+  nav.side .foot a { color: var(--accent); text-decoration: none; padding: 0; border: none; }
+
+  main { flex: 1; max-width: 820px; padding: 64px 56px 120px; }
+  main > header { margin-bottom: 48px; }
+  main > header .eyebrow {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 10px;
+  }
+  main > header h1 {
+    font-size: 40px; font-weight: 700; letter-spacing: -0.02em;
+    line-height: 1.15; margin: 0 0 16px;
+  }
+  main > header p.lede {
+    font-size: 18px; color: var(--muted); line-height: 1.6; max-width: 680px;
+  }
+
+  section {
+    scroll-margin-top: 24px; padding: 48px 0;
+    border-top: 1px solid var(--border);
+  }
+  section:first-of-type { border-top: none; padding-top: 0; }
+  section h2 { font-size: 28px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 8px; }
+  section .part-no {
+    font-size: 13px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 10px;
+  }
+  section p.intro { font-size: 17px; color: var(--muted); margin: 0 0 24px; line-height: 1.6; }
+  section h3 { font-size: 18px; font-weight: 600; margin: 32px 0 10px; }
+  section h4 { font-size: 15px; font-weight: 600; margin: 20px 0 6px; color: var(--muted); }
+  section p { margin: 12px 0; }
+  section ul, section ol { padding-left: 22px; }
+  section li { margin: 6px 0; }
+
+  .file-ref {
+    display: inline-block; background: var(--accent-soft); color: var(--accent);
+    font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
+    padding: 1px 7px; border-radius: 4px; text-decoration: none;
+  }
+  p code, li code, td code {
+    background: #eeece7; padding: 1px 6px; border-radius: 4px; font-size: 13.5px;
+  }
+
+  pre[class*="language-"] {
+    border-radius: 8px; padding: 16px 18px; font-size: 13px; line-height: 1.55;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04); margin: 20px 0;
+    overflow-x: auto;
+  }
+  .code-caption {
+    font-size: 12.5px; color: var(--muted); margin: -14px 0 24px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .callout, .spec, .try {
+    padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 24px 0;
+    font-size: 14.5px;
+  }
+  .callout { background: var(--callout-bg); border-left: 3px solid var(--callout-border); }
+  .callout .label { font-weight: 700; font-size: 11px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #8b6914; margin-bottom: 4px; }
+  .spec { background: var(--spec-bg); border-left: 3px solid var(--spec-border); }
+  .spec .label { font-weight: 700; font-size: 11px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 4px; }
+  .try { background: var(--try-bg); border-left: 3px solid var(--try-border); margin-top: 28px; }
+  .try .label { font-weight: 700; font-size: 11px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #2e7d32; margin-bottom: 4px; }
+
+  .diagram {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 22px; margin: 24px 0;
+    font-family: 'JetBrains Mono', monospace; font-size: 13px;
+    white-space: pre; line-height: 1.45; color: var(--muted);
+    overflow-x: auto;
+  }
+
+  table.compare {
+    width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px;
+  }
+  table.compare th, table.compare td {
+    border: 1px solid var(--border); padding: 10px 14px; text-align: left;
+    vertical-align: top;
+  }
+  table.compare th {
+    background: #f4f2ed; font-weight: 600; font-size: 13px;
+  }
+  table.compare td:first-child { width: 180px; color: var(--muted); font-weight: 500; }
+
+  ol.reading-order {
+    counter-reset: r; list-style: none; padding-left: 0; margin: 20px 0;
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    background: var(--surface);
+  }
+  ol.reading-order li {
+    counter-increment: r; display: flex; gap: 14px; align-items: baseline;
+    padding: 10px 16px; border-top: 1px solid var(--border); margin: 0;
+    font-size: 14.5px;
+  }
+  ol.reading-order li:first-child { border-top: none; }
+  ol.reading-order li::before {
+    content: counter(r, decimal-leading-zero);
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    color: var(--accent); font-weight: 600; flex-shrink: 0;
+  }
+  ol.reading-order code {
+    background: #eeece7; padding: 1px 6px; border-radius: 4px; font-size: 13px;
+  }
+
+  ol.annot {
+    padding-left: 0; list-style: none; margin: -6px 0 24px;
+    counter-reset: a;
+  }
+  ol.annot li {
+    counter-increment: a; position: relative; padding-left: 30px;
+    margin: 8px 0; font-size: 14.5px;
+  }
+  ol.annot li::before {
+    content: counter(a); position: absolute; left: 0; top: 1px;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--accent); color: white;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    font-weight: 600; text-align: center; line-height: 20px;
+  }
+
+  @media (max-width: 980px) {
+    .layout { flex-direction: column; }
+    nav.side { position: static; width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+    main { padding: 32px 24px 80px; }
+    main > header h1 { font-size: 32px; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="side">
+  <div class="brand">Tutorial</div>
+  <h1>Chrome Extensions with TypeScript</h1>
+
+  <div class="section-label">Start here</div>
+  <a href="#reading-order" style="display: block; padding: 7px 12px; border-radius: 6px; color: var(--text); text-decoration: none; font-size: 13.5px; border-left: 2px solid transparent; font-weight: 500;">Reading order</a>
+
+  <div class="section-label">Foundations</div>
+  <ol>
+    <li><a href="#p1">Anatomy of an MV3 extension</a></li>
+    <li><a href="#p2">Project scaffold &amp; dual build</a></li>
+    <li><a href="#p3">Code organization</a></li>
+    <li><a href="#p4">UI frameworks: React &amp; Svelte</a></li>
+  </ol>
+
+  <div class="section-label">Runtime</div>
+  <ol start="5">
+    <li><a href="#p5">The service worker lifecycle</a></li>
+    <li><a href="#p6">Listening to browser events</a></li>
+    <li><a href="#p7">Calling Chrome APIs</a></li>
+    <li><a href="#p8">Managers &amp; composition</a></li>
+    <li><a href="#p9">Popup ↔ background messaging</a></li>
+    <li><a href="#p10">Persistence strategies</a></li>
+  </ol>
+
+  <div class="section-label">Deep dives</div>
+  <ol start="11">
+    <li><a href="#p11">The distributed sync model</a></li>
+    <li><a href="#p12">Special algorithms</a></li>
+    <li><a href="#p13">Testing: unit, property, E2E</a></li>
+    <li><a href="#p14">Observability &amp; debugging</a></li>
+    <li><a href="#p15">Packaging &amp; shipping</a></li>
+  </ol>
+
+  <div class="foot">
+    Grounded in the <a href="https://github.com/kundeng/tabgroupsync">Tab&nbsp;Group&nbsp;Sync</a> repo.
+    All file paths reference real source — open them alongside each part.
+  </div>
+</nav>
+
+<main>
+<header>
+  <div class="eyebrow">A learning walkthrough</div>
+  <h1>Building a Chrome extension, one honest layer at a time.</h1>
+  <p class="lede">
+    Fifteen parts through a real Manifest V3 extension written in TypeScript with React.
+    We start from the manifest, descend into the service worker, the popup, the Chrome APIs,
+    then rise back up through the architecture, the distributed sync model, the custom
+    algorithms, and the testing harness. Read each part next to the file it cites — the
+    tutorial is the map, the source is the territory.
+  </p>
+</header>
+
+<!-- ═════════════════════════════════════ READING ORDER ═════════════════════════════════════ -->
+
+<section id="reading-order">
+  <div class="part-no">Start here</div>
+  <h2>Reading order — a guided path through the repo</h2>
+  <p class="intro">
+    Don't read the source top-to-bottom. Open these files in order, in split panes, and follow
+    the tutorial alongside. Each file is a single idea; the chain builds the whole picture.
+  </p>
+
+  <ol class="reading-order">
+    <li><code>manifest.json</code> — the one file Chrome reads first. Note <code>background.service_worker</code>, <code>action.default_popup</code>, and the <code>permissions</code> list. (Part 01)</li>
+    <li><code>src/popup.html</code> — the tiny shell loaded by the toolbar icon. It mounts one <code>&lt;div id="root"&gt;</code> and loads <code>popup.js</code>.</li>
+    <li><code>src/popup.tsx</code> — read <code>initializeApp()</code>. PING/PONG handshake before the React app is allowed to mount. (Part 09 walkthrough)</li>
+    <li><code>src/components/App.tsx</code> — read only the first <code>useEffect</code> (lines ~72–228). It's the popup-side of the handshake plus the message-proxy managers. (Part 09 walkthrough)</li>
+    <li><code>src/background.ts</code> — the service worker entry. Read the first 75 lines: managers declared, <code>ensureInitialized</code>, <code>initializeManagers</code>. (Part 05, 08 walkthroughs)</li>
+    <li><code>src/background.ts</code> (continued) — scroll to <code>chrome.alarms.onAlarm</code> and <code>chrome.runtime.onConnect</code>. Those are the two entry points that woke you up. (Part 05, 09)</li>
+    <li><code>src/listeners/tabGroupListeners.ts</code> — read <code>processGroupQueue</code>. This is the event-queue pattern used everywhere. (Part 06 walkthrough)</li>
+    <li><code>src/lib/tabGroupManager.ts</code> — read <code>getGroup()</code> (top of file). Fallback plus nullable return. (Part 07 walkthrough)</li>
+    <li><code>src/lib/sync/syncEngine.ts</code> — read <code>processSyncQueue</code> (around line 44). The drain loop with quota-aware backoff. (Part 12 walkthrough)</li>
+    <li><code>src/lib/utils/groupNameResolver.ts</code> — 50 lines; three input cases, one of which returns <code>null</code>. Property-test origin story. (Part 12)</li>
+    <li><code>src/lib/bookmarks/bookmarkManager.ts</code> — glance at the public method surface. This is what the <code>SyncEngine</code> calls into.</li>
+    <li><code>src/lib/storage/storageManager.ts</code> — see how a manager holds in-memory state and persists bounded slices to <code>chrome.storage.sync</code>. (Part 10)</li>
+    <li><code>src/lib/utils/logger.ts</code> — the <code>subject:verb:outcome</code> event naming you'll see everywhere. (Part 14)</li>
+    <li><code>tests/unit/groupNameResolver.test.ts</code> — a 20-line Vitest file. See how <code>chrome.*</code> mocking is avoided entirely for pure utils. (Part 13)</li>
+    <li><code>tests/property/sync/</code> and <code>tests/e2e/</code> — skim one of each. Three test layers, three different truths. (Part 13)</li>
+  </ol>
+
+  <div class="callout">
+    <div class="label">Note</div>
+    The six files marked "walkthrough" get a line-by-line annotation later in the tutorial. When
+    you hit one, open that source file in a split pane — the numbered circles in the code match
+    numbered notes below.
+  </div>
+</section>
+
+
+<!-- ═════════════════════════════════════ FOUNDATIONS ═════════════════════════════════════ -->
+
+<section id="p1">
+  <div class="part-no">Part 01 — Foundations</div>
+  <h2>Anatomy of a Manifest V3 extension</h2>
+  <p class="intro">
+    A Chrome extension is a small web app Chrome lets run in privileged contexts. Everything
+    starts from one declaration file: <code>manifest.json</code>.
+  </p>
+
+<pre><code class="language-json">{
+  "manifest_version": 3,
+  "name": "Tab Group Sync",
+  "version": "1.2.0",
+  "permissions": ["tabs", "tabGroups", "bookmarks", "storage", "unlimitedStorage", "alarms"],
+  "action":     { "default_popup": "popup.html" },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "icons":      { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+}</code></pre>
+  <div class="code-caption">manifest.json — the extension's front door</div>
+
+  <ul>
+    <li><strong>manifest_version 3.</strong> The current model. MV2 is retired. The biggest MV3 change is replacing the persistent background page with an <em>ephemeral service worker</em>. That one word rewires the rest of the architecture — see Part 5.</li>
+    <li><strong>permissions.</strong> Each string unlocks a Chrome API. <code>tabGroups</code>, <code>bookmarks</code>, <code>alarms</code> map 1:1 to <code>chrome.tabGroups.*</code>, <code>chrome.bookmarks.*</code>, <code>chrome.alarms.*</code>.</li>
+    <li><strong>action.default_popup.</strong> The toolbar button opens this HTML as a small window — the popup.</li>
+    <li><strong>background.service_worker.</strong> Runs outside any tab, can listen to global browser events, is terminated by Chrome when idle.</li>
+  </ul>
+
+  <h3>The three contexts</h3>
+  <div class="diagram">┌─────────────────────────┐      ┌──────────────────────────┐
+│  Popup (React app)      │◀────▶│  Service Worker (bg)     │
+│  • popup.html + popup.js│ port │  • background.js         │
+│  • lives while open     │      │  • Chrome events, sync   │
+└─────────────────────────┘      └──────────┬───────────────┘
+                                            │
+                                            ▼
+                            chrome.tabGroups / chrome.bookmarks / chrome.storage
+</div>
+  <p>
+    There's a third context — <em>content scripts</em> that inject into web pages. This extension
+    doesn't use any; it only manipulates Chrome-level state (groups, bookmarks, storage). You'll
+    build simpler mental models if you ignore content scripts until you need them.
+  </p>
+
+  <div class="callout">
+    <div class="label">Key idea</div>
+    Almost every extension bug, eventually, comes back to confusion about <em>which context</em> a
+    line of code is running in, or the fact that the service worker was quietly terminated
+    between two events.
+  </div>
+
+  <div class="try">
+    <div class="label">Try this</div>
+    Visit <code>chrome://extensions</code>, enable Developer mode, click <em>Load unpacked</em>, pick
+    <code>dist/</code>. Pin the icon — that's the popup. Click "service worker" under the extension
+    card — that's the background's DevTools console.
+  </div>
+</section>
+
+
+<section id="p2">
+  <div class="part-no">Part 02 — Foundations</div>
+  <h2>Project scaffold and the dual build</h2>
+  <p class="intro">
+    TypeScript needs compilation. Chrome's service worker has a peculiar constraint: it must be
+    a <em>single file</em> with all imports inlined. This project solves both with Vite running in
+    two passes.
+  </p>
+
+<pre><code class="language-typescript">// vite.config.ts
+const buildBackground = process.env.BUILD_BACKGROUND === 'true';
+
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    outDir: 'dist',
+    emptyOutDir: !buildBackground,           // keep popup output on pass 2
+    rollupOptions: {
+      input: buildBackground
+        ? { background: resolve(__dirname, 'src/background.ts') }
+        : { popup:      resolve(__dirname, 'src/popup.tsx') },
+      output: { inlineDynamicImports: buildBackground }, // bg = single file
+    },
+    target: 'chrome112',
+  },
+});</code></pre>
+
+<pre><code class="language-bash"># package.json
+"build": "tsc && vite build && BUILD_BACKGROUND=true vite build && node scripts/copy-extension-files.js"</code></pre>
+
+  <ol>
+    <li><code>tsc</code> — typecheck only (Vite does the transpile).</li>
+    <li>First Vite pass — produces <code>popup.js</code> and its chunks.</li>
+    <li>Second Vite pass (<code>BUILD_BACKGROUND=true</code>) — produces one inlined <code>background.js</code>.</li>
+    <li>Copy script — moves <code>manifest.json</code>, HTML, icons into <code>dist/</code>.</li>
+  </ol>
+
+  <h3>TypeScript and the Chrome types</h3>
+  <p>
+    The <code>@types/chrome</code> package gives the Chrome APIs their type signatures, so
+    <code>chrome.tabGroups.query({})</code> autocompletes and returns a typed
+    <code>Promise&lt;chrome.tabGroups.TabGroup[]&gt;</code>. This is one of the largest productivity
+    wins you get from TypeScript in extension work — the Chrome API surface is enormous and
+    documented primarily through clicks in developer.chrome.com.
+  </p>
+
+  <div class="callout">
+    <div class="label">Why Vite?</div>
+    You could use webpack, esbuild, Parcel, or raw tsc. Vite's advantage here is fast rebuilds
+    during <code>npm run watch</code> and a small config surface. Nothing in the extension model
+    requires Vite specifically.
+  </div>
+
+  <div class="try">
+    <div class="label">Try this</div>
+    Run <code>npm run build</code>, inspect <code>dist/</code>. Open <code>background.js</code> — see how
+    every <code>src/lib/*</code> import was inlined. Compare with <code>popup.js</code>, which uses
+    chunks under <code>assets/</code>.
+  </div>
+</section>
+
+
+<section id="p3">
+  <div class="part-no">Part 03 — Foundations</div>
+  <h2>Code organization</h2>
+  <p class="intro">
+    Good layout tells you where to put new code without thinking. This project separates
+    <em>bridges</em> (listeners), <em>domain logic</em> (managers), <em>UI</em> (components), and
+    <em>configuration</em> (specs + manifest). Dependencies flow one direction.
+  </p>
+
+<pre><code class="language-bash">src/
+├── background.ts              # service worker entry — composition root
+├── popup.tsx                  # popup entry — React bootstrap
+├── listeners/                 # bridge: Chrome events → manager methods
+│   ├── tabGroupListeners.ts
+│   ├── tabListeners.ts
+│   └── bookmarkListeners.ts
+├── lib/                       # domain logic (no React, no DOM)
+│   ├── storage/storageManager.ts
+│   ├── bookmarks/             # bookmarkManager, bookmarkQueries/Mutations, snapshotManager
+│   ├── sync/syncEngine.ts     # orchestrator
+│   ├── tabGroupManager.ts
+│   ├── types/                 # shared TypeScript types
+│   └── utils/                 # logger, errors, validators, name resolver, windowLabelBuilder
+└── components/                # React UI
+    ├── App.tsx                # root; owns manager instances
+    ├── GroupList.tsx  GroupSection.tsx
+    ├── Settings.tsx  FolderPicker.tsx
+    ├── MoveGroupDialog.tsx  SnapshotList.tsx
+    └── ErrorBoundary.tsx
+
+tests/
+├── unit/        # Vitest, mocked chrome APIs
+├── property/    # fast-check invariants
+└── e2e/         # Playwright, real Chrome with extension loaded
+
+.kiro/
+├── specs/       # requirements.md, design.md, tasks.md per feature
+└── steering/    # product / tech / structure guidance
+</code></pre>
+
+  <h3>Dependency direction</h3>
+  <div class="diagram">Chrome events ──▶ listeners/ ──▶ lib/ (managers) ──▶ chrome.* APIs
+                                       ▲
+                                       │
+                          components/ ─┘  (App.tsx owns manager instances;
+                                           children receive them as props)
+</div>
+
+  <p>
+    UI components depend on managers. Listeners depend on managers. Managers depend on each
+    other (with one explicit circular reference patched at startup — Part 8). No manager
+    imports React, the DOM, or a listener. That asymmetry is what lets us unit-test managers
+    in Node with a mocked <code>chrome</code> global.
+  </p>
+
+  <h3>Specs as code</h3>
+  <p>
+    The <code>.kiro/specs/</code> directory is the system of record. Each feature has
+    <code>requirements.md</code> (what), <code>design.md</code> (how), and <code>tasks.md</code> (a
+    checklist). Before writing code, the contract goes there. If scope changes, the spec changes
+    first. This repo has four specs: <code>tab-group-sync</code> (core), <code>sw-reliability</code>,
+    <code>move-group-across-windows</code>, and <code>observability-openobserve</code>.
+  </p>
+
+  <div class="spec">
+    <div class="label">Convention</div>
+    When you can't decide where a new piece of code goes, ask: does it touch React? → components.
+    Does it touch <code>chrome.*</code> events only? → listeners. Pure business logic? → lib. If
+    three pieces live in different places, the bridge between them usually belongs in a manager.
+  </div>
+</section>
+
+
+<section id="p4">
+  <div class="part-no">Part 04 — Foundations</div>
+  <h2>UI frameworks: React (and a look at Svelte)</h2>
+  <p class="intro">
+    The popup is a React app. If you've only done backend work, React's mental model can feel
+    backwards. This is the minimum you need to read this codebase fluently — plus a sketch of
+    how Svelte would solve the same problem differently.
+  </p>
+
+  <h3>Four React concepts</h3>
+  <h4>1. Components are functions that return JSX</h4>
+<pre><code class="language-typescript">export default function Header({ title }: { title: string }) {
+  return &lt;h1&gt;{title}&lt;/h1&gt;;
+}</code></pre>
+  <p>JSX is syntactic sugar: <code>&lt;h1&gt;...&lt;/h1&gt;</code> compiles to <code>React.createElement('h1', ...)</code>. A component is <em>just a function</em> that React calls to get a description of what the DOM should look like.</p>
+
+  <h4>2. <code>useState</code> gives a component memory</h4>
+<pre><code class="language-typescript">const [expanded, setExpanded] = React.useState(true);
+// later:
+&lt;button onClick={() =&gt; setExpanded(!expanded)}&gt;Toggle&lt;/button&gt;</code></pre>
+  <p>Calling <code>setExpanded</code> schedules a re-render. React re-invokes the component function, sees the new JSX, and updates the minimum DOM needed. You never write <code>element.textContent = ...</code> — you declare what the UI should look like for a given state.</p>
+
+  <h4>3. <code>useEffect</code> runs side effects after render</h4>
+<pre><code class="language-typescript">React.useEffect(() =&gt; {
+  const port = chrome.runtime.connect({ name: 'popup' });
+  port.postMessage({ type: 'PING' });
+  return () =&gt; port.disconnect();    // cleanup on unmount or before next run
+}, []);   // [] = run once on mount</code></pre>
+  <p>The second argument controls <em>when</em> the effect re-runs: <code>[]</code> means once; <code>[x, y]</code> means whenever <code>x</code> or <code>y</code> changes; omitted means every render (rare).</p>
+
+  <h4>4. Props are function arguments, typed as interfaces</h4>
+<pre><code class="language-typescript">interface GroupSectionProps {
+  title: string;
+  groups: GroupViewModel[];
+  storage: StorageManager;
+  onToggleSync: (name: string) =&gt; void;     // callback passed from parent
+  readOnly?: boolean;                        // ? = optional
+}
+
+export default function GroupSection(props: GroupSectionProps) { /* ... */ }</code></pre>
+  <p>Data flows down (parent → child via props). Events flow up (child → parent via callback props). This is the <em>unidirectional data flow</em> you'll hear about. It makes the app easier to reason about than two-way data binding.</p>
+
+  <h3>Svelte, as a comparison</h3>
+  <p>Svelte reaches the same UI-rebuilding-from-state outcome with different ergonomics — compile-time reactivity instead of runtime diffing:</p>
+<pre><code class="language-html">&lt;script lang="ts"&gt;
+  let expanded = true;     // reactive "cell" — just a variable
+  $: label = expanded ? 'Collapse' : 'Expand';   // $: = recompute on deps change
+&lt;/script&gt;
+
+&lt;button on:click={() =&gt; expanded = !expanded}&gt;{label}&lt;/button&gt;</code></pre>
+
+  <table class="compare">
+    <tr><th></th><th>React</th><th>Svelte</th></tr>
+    <tr><td>Reactivity</td><td>Runtime diff via virtual DOM</td><td>Compile-time, mutates DOM directly</td></tr>
+    <tr><td>State</td><td><code>useState</code> hook returns pair</td><td>Top-level <code>let</code></td></tr>
+    <tr><td>Effects</td><td><code>useEffect(fn, deps)</code></td><td><code>$:</code> label &amp; <code>onMount</code></td></tr>
+    <tr><td>Bundle size</td><td>Larger (React runtime + MUI)</td><td>Smaller (compiled away)</td></tr>
+    <tr><td>Ecosystem</td><td>Enormous component libs</td><td>Smaller, younger</td></tr>
+  </table>
+
+  <p>
+    This project chose React for <em>library ecosystem</em> (MUI gives us switches, dialogs, tree
+    views that look native inside Chrome) and for familiarity. Svelte would be a fine choice for
+    a simpler popup; the mental model changes (fewer hooks, more plain variables) but the
+    Chrome-side code in this tutorial is identical either way.
+  </p>
+
+  <div class="callout">
+    <div class="label">Key idea</div>
+    UI frameworks solve one problem: keep the DOM in sync with state, without forcing you to
+    imperatively move bytes. Once you understand that, the specific syntax is a detail.
+  </div>
+</section>
+
+
+<!-- ═════════════════════════════════════ RUNTIME ═════════════════════════════════════ -->
+
+<section id="p5">
+  <div class="part-no">Part 05 — Runtime</div>
+  <h2>The service worker — a background that forgets</h2>
+  <p class="intro">
+    The service worker is where your extension thinks. It also dies unpredictably. Those two
+    facts produce most of the interesting code in <code>src/background.ts</code>.
+  </p>
+
+  <p>Chrome terminates the worker after ~30 s of no events. When a new event fires, Chrome spins a <em>fresh worker</em>, re-runs <code>background.js</code> top-to-bottom, then dispatches the event. In-memory state is gone. This is the hardest mental shift from MV2.</p>
+
+  <h3>Walkthrough: <code>ensureInitialized</code></h3>
+  <p>Every listener in <code>background.ts</code> calls this before touching a manager. Four responsibilities in twelve lines — the hot-path short-circuit, concurrency guard, failure containment, and retry reset.</p>
+<pre><code class="language-typescript">// src/background.ts
+let isReady = false;
+let initPromise: Promise&lt;boolean&gt; | null = null;
+
+async function ensureInitialized(): Promise&lt;boolean&gt; {
+  if (isReady) return true;                                      // ①
+  if (initPromise) return initPromise;                           // ②
+  initPromise = (async () =&gt; {                                   // ③
+    try {
+      await initializeManagers();
+      return true;
+    } catch (error) {
+      logger.error('ensureInitialized:failed', { error: /*…*/ });
+      return false;                                              // ④
+    }
+  })().then(result =&gt; { initPromise = null; return result; });   // ⑤
+  return initPromise;
+}</code></pre>
+  <ol class="annot">
+    <li><strong>Hot path.</strong> Once <code>initializeManagers()</code> has set <code>isReady = true</code>, every subsequent call is a single boolean read. Zero cost, no microtask. This matters because every message handler starts with <code>await ensureInitialized()</code>.</li>
+    <li><strong>Concurrency guard.</strong> If two events fire on a fresh worker at the same moment, the second caller sees <code>initPromise</code> already exists and awaits it. Without this line you'd double-init managers and double-register listeners.</li>
+    <li><strong>IIFE wrapped in a shared promise.</strong> We start the async work immediately and assign the resulting promise to a module-level variable <em>before</em> any <code>await</code>. That's what makes step ② observable to concurrent callers.</li>
+    <li><strong>Failure returns false, not throws.</strong> Handlers then do <code>if (!await ensureInitialized()) return</code> — a no-op is safer than a crash that might poison the event listener for the rest of the worker's life.</li>
+    <li><strong>Clear on settle.</strong> Whether init succeeded or failed, <code>initPromise</code> is reset to <code>null</code>. If it failed, the next event will retry from scratch. If it succeeded, <code>isReady</code> is now <code>true</code> so step ① wins anyway.</li>
+  </ol>
+
+  <h3>chrome.alarms, not setInterval</h3>
+  <p>
+    <code>setInterval</code> is dead weight in MV3 — the worker dies and takes it with it. Use
+    <code>chrome.alarms</code>: Chrome persists them and fires on your worker, waking it if needed.
+  </p>
+<pre><code class="language-typescript">await chrome.alarms.create('periodic-sync', { periodInMinutes: 5 });
+
+chrome.alarms.onAlarm.addListener(async (alarm) =&gt; {
+  if (alarm.name !== 'periodic-sync') return;
+  if (!await ensureInitialized()) return;        // wake + init if cold
+  await syncEngine.syncAll();
+});</code></pre>
+
+  <div class="callout">
+    <div class="label">Rule of thumb</div>
+    Every listener in the service worker should assume <em>"I might be the first thing running in a
+    fresh worker."</em> That's why <code>ensureInitialized()</code> is called at the top of each handler.
+  </div>
+</section>
+
+
+<section id="p6">
+  <div class="part-no">Part 06 — Runtime</div>
+  <h2>Listening to browser events</h2>
+  <p class="intro">
+    An extension is mostly a bag of event listeners. Chrome fires events, your code reacts.
+    Below is the pattern used throughout <code>src/listeners/</code>.
+  </p>
+
+  <h3>Walkthrough: <code>processGroupQueue</code></h3>
+  <p>When Chrome restores a window, <code>onCreated</code> fires many times within milliseconds. Parallel handlers would race on the same bookmark folder. The queue serializes with a gap between items — backpressure in a handful of lines.</p>
+<pre><code class="language-typescript">// src/listeners/tabGroupListeners.ts
+export function initializeTabGroupListeners(tabGroupManager: TabGroupManager): void {
+  let groupQueue: chrome.tabGroups.TabGroup[] = [];              // ①
+  let processingQueue = false;
+
+  async function processGroupQueue() {
+    if (processingQueue || groupQueue.length === 0) return;      // ②
+    processingQueue = true;
+    try {
+      const group = groupQueue.shift()!;                         // ③
+      await tabGroupManager.handleGroupVisible(group);
+    } catch (error) {
+      logger.error('tabGroup:queue:failed', { /*…*/ });          // ④
+    } finally {
+      processingQueue = false;
+      if (groupQueue.length &gt; 0) {
+        setTimeout(processGroupQueue, 1000);                     // ⑤
+      }
+    }
+  }
+
+  chrome.tabGroups.onCreated.addListener((group) =&gt; {
+    groupQueue.push(group);
+    processGroupQueue();                                         // ⑥ fire-and-forget
+  });
+}</code></pre>
+  <ol class="annot">
+    <li><strong>Closure-local state.</strong> The queue and flag live inside <code>initializeTabGroupListeners</code>, not at module scope. That keeps them private to these listeners and invisible to the rest of the worker.</li>
+    <li><strong>Double-entry guard.</strong> Any call made while we're already draining is a no-op — the existing drain will pick up the newly pushed item. This is the line that makes the queue <em>serial</em>.</li>
+    <li><strong>One item per invocation.</strong> We handle a single group, not a <code>while</code> loop. Pairing this with step ⑤ gives each item its own <code>setTimeout</code> slot, which lets the service worker's event loop breathe between items.</li>
+    <li><strong>Error isolation.</strong> A failed group doesn't abort the queue. The <code>catch</code> logs and falls through to <code>finally</code>, which resets the flag and reschedules.</li>
+    <li><strong>Self-rescheduling.</strong> When more items are pending, a 1-second <code>setTimeout</code> queues the next drain. That gap gives Chrome time to settle, prevents quota bursts, and yields the worker to unrelated events.</li>
+    <li><strong>Fire-and-forget from the listener.</strong> Chrome's listener signature isn't <code>async</code>-friendly — we never <code>await</code> from inside it. Push to the queue, kick off the drain, return synchronously.</li>
+  </ol>
+
+  <h3>Dependency injection, lightly</h3>
+  <p>The listener takes <code>tabGroupManager</code> as a parameter instead of importing a singleton. That keeps it testable (pass a fake) and makes the wiring visible in <code>background.ts</code>'s composition root.</p>
+
+  <div class="try">
+    <div class="label">Try this</div>
+    In the service worker's DevTools, paste: <code>chrome.tabGroups.onCreated.addListener(g =&gt; console.log('GROUP', g))</code>. Create a tab group in any window — watch the raw event fire. That's the signal our listener wraps.
+  </div>
+</section>
+
+
+<section id="p7">
+  <div class="part-no">Part 07 — Runtime</div>
+  <h2>Calling Chrome APIs from TypeScript</h2>
+  <p class="intro">
+    The Chrome API surface is vast. TypeScript types make it tractable. Two calling styles
+    coexist — always prefer Promises.
+  </p>
+
+<pre><code class="language-typescript">// Modern, preferred
+const groups = await chrome.tabGroups.query({});
+
+// Legacy — still valid, harder to compose
+chrome.tabGroups.query({}, (groups) =&gt; { /* ... */ });</code></pre>
+
+  <h3>Walkthrough: <code>TabGroupManager.getGroup</code></h3>
+  <p>Manager methods wrap Chrome APIs with logging, retries, and fallbacks. <code>getGroup</code> is a small example that shows all three ideas at once.</p>
+<pre><code class="language-typescript">// src/lib/tabGroupManager.ts
+async getGroup(groupId: number): Promise&lt;chrome.tabGroups.TabGroup | null&gt; {  // ①
+  try {
+    const group = await new Promise&lt;chrome.tabGroups.TabGroup | null&gt;((resolve) =&gt; {
+      chrome.tabGroups.get(groupId, (g) =&gt; resolve(g || null));               // ②
+    });
+    if (group) return group;                                                  // ③
+
+    // Fallback: scan every window. Useful after window crash/restore.
+    const windows = await chrome.windows.getAll();                            // ④
+    for (const window of windows) {
+      const groups = await chrome.tabGroups.query({ windowId: window.id });
+      const match = groups.find(g =&gt; g.id === groupId);
+      if (match) return match;
+    }
+    return null;                                                              // ⑤
+  } catch (error) {
+    this.logger.error('getGroup:failed', { groupId, error });
+    return null;                                                              // ⑥
+  }
+}</code></pre>
+  <ol class="annot">
+    <li><strong>Nullable return type.</strong> <code>Promise&lt;TabGroup | null&gt;</code> — not <code>Promise&lt;TabGroup&gt;</code>. Chrome windows can close between an event firing and the handler reading the group, so <code>null</code> is a real outcome callers must handle at the type level.</li>
+    <li><strong>Callback-to-promise bridge.</strong> <code>chrome.tabGroups.get</code> here is used in its legacy callback form, wrapped into a promise so the rest of the method can <code>await</code>. The <code>|| null</code> normalizes an <code>undefined</code> callback argument.</li>
+    <li><strong>Happy-path fast exit.</strong> 95% of calls find the group on the first try. We only descend into the fallback when the direct lookup misses.</li>
+    <li><strong>Fallback: brute-force scan.</strong> Why do this at all? Because Chrome has edge cases — window just restored, group just moved — where <code>get(groupId)</code> returns nothing even though the group exists in some window. Querying every window is O(windows) but <code>windows.length</code> is typically small.</li>
+    <li><strong>Genuine miss.</strong> If the scan also fails, the group is really gone. Return <code>null</code>; the caller decides whether that's an error or a no-op.</li>
+    <li><strong>Exceptions become <code>null</code> + a log line.</strong> A throw from <code>chrome.*</code> (rare, but possible) is indistinguishable to callers from "not found." One fewer branch at the call site, one more log entry to debug from.</li>
+  </ol>
+  <div class="callout">
+    <div class="label">Key idea</div>
+    Callers of any Chrome API should assume the object may have disappeared by the time the query resolves. Types with <code>| null</code> force the caller to face it.
+  </div>
+</section>
+
+
+<section id="p8">
+  <div class="part-no">Part 08 — Runtime</div>
+  <h2>Managers and composition</h2>
+  <p class="intro">
+    Past a few hundred lines of background logic, classes that bundle related state win over loose
+    functions passing dictionaries. This project uses five managers, wired at startup.
+  </p>
+
+<pre><code class="language-typescript">// src/background.ts
+async function initializeManagers() {
+  storage = new StorageManager();
+  await storage.initialize();
+
+  bookmarkManager = new BookmarkManager(storage);
+  syncEngine      = new SyncEngine(storage, bookmarkManager, null!);  // circular dep
+  tabGroupManager = new TabGroupManager(syncEngine, storage);
+  Object.assign(syncEngine, { tabGroupManager });                     // patched after
+
+  snapshotManager = new SnapshotManager(storage, bookmarkManager);
+
+  initializeTabGroupListeners(tabGroupManager, workerStartTime);
+  initializeTabListeners(tabGroupManager);
+  initializeBookmarkListeners(bookmarkManager);
+}</code></pre>
+
+  <table class="compare">
+    <tr><th>Manager</th><th>Responsibility</th></tr>
+    <tr><td>StorageManager</td><td>Persist settings + history to <code>chrome.storage.sync</code>; hold runtime mappings in memory.</td></tr>
+    <tr><td>BookmarkManager</td><td>Create/update bookmark folders that represent tab groups.</td></tr>
+    <tr><td>SyncEngine</td><td>Orchestrator: given a group, make the bookmark folder match. Queues ops.</td></tr>
+    <tr><td>TabGroupManager</td><td>Read/mutate Chrome tab groups (e.g. move across windows).</td></tr>
+    <tr><td>SnapshotManager</td><td>Create/restore point-in-time snapshots of a group.</td></tr>
+  </table>
+
+  <h3>Why classes?</h3>
+  <p>
+    State that belongs together — a sync queue, a map of move-guards, a hash of last-seen
+    contents — is easier to pass around as a single object than as a bag of loose parameters.
+    Constructors make dependencies explicit: a <code>SyncEngine</code> that needs storage and
+    bookmarks takes both — nothing reaches into globals.
+  </p>
+
+  <div class="callout">
+    <div class="label">About that circular dep</div>
+    <code>SyncEngine</code> needs <code>TabGroupManager</code>, which needs <code>SyncEngine</code>. We
+    resolve it by constructing one with a <code>null!</code> placeholder, then patching in the real
+    reference after both exist. It's not pretty — but it's honest. Circular deps happen when the
+    domain has mutually recursive concerns, and the fix is usually "construct one, patch in the
+    other," not "rearrange the domain."
+  </div>
+</section>
+
+
+<section id="p9">
+  <div class="part-no">Part 09 — Runtime</div>
+  <h2>Popup ↔ background messaging</h2>
+  <p class="intro">
+    The popup and the service worker are separate processes. They talk via Chrome's message ports.
+  </p>
+
+  <h3>Walkthrough: popup-side <code>initializeApp</code></h3>
+  <p>When the toolbar icon is clicked, Chrome loads <code>popup.html</code>, which loads <code>popup.js</code>, which runs this. The React app does not mount until the service worker replies <code>PONG</code>.</p>
+<pre><code class="language-typescript">// src/popup.tsx
+async function initializeApp() {
+  try {
+    const port = chrome.runtime.connect({ name: 'popup' });    // ①
+
+    await new Promise&lt;void&gt;((resolve, reject) =&gt; {
+      const timeout = setTimeout(() =&gt; {                       // ②
+        reject(new Error('Service worker connection timeout'));
+      }, 5000);
+
+      port.onMessage.addListener((message) =&gt; {
+        clearTimeout(timeout);
+        if (message.type === 'PONG')        resolve();          // ③
+        else if (message.type === 'NOT_READY') reject(new Error(message.error));
+        else                                reject(new Error('Unexpected response'));
+      });
+
+      port.onDisconnect.addListener(() =&gt; {                     // ④
+        clearTimeout(timeout);
+        if (chrome.runtime.lastError) reject(new Error('Failed to connect'));
+      });
+
+      port.postMessage({ type: 'PING' });                       // ⑤
+    });
+
+    const container = document.getElementById('root')!;
+    createRoot(container).render(                               // ⑥
+      &lt;React.StrictMode&gt;
+        &lt;ErrorBoundary&gt;&lt;App /&gt;&lt;/ErrorBoundary&gt;
+      &lt;/React.StrictMode&gt;
+    );
+  } catch (error) {
+    document.body.innerHTML = `&lt;div&gt;Failed to Initialize…&lt;/div&gt;`; // ⑦
+  }
+}
+initializeApp();</code></pre>
+  <ol class="annot">
+    <li><strong>Open a named port.</strong> <code>chrome.runtime.connect({ name: 'popup' })</code> fires <code>chrome.runtime.onConnect</code> in the service worker. The <code>name</code> is our convention so the worker can distinguish popup ports from any other context.</li>
+    <li><strong>Timeout as a reject path.</strong> A cold service worker may take a moment to wake. Five seconds is generous; anything longer and we'd rather show an error than spin.</li>
+    <li><strong>Two possible replies.</strong> <code>PONG</code> means managers are wired and it's safe to render. <code>NOT_READY</code> carries an error string the UI can display. Anything else means a protocol mismatch — treated as an error.</li>
+    <li><strong>Disconnect detection.</strong> If the service worker dies before responding, we never receive a message — <code>onDisconnect</code> fires instead. Without this handler, only the timeout would save us.</li>
+    <li><strong>Send ping last.</strong> Listeners must be attached <em>before</em> posting, otherwise a fast <code>PONG</code> could race past a not-yet-registered listener. Order matters.</li>
+    <li><strong>Render only on success.</strong> <code>createRoot(...).render(...)</code> mounts the React tree. Because we awaited the handshake, <code>App</code> is guaranteed to find a live service worker on its first message.</li>
+    <li><strong>Error fallback.</strong> On any rejection we replace <code>document.body</code> with a plain-HTML error card and a Retry button. No React involved — React itself might be why we failed.</li>
+  </ol>
+
+  <h3>Walkthrough: the <code>App.tsx</code> init effect</h3>
+  <p>The popup side has a second handshake inside React. The PING done by <code>initializeApp</code> only proves the worker is alive; this <code>useEffect</code> is what builds the message-proxy managers the UI uses.</p>
+<pre><code class="language-typescript">// src/components/App.tsx
+export default function App() {
+  const [isInitialized, setIsInitialized] = React.useState(false);  // ①
+  const [error, setError] = React.useState&lt;Error | null&gt;(null);
+  const [managers, setManagers] = React.useState&lt;{ /*…*/ } | null&gt;(null);
+
+  React.useEffect(() =&gt; {                                           // ②
+    const init = async () =&gt; {
+      try {
+        const port = chrome.runtime.connect({ name: 'popup' });     // ③
+        await new Promise&lt;void&gt;((resolve, reject) =&gt; {
+          const timeout = setTimeout(() =&gt; { cleanup(); reject(/*…*/); }, 5000);
+          const messageHandler = (m: { type: string; error?: string }) =&gt; {
+            if (m.type === 'PONG')      { cleanup(); resolve(undefined); }
+            else if (m.type === 'NOT_READY') { cleanup(); reject(new Error(m.error)); }
+          };
+          const cleanup = () =&gt; {                                   // ④
+            clearTimeout(timeout);
+            port.onMessage.removeListener(messageHandler);
+          };
+          port.onMessage.addListener(messageHandler);
+          port.postMessage({ type: 'PING' });
+        });
+
+        const storage: StorageManager = {                           // ⑤
+          getSettings: async () =&gt; /* sendMessage('GET_SETTINGS') */,
+          updateSettings: async (s) =&gt; /* sendMessage('UPDATE_SETTINGS', s) */,
+          /* … */
+        } as StorageManager;
+        // bookmarkManager, syncEngine: same shape — each method = one sendMessage.
+
+        setManagers({ storage, bookmarkManager, syncEngine, tabGroupManager });
+        setIsInitialized(true);                                     // ⑥
+      } catch (error) {
+        setError(error as Error);                                   // ⑦
+      }
+    };
+    void init();
+  }, [logger]);                                                     // ⑧
+  // … render branches on isInitialized / error / managers
+}</code></pre>
+  <ol class="annot">
+    <li><strong>Three state atoms.</strong> <code>isInitialized</code> gates rendering, <code>error</code> triggers the error UI, <code>managers</code> is what child components consume. Splitting them makes each render branch trivial to check.</li>
+    <li><strong><code>useEffect</code> for side effects after mount.</strong> React's contract: the function body is pure (builds the JSX), effects run after paint. Messaging Chrome is a side effect, so it goes here.</li>
+    <li><strong>Second PING — why?</strong> The popup.tsx handshake proved the worker was awake <em>at that moment</em>. Between then and now React has mounted <code>App</code>; the worker might have died and been restarted. This PING re-establishes the invariant for the lifetime of this component.</li>
+    <li><strong>Cleanup closure.</strong> Unlike <code>popup.tsx</code>, this handler removes its own listener when resolved. That matters because <code>useEffect</code> can re-run; leaking listeners onto the port would multiply handlers on every retry.</li>
+    <li><strong>Proxy managers.</strong> The popup doesn't instantiate real <code>StorageManager</code> classes — the real ones live in the service worker. Each method here is a thin <code>chrome.runtime.sendMessage</code> wrapper that matches the <em>shape</em> of the real manager. Components can't tell the difference.</li>
+    <li><strong>State flip = re-render.</strong> <code>setManagers</code> and <code>setIsInitialized</code> schedule a React render. Now the guard <code>if (!isInitialized) return &lt;Loading/&gt;</code> in the JSX becomes false and the real UI appears.</li>
+    <li><strong>Error branch.</strong> Any throw from the async init surfaces here as state, which a sibling branch of the JSX renders as an error card with a retry button (<code>handleRetry</code>, not shown).</li>
+    <li><strong>Dependency array.</strong> <code>[logger]</code> is effectively <code>[]</code> because <code>logger</code> is a singleton — the effect runs once per mount. A <code>retryCount</code> state is also added so <code>handleRetry</code> can force the effect to re-run.</li>
+  </ol>
+
+  <h3>Service worker side</h3>
+<pre><code class="language-typescript">// background.ts
+chrome.runtime.onConnect.addListener((port) =&gt; {
+  if (port.name !== 'popup') return;
+  port.onMessage.addListener(async (msg) =&gt; {
+    if (msg.type === 'PING') {
+      const ready = await ensureInitialized();
+      port.postMessage(ready ? { type: 'PONG' } : { type: 'NOT_READY' });
+    }
+  });
+});</code></pre>
+
+  <h3>Two messaging APIs</h3>
+  <ul>
+    <li><code>chrome.runtime.connect</code> → <code>Port</code> — long-lived, bidirectional, stays open while the popup is open. Used here for the handshake.</li>
+    <li><code>chrome.runtime.sendMessage</code> + <code>onMessage</code> — fire-and-forget, one-shot. Used by every proxy manager method in App.tsx.</li>
+  </ul>
+
+  <div class="callout">
+    <div class="label">Debugging tip</div>
+    DevTools' Network tab won't show messages — they're not HTTP. Use the service worker's DevTools console plus <code>port.onMessage</code> logs. The <code>Logger</code> structures every event so you can filter by operation.
+  </div>
+</section>
+
+
+<section id="p10">
+  <div class="part-no">Part 10 — Runtime</div>
+  <h2>Persistence — storage.sync vs. bookmarks</h2>
+  <p class="intro">
+    Chrome gives extensions several places to store data. Picking wrong causes quota errors or
+    lost state. This extension uses two storage surfaces by design.
+  </p>
+
+  <h3>chrome.storage.sync</h3>
+  <p>Small, cross-device, synced via Google account. Good for settings. Strict limits: <strong>100 KB total, 8 KB per item, 120 writes/min.</strong></p>
+<pre><code class="language-typescript">await chrome.storage.sync.set({
+  'state:settings': this.persistedState.settings,
+  'state:history':  this.persistedState.syncHistory.slice(-50),   // bounded!
+});</code></pre>
+
+  <p>
+    <code>.slice(-50)</code> caps history to the last 50 entries — deliberately staying below quota.
+    Unbounded arrays in <code>storage.sync</code> are a classic bug.
+  </p>
+
+  <h3>chrome.bookmarks — as a database</h3>
+  <p>The product insight: bookmarks are <em>already</em> synced by Google, have no meaningful size limit, and are user-visible. So bookmark folders become the canonical storage for tab-group contents.</p>
+
+  <div class="diagram">Bookmarks Bar
+└── Tab Group Bookmarks           ← user-picked container
+    ├── Work                      ← bookmark folder = tab group
+    │   ├── github.com/...
+    │   ├── linear.app/...
+    │   └── mail.google.com/...
+    ├── Research
+    │   └── ...
+    └── Tab Group Snapshots
+        └── Work @ 2026-02-19     ← timestamped copies
+</div>
+
+  <p>Cross-device sync "just works" because it's the same sync layer Chrome uses for bookmarks. No account, no server, no API keys. That's the core product idea — falling out of picking the right storage medium.</p>
+
+  <table class="compare">
+    <tr><th>Surface</th><th>Use for</th><th>Avoid for</th></tr>
+    <tr><td><code>chrome.storage.sync</code></td><td>Small settings, cross-device.</td><td>Anything unbounded or &gt;8 KB/item.</td></tr>
+    <tr><td><code>chrome.storage.local</code></td><td>Larger local-only data (10 MB, or unlimited with permission).</td><td>Things you need synced.</td></tr>
+    <tr><td><code>chrome.bookmarks</code></td><td>User-visible data, or large synced datasets.</td><td>Secret/internal state.</td></tr>
+    <tr><td>IndexedDB</td><td>Structured queries, large local data.</td><td>Simple config.</td></tr>
+  </table>
+</section>
+
+
+<!-- ═════════════════════════════════════ DEEP DIVES ═════════════════════════════════════ -->
+
+<section id="p11">
+  <div class="part-no">Part 11 — Deep dives</div>
+  <h2>The distributed sync model</h2>
+  <p class="intro">
+    This extension is a <em>distributed system</em> — multiple Chrome instances, each holding partial
+    state, converging without a coordinating server. Understanding the model makes the trade-offs
+    make sense.
+  </p>
+
+  <h3>The topology</h3>
+  <div class="diagram">┌─────────────┐           ┌──────────────────┐           ┌─────────────┐
+│  Chrome on  │           │  Google Bookmark │           │  Chrome on  │
+│   Laptop    │◀─ sync ──▶│   Sync Service   │◀── sync ──▶│    Phone    │
+│  (ext v1.2) │           │  (operated by G) │           │  (ext v1.2) │
+└─────────────┘           └──────────────────┘           └─────────────┘
+       ▲                                                         ▲
+       │                                                         │
+   chrome.bookmarks.*                                   chrome.bookmarks.*
+</div>
+  <p>
+    Each Chrome talks to the Google bookmark sync service. Our extension talks only to
+    <code>chrome.bookmarks</code> — Google handles replication, conflict resolution at the bookmark
+    level, and offline queuing. We <em>ride</em> a distributed system rather than build one.
+  </p>
+
+  <h3>Two consistency gotchas</h3>
+  <h4>Bookmark IDs are local</h4>
+  <p>The ID <code>"42"</code> on your laptop is a different bookmark on your phone. IDs are per-profile, assigned on arrival. <em>Never</em> persist an ID across devices. Identify bookmarks by stable content — folder title, or URL for leaf bookmarks. See <a href="#" class="file-ref">src/lib/bookmarks/bookmarkQueries.ts</a>'s signature-based search.</p>
+
+  <h4>Names-as-identifiers</h4>
+  <p>Tab group titles are the stable identifier across devices. Two consequences:</p>
+  <ul>
+    <li>Two groups with the same name share one bookmark folder (documented in <code>docs/KNOWN_ISSUES.md</code>).</li>
+    <li>Renaming a group could mean "delete the old folder, create a new one" — which would orphan the original and lose all bookmarks under it. Instead we <em>rename the bookmark folder in place</em> whenever the title changes. See Part 12, Algorithm 6.</li>
+  </ul>
+
+  <h3>Conflict resolution: last-write-wins</h3>
+  <p>
+    If your laptop and phone modify the same group at the same moment, one wins at the bookmark
+    sync layer. We don't fight it — we accept eventual consistency. The product guarantee is
+    "your tab groups are eventually durable," not "every edit is preserved."
+  </p>
+
+  <div class="callout">
+    <div class="label">Design thread to pull on</div>
+    Compare this approach to what Workona, Toby, and Session Buddy do: they run their own
+    backends, maintain accounts, and implement server-authoritative conflict resolution. We
+    trade features (merge conflict UIs, access logs, analytics) for a simpler product boundary:
+    your data never leaves your browser. Every architectural decision in this repo ladders up
+    to that trade.
+  </div>
+</section>
+
+
+<section id="p12">
+  <div class="part-no">Part 12 — Deep dives</div>
+  <h2>Special algorithms</h2>
+  <p class="intro">
+    Five algorithms earn their keep here. None are individually exotic — their value is in
+    combining to handle the messy realities of Chrome's event model.
+  </p>
+
+  <h3>1. Walkthrough: <code>processSyncQueue</code></h3>
+  <p><code>src/lib/sync/syncEngine.ts</code> serializes sync operations with a 4-second gap and a quota-aware backoff. This is the single loop every bookmark write passes through.</p>
+<pre><code class="language-typescript">// src/lib/sync/syncEngine.ts
+private readonly SYNC_DELAY = 4000;
+private syncQueue: QueuedSync[] = [];
+private processingQueue = false;
+private readonly MAX_QUEUE_SIZE = 100;
+
+private async processSyncQueue() {
+  if (this.processingQueue || this.syncQueue.length === 0) return;      // ①
+  this.processingQueue = true;
+  try {
+    while (this.syncQueue.length &gt; 0) {                                 // ②
+      const item = this.syncQueue.shift()!;
+
+      try {
+        await this.syncGroupToFolder(item.name);                        // ③
+      } catch (error) {
+        const isQuotaError = error instanceof Error &amp;&amp;
+          error.message.includes('MAX_WRITE_OPERATIONS_PER_HOUR');      // ④
+
+        if (isQuotaError &amp;&amp; (!item.retryCount || item.retryCount &lt; this.MAX_RETRIES)) {
+          this.syncQueue.push({                                         // ⑤
+            ...item,
+            retryCount: (item.retryCount || 0) + 1,
+            timestamp: Date.now() + 60000
+          });
+          await new Promise(r =&gt; setTimeout(r, 60000));                 // ⑥
+        } else {
+          this.logger.error('syncQueue:syncFailed', { /*…*/ });         // ⑦
+        }
+      }
+
+      if (this.syncQueue.length &gt; 0) {
+        await new Promise(r =&gt; setTimeout(r, this.SYNC_DELAY));         // ⑧
+      }
+    }
+  } finally {
+    this.processingQueue = false;                                       // ⑨
+  }
+}</code></pre>
+  <ol class="annot">
+    <li><strong>Single-runner gate.</strong> Same idea as the listener queue in Part 06, but here we drain in a <code>while</code> loop rather than self-rescheduling. Either style works; this one has less <code>setTimeout</code> overhead.</li>
+    <li><strong>Drain loop.</strong> Keep pulling items until empty. New pushes from <code>queueSync</code> that arrive mid-drain are picked up on the next iteration — they notice <code>processingQueue === true</code> and skip starting their own loop.</li>
+    <li><strong>Per-item try.</strong> One bad group can't abort the whole queue. The <code>try</code> is inside the loop so we always continue.</li>
+    <li><strong>String-match the error.</strong> Chrome signals quota exhaustion via a message substring. It's fragile, but it's the surface Chrome gives us. A typed error class would be better — file a Chromium bug if you're motivated.</li>
+    <li><strong>Re-queue with backoff metadata.</strong> The item goes back to the tail with an incremented <code>retryCount</code>. After <code>MAX_RETRIES</code>, step ⑤'s branch fails and we fall through to ⑦ — dropping the item permanently rather than thrashing.</li>
+    <li><strong>Cool-off sleep.</strong> A full minute of nothing. The quota is per-hour, so a minute is enough to let a few slots free up without stalling the whole drain. Other queued items wait — by design.</li>
+    <li><strong>Terminal failure logs only.</strong> Non-quota errors (or exhausted retries) become log lines. The queue continues with the next item.</li>
+    <li><strong>The 4-second heartbeat.</strong> Between every item, a fixed gap. <code>chrome.storage.sync</code> and bookmarks both quota at 120 writes/min — 4 s/item is 15/min, comfortably under even if each sync fans out to several writes.</li>
+    <li><strong>Release the gate in <code>finally</code>.</strong> Even if an exception escapes the loop (shouldn't, but belt-and-suspenders), the next caller can start a fresh drain.</li>
+  </ol>
+
+  <h3>2. Move-guards</h3>
+  <p>Moving a group across windows fires <code>onRemoved</code> on the source window and <code>onCreated</code> on the target. Without a guard we'd treat the "remove" as a delete and wipe the bookmark folder. Each move installs a short-lived guard keyed by group name:</p>
+<pre><code class="language-typescript">interface MoveGuard { sourceGroupId?: number; targetGroupId: number; expiresAt: number; }
+private moveGuards: Map&lt;string, MoveGuard&gt; = new Map();
+// before move:        this.moveGuards.set(name, { targetGroupId, expiresAt: Date.now() + 3000 });
+// in remove handler:  if (guardActive(name)) return;   // ignore stale event</code></pre>
+
+  <h3>3. Content signatures for bookmark matching</h3>
+  <p>Because bookmark IDs vary across devices (see Part 11), we match bookmarks by a <em>signature</em>: a hash of the URL list. When sync resumes on a new device, we find the right folder by comparing signatures, not IDs.</p>
+
+  <h3>4. Walkthrough: <code>resolveGroupName</code></h3>
+  <p>Fifty lines in <code>src/lib/utils/groupNameResolver.ts</code>. Tiny, but it teaches a property-test discovery and a design decision.</p>
+<pre><code class="language-typescript">// src/lib/utils/groupNameResolver.ts
+export function resolveGroupName(title: string | undefined): string | null {
+  if (title === undefined || title === null || title === '') {  // ①
+    logger.logDecision('Group skipped due to missing title', /*…*/);
+    return null;
+  }
+  if (title.trim() === '') {                                     // ②
+    logger.logDecision('Group ignored due to whitespace-only title', /*…*/);
+    return null;
+  }
+  return title;                                                  // ③
+}</code></pre>
+  <ol class="annot">
+    <li><strong>Truly-empty → <code>null</code>.</strong> Chrome creates tab groups before the user names them, so <code>title</code> is initially undefined. Returning <code>null</code> tells every caller "this group isn't ready to sync yet" — no folder created, no mapping stored.</li>
+    <li><strong>Whitespace-only → <code>null</code>.</strong> The property-test origin: <code>fast-check</code> kept generating titles like <code>"   "</code> which, if treated as valid, created folders named <code>"   "</code> — hostile to bookmark sync. Rather than sanitize, the product decision was to ignore these groups entirely. Documented in <code>.kiro/specs/tab-group-sync/requirements.md</code> (Requirement 15).</li>
+    <li><strong>Valid → pass through.</strong> No trim, no lowercase, no normalization. The title <em>is</em> the cross-device identifier (Part 11); mutating it would break name-based matching.</li>
+  </ol>
+  <p>Callers use the <code>null</code> return as the signal to skip work. Compare <code>tabGroupListeners.ts</code>: <code>if (name === null) return</code>. Three lines of this function replace what would otherwise be scattered <code>if (title &amp;&amp; title.trim())</code> checks in a dozen places.</p>
+
+  <h3>5. Bounded history retention</h3>
+<pre><code class="language-typescript">// Ring buffer + age pruning
+const MAX_ENTRIES = 200;
+const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+history = history
+  .filter(e =&gt; (now - e.timestamp) &lt; MAX_AGE_MS)
+  .slice(-MAX_ENTRIES);</code></pre>
+  <p>Two independent cutoffs. Either condition can trigger eviction; whichever is tighter wins. This keeps <code>storage.sync</code> comfortably below quota without user configuration.</p>
+
+  <h3>6. Title-change debounce with rename-in-place</h3>
+  <p>
+    Chrome fires <code>chrome.tabGroups.onUpdated</code> on <em>every keystroke</em> while the
+    user types a group title. A naïve handler creates a bookmark folder for every intermediate
+    string: type <code>"splunk"</code> and you get six folders — <code>s</code>, <code>sp</code>,
+    <code>spl</code>, <code>splu</code>, <code>splun</code>, <code>splunk</code>. Two layers stacked
+    make this correct for any typing pattern.
+  </p>
+
+  <h4>Layer 1 — listener-level debounce</h4>
+<pre><code class="language-typescript">// src/listeners/tabGroupListeners.ts
+const UPDATE_DEBOUNCE_MS = 750;
+const updateTimers = new Map&lt;number, ReturnType&lt;typeof setTimeout&gt;&gt;();
+const latestUpdateByGroupId = new Map&lt;number, chrome.tabGroups.TabGroup&gt;();
+
+chrome.tabGroups.onUpdated.addListener((group) =&gt; {
+  latestUpdateByGroupId.set(group.id, group);           // ① always record newest
+
+  const existing = updateTimers.get(group.id);
+  if (existing) clearTimeout(existing);                 // ② reset on every event
+
+  updateTimers.set(group.id, setTimeout(async () =&gt; {   // ③ fire only after silence
+    updateTimers.delete(group.id);
+    const latest = latestUpdateByGroupId.get(group.id);
+    latestUpdateByGroupId.delete(group.id);
+    if (!latest) return;
+    await tabGroupManager.handleGroupUpdated(latest);   // ④ use settled value
+  }, UPDATE_DEBOUNCE_MS));
+});
+
+chrome.tabGroups.onRemoved.addListener((group) =&gt; {
+  const pending = updateTimers.get(group.id);           // ⑤ cancel on removal
+  if (pending) { clearTimeout(pending); updateTimers.delete(group.id); }
+  latestUpdateByGroupId.delete(group.id);
+  // ... rest of removal logic
+});</code></pre>
+  <ol class="annot">
+    <li><strong>Record, don't capture.</strong> If we captured <code>group</code> in the timer's closure, we'd sync the <em>first</em> keystroke's value (<code>"s"</code>) instead of the last (<code>"splunk"</code>). Storing the latest separately and reading it at fire-time fixes this.</li>
+    <li><strong>Reset on every event.</strong> The debounce extends as long as events keep arriving — that's the whole point.</li>
+    <li><strong>Fire after silence.</strong> 750ms of no events means the user has likely stopped typing.</li>
+    <li><strong>Use the settled value.</strong> Whatever <code>group</code> happened to be in flight when the timer started is irrelevant.</li>
+    <li><strong>Cancel on removal.</strong> Otherwise the timer fires on a group that no longer exists, triggering a sync for a ghost.</li>
+  </ol>
+
+  <h4>Layer 2 — rename-in-place at the sync engine</h4>
+  <p>
+    Debounce alone is a <em>liveness bet</em>: if the user pauses to think for a second, 750ms
+    fires too early. Without the second layer, pausing mid-typing still creates an intermediate
+    folder. The fix: when a synced group's title changes, <em>rename</em> the existing bookmark
+    folder instead of creating a new one.
+  </p>
+
+<pre><code class="language-typescript">// src/lib/sync/syncEngine.ts
+async handleGroupRenamed(
+  oldName: string, newName: string, group: chrome.tabGroups.TabGroup
+): Promise&lt;void&gt; {
+  const oldMapping = await this.storage.getMapping(oldName);
+
+  if (oldMapping?.folderId) {
+    await chrome.bookmarks.update(oldMapping.folderId, { title: newName });   // ①
+    await this.storage.updateMapping(newName, {                               // ②
+      name: newName,
+      folderId: oldMapping.folderId,
+      currentGroupId: group.id.toString(),
+      color: group.color,
+      syncEnabled: oldMapping.syncEnabled,
+      status: oldMapping.status,
+    });
+    await this.storage.removeMapping(oldName);                                // ③
+    if (oldMapping.syncEnabled) this.queueSync(newName);                      // ④
+  } else {
+    await this.handleGroupUpdated(group);                                     // ⑤
+  }
+}</code></pre>
+  <ol class="annot">
+    <li><strong>Rename the folder, don't recreate.</strong> <code>chrome.bookmarks.update(id, {title})</code> keeps the same folder ID and all child bookmarks — only the label changes.</li>
+    <li><strong>Migrate the mapping under the new name.</strong> The runtime mapping is keyed by name (Part 11), so a rename requires re-keying. We reuse the original <code>folderId</code>, preserving the bookmark chain.</li>
+    <li><strong>Drop the old mapping entry</strong> to avoid two entries pointing at the same folder.</li>
+    <li><strong>Queue a content sync only if the group was enabled.</strong> Disabled groups stay put.</li>
+    <li><strong>Fallback for first-title assignment.</strong> If there's no mapping for <code>oldName</code>, this is a group that's just being named — hand it to the create path.</li>
+  </ol>
+
+  <div class="callout">
+    <div class="label">Why both layers</div>
+    Debounce alone can fire mid-typing and orphan a folder (if the sync engine ran the old create-new path). Rename-in-place alone is correct for any pause length, but calls <code>chrome.bookmarks.update</code> on every keystroke — wasteful. Stacking both: debounce reduces churn, rename-in-place guarantees correctness. A user could pause for 10 minutes between characters and still end up with a single folder named the final title, bookmarks intact.
+  </div>
+
+  <div class="spec">
+    <div class="label">Pattern</div>
+    None of these six is a big algorithm. They're all small rules applied at the right event
+    boundary. That's the style: instead of one clever data structure, many tiny invariants at
+    the places where events cross system boundaries. Together they make the extension reliable.
+  </div>
+</section>
+
+
+<section id="p13">
+  <div class="part-no">Part 13 — Deep dives</div>
+  <h2>Testing: unit, property, E2E</h2>
+  <p class="intro">
+    Three layers, each catches different bugs. Running all three on every PR is cheap; skipping
+    any of them is expensive.
+  </p>
+
+  <h3>Unit tests (Vitest)</h3>
+  <p>Pure logic with a mocked <code>chrome</code> global. Fast (&lt;1s each), run in Node.</p>
+<pre><code class="language-typescript">// tests/unit/groupNameResolver.test.ts (sketch)
+import { resolveGroupName } from '../../src/lib/utils/groupNameResolver';
+
+test('returns "Unnamed Group" for undefined', () =&gt; {
+  expect(resolveGroupName(undefined)).toBe('Unnamed Group');
+});
+
+test('returns null for whitespace-only', () =&gt; {
+  expect(resolveGroupName('   ')).toBeNull();
+  expect(resolveGroupName('\t\n')).toBeNull();
+});</code></pre>
+
+  <h3>Property tests (fast-check)</h3>
+  <p>
+    Instead of a handful of examples, property tests generate 100+ random inputs and assert an
+    invariant. They find edge cases you wouldn't think to write.
+  </p>
+<pre><code class="language-typescript">// tests/property/sync/property-01-idempotent-sync.test.ts (sketch)
+import fc from 'fast-check';
+
+test('syncing twice yields same bookmark folder as syncing once', async () =&gt; {
+  await fc.assert(fc.asyncProperty(
+    arbitraryGroup(),
+    async (group) =&gt; {
+      const engine = freshSyncEngine();
+      await engine.syncGroup(group);
+      const snapshot1 = await engine.listBookmarks(group.name);
+      await engine.syncGroup(group);
+      const snapshot2 = await engine.listBookmarks(group.name);
+      expect(snapshot1).toEqual(snapshot2);   // idempotence
+    },
+  ));
+});</code></pre>
+  <p>When a property fails, fast-check <em>shrinks</em> the counterexample to the smallest input that still triggers the bug — hugely useful for diagnosis. The whitespace-only name case in Part 12 was discovered this way.</p>
+
+  <h3>E2E tests (Playwright)</h3>
+  <p>
+    Real Chromium, extension loaded from <code>dist/</code>, tests drive the popup UI only — no
+    internal API calls. This is the only layer that catches MV3-specific bugs like service worker
+    restarts or port-disconnect races.
+  </p>
+<pre><code class="language-typescript">// tests/e2e/fixtures.ts (condensed)
+const context = await chromium.launchPersistentContext(userDataDir, {
+  headless: false,
+  args: [`--disable-extensions-except=${EXT_PATH}`, `--load-extension=${EXT_PATH}`],
+});</code></pre>
+<pre><code class="language-typescript">// tests/e2e/tab-group-sync.test.ts (sketch)
+test('creating a tab group creates a bookmark folder', async ({ page, extensionId }) =&gt; {
+  await setupExtensionViaUI(page, extensionId);
+  await createAndSyncTabGroup(page, extensionId, { title: 'Work', urls: ['https://github.com'] });
+  const folder = await waitForBookmarkFolder(page, 'Work');
+  expect(folder).toBeTruthy();
+});</code></pre>
+
+  <table class="compare">
+    <tr><th>Layer</th><th>Speed</th><th>Catches</th><th>Misses</th></tr>
+    <tr><td>Unit</td><td>&lt;1 s</td><td>Pure-logic bugs, edge cases</td><td>Integration issues, Chrome API behavior</td></tr>
+    <tr><td>Property</td><td>5–20 s per property</td><td>Invariant violations across random inputs</td><td>Multi-component flows</td></tr>
+    <tr><td>E2E</td><td>20–60 s each</td><td>MV3 lifecycle, UI wiring, real Chrome APIs</td><td>—</td></tr>
+  </table>
+
+  <div class="callout">
+    <div class="label">CI</div>
+    See <code>.github/workflows/ci.yml</code> — unit + property run on every PR via <code>npm test</code>.
+    E2E (slower) runs locally via <code>npm run test:e2e</code>. Releases are tag-driven
+    (<code>.github/workflows/release.yml</code>) — a tag like <code>v1.2.0</code> triggers build,
+    zip, and GitHub Release with the extension attached.
+  </div>
+</section>
+
+
+<section id="p14">
+  <div class="part-no">Part 14 — Deep dives</div>
+  <h2>Observability &amp; debugging MV3</h2>
+  <p class="intro">
+    MV3's ephemeral worker makes stack traces lie. Good logging is the substitute. Every manager
+    in this project funnels events through a structured <code>Logger</code>.
+  </p>
+
+<pre><code class="language-typescript">// src/lib/utils/logger.ts (shape)
+class Logger {
+  info(event: string, data?: Record&lt;string, unknown&gt;) { /* ... */ }
+  warn(event: string, data?: Record&lt;string, unknown&gt;) { /* ... */ }
+  error(event: string, data?: Record&lt;string, unknown&gt;) { /* ... */ }
+}
+
+// Usage
+this.logger.info('tabGroup:visible:handled', { groupId: group.id, title: group.title });
+this.logger.error('sync:periodic:failed', { error: err.message });</code></pre>
+
+  <p>
+    Event names follow <code>subject:verb:outcome</code>. Payloads are structured JSON. That makes
+    log lines filterable (<code>tabGroup:*</code>, <code>sync:*:failed</code>) and — importantly for
+    MV3 — <em>correlatable across worker restarts</em> via timestamps and operation IDs.
+  </p>
+
+  <h3>OperationTracker</h3>
+  <p>
+    For multi-step ops, a tracker spans the lifetime: <code>begin</code> → <code>progress</code> →
+    <code>complete</code>/<code>fail</code>. The service worker might die mid-op — the log will show
+    a <code>begin</code> with no matching terminal event. That asymmetry is the clue.
+  </p>
+
+  <h3>Three MV3 debugging realities</h3>
+  <h4>Stale closures after worker restart</h4>
+  <p>A variable captured in a listener at <em>module load</em> time is fresh. But the listener you registered during a previous worker's init is still referenced in <code>chrome.runtime.*</code> — and when it fires in a reincarnated worker, the captured module-level variable is whatever the new worker initialized it to. Don't rely on listener-level closures for mutable state — hold state in manager instances that get rebuilt on init.</p>
+
+  <h4>Forgotten <code>ensureInitialized</code></h4>
+  <p>If a new event type arrives and you skip the init guard, the handler may run with <code>undefined</code> managers. Symptom: silent no-op or <code>Cannot read properties of undefined</code>. Every top-level listener must call <code>await ensureInitialized()</code> first.</p>
+
+  <h4>Alarm firing before init</h4>
+  <p>Chrome can fire an alarm the instant a worker wakes — before your async init has finished. The <code>ensureInitialized</code> pattern (Part 5) makes this safe. But if you put init in a <code>setTimeout(fn, 5000)</code>, the alarm will beat it. Don't.</p>
+
+  <h3>DevTools entry points</h3>
+  <ul>
+    <li><strong>Service worker</strong>: <code>chrome://extensions</code> → <em>service worker</em> link under your extension. Console + breakpoints.</li>
+    <li><strong>Popup</strong>: right-click the extension icon → <em>Inspect popup</em>. React DevTools works here.</li>
+    <li><strong>Background events</strong>: the <em>Errors</em> button on the extension card lists uncaught exceptions across worker generations.</li>
+    <li><strong>Storage</strong>: in the popup's DevTools, Application tab → Storage → Extension.</li>
+  </ul>
+
+  <div class="spec">
+    <div class="label">Worth internalizing</div>
+    In a long-running MV3 app, the single most valuable debugging skill is reading logs across
+    worker lifetimes. Not reading stack traces from a single run.
+  </div>
+</section>
+
+
+<section id="p15">
+  <div class="part-no">Part 15 — Deep dives</div>
+  <h2>Packaging and shipping</h2>
+  <p class="intro">
+    Going from working code to a Chrome Web Store listing. This is where the project-management
+    part of extension development happens.
+  </p>
+
+  <h3>Tag-driven releases</h3>
+<pre><code class="language-yaml"># .github/workflows/release.yml
+on:
+  push:
+    tags: ['v*.*.*']
+
+jobs:
+  release:
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci &amp;&amp; npm run build
+      - name: Verify tag matches manifest version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          MANIFEST=$(node -p "require('./manifest.json').version")
+          [ "$TAG" = "$MANIFEST" ] || exit 1
+      - run: cd dist &amp;&amp; zip -r "../tab-group-sync-${GITHUB_REF_NAME}.zip" .
+      - uses: softprops/action-gh-release@v2
+        with: { files: tab-group-sync-*.zip, generate_release_notes: true }</code></pre>
+
+  <p>
+    The version-parity guard is the single most useful safeguard: tagging <code>v1.3.0</code> when
+    <code>manifest.json</code> still says <code>1.2.0</code> fails the build rather than shipping a
+    confusing release.
+  </p>
+
+  <h3>Chrome Web Store checklist</h3>
+  <ul>
+    <li>Icon PNGs at 16, 48, 128 px (<code>public/icons/</code>)</li>
+    <li>Five screenshots at 1280×800 (see <code>docs/store-assets/</code>)</li>
+    <li>Promo tile at 440×280</li>
+    <li>Short description (≤132 chars) + full description</li>
+    <li>Public HTTPS privacy policy URL</li>
+    <li>Production zip of <code>dist/</code> — pulled from the GitHub Release page</li>
+  </ul>
+
+  <div class="try">
+    <div class="label">Final exercise</div>
+    Pick a feature to add — say, a keyboard shortcut to save the current window as a group.
+    Place each piece:
+    <ol>
+      <li><strong>Manifest:</strong> <code>commands</code> entry with a suggested keybinding.</li>
+      <li><strong>Listener:</strong> <code>chrome.commands.onCommand</code> in a new <code>src/listeners/commandListeners.ts</code>.</li>
+      <li><strong>Manager method:</strong> <code>TabGroupManager.saveCurrentWindowAsGroup()</code>.</li>
+      <li><strong>Sync wiring:</strong> call <code>syncEngine.syncGroup(newGroup)</code> after creation.</li>
+      <li><strong>Spec:</strong> new folder under <code>.kiro/specs/save-window-as-group/</code> with requirements, design, tasks.</li>
+      <li><strong>Tests:</strong> unit for manager method, E2E for the shortcut flow.</li>
+    </ol>
+    You now have the mental map to place every piece.
+  </div>
+
+  <div class="callout">
+    <div class="label">Where to go next</div>
+    Read Chrome's <a href="https://developer.chrome.com/docs/extensions/mv3/getstarted/">Getting Started</a> for topics this tutorial skipped: content scripts, host permissions,
+    <code>declarativeNetRequest</code>, offscreen documents. Then skim
+    <a href="https://github.com/kundeng/tabgroupsync/tree/main/.kiro/specs">.kiro/specs/</a>
+    — it's the spec-driven record of how each feature was thought through before it was coded.
+  </div>
+</section>
+
+</main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script>
+  const links = document.querySelectorAll('nav.side a[href^="#"]');
+  const sections = [...links].map(a => document.querySelector(a.getAttribute('href')));
+
+  function setActive() {
+    const y = window.scrollY + 120;
+    let currentIdx = 0;
+    sections.forEach((s, i) => { if (s && s.offsetTop <= y) currentIdx = i; });
+    links.forEach((l, i) => l.classList.toggle('active', i === currentIdx));
+  }
+  window.addEventListener('scroll', setActive, { passive: true });
+  setActive();
+
+  links.forEach(a => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    const t = document.querySelector(a.getAttribute('href'));
+    if (t) window.scrollTo({ top: t.offsetTop - 16, behavior: 'smooth' });
+  }));
+</script>
+</body>
+</html>
