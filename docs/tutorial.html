@@ -358,38 +358,100 @@
   <div class="part-no">Part 02 — Foundations</div>
   <h2>Project scaffold and the dual build</h2>
   <p class="intro">
-    TypeScript needs compilation. Chrome's service worker has a peculiar constraint: it must be
-    a <em>single file</em> with all imports inlined. This project solves both with Vite running in
-    two passes.
+    An extension has two programs running in different environments: the <strong>popup</strong>
+    (a small web page) and the <strong>service worker</strong> (a background process). They have
+    different constraints, so they need separate builds.
   </p>
 
-<pre><code class="language-typescript">// vite.config.ts
+  <h3>The constraint that forces two builds</h3>
+  <p>
+    Chrome's Manifest V3 requires the service worker to be <strong>one self-contained JavaScript
+    file</strong>. It cannot use <code>import</code> statements at runtime — every dependency must be
+    bundled inline. The popup, on the other hand, is a normal web page that <em>can</em> split code
+    into multiple files (chunks) for faster loading.
+  </p>
+  <p>
+    Since one build target needs inlining and the other needs code-splitting, we can't build both
+    in a single pass. Hence: two Vite passes.
+  </p>
+
+  <h3>What each build step produces</h3>
+  <div class="diagram">npm run build
+    │
+    ├── Step 1: tsc                     (typecheck only — catches errors, produces nothing)
+    │
+    ├── Step 2: vite build              (Pass 1 — the popup)
+    │   Input:  src/popup.tsx           ← React app entry point
+    │   Output: dist/popup.js           ← main bundle
+    │           dist/assets/popup.css   ← extracted styles
+    │   Config: emptyOutDir = true      ← cleans dist/ first
+    │           code-splitting ON       ← can use multiple files
+    │
+    ├── Step 3: BUILD_BACKGROUND=true   (Pass 2 — the service worker)
+    │   vite build
+    │   Input:  src/background.ts       ← service worker entry point
+    │   Output: dist/background.js      ← ONE file, everything inlined
+    │   Config: emptyOutDir = false     ← keeps popup output from Step 2
+    │           inlineDynamicImports    ← forces single-file output
+    │
+    └── Step 4: copy-extension-files.js (copies manifest.json, icons, HTML, opener.html)</div>
+
+  <h3>How Vite knows which pass to run</h3>
+  <p>
+    One config file, one environment variable. When <code>BUILD_BACKGROUND</code> is not set
+    (Step 2), Vite builds the popup. When it's <code>'true'</code> (Step 3), Vite builds the
+    service worker. The key difference is <code>inlineDynamicImports</code> — it forces Vite
+    to collapse all <code>import</code> statements into a single output file.
+  </p>
+
+<pre><code class="language-typescript">// vite.config.ts — the switch that controls both passes
 const buildBackground = process.env.BUILD_BACKGROUND === 'true';
 
 export default defineConfig({
   plugins: [react()],
   build: {
     outDir: 'dist',
-    emptyOutDir: !buildBackground,           // keep popup output on pass 2
+    emptyOutDir: !buildBackground,             // ① Pass 1 cleans dist/, Pass 2 keeps it
     rollupOptions: {
       input: buildBackground
-        ? { background: resolve(__dirname, 'src/background.ts') }
-        : { popup:      resolve(__dirname, 'src/popup.tsx') },
-      output: { inlineDynamicImports: buildBackground }, // bg = single file
+        ? { background: resolve(__dirname, 'src/background.ts') }   // ② Pass 2 entry
+        : { popup:      resolve(__dirname, 'src/popup.tsx') },      // ③ Pass 1 entry
+      output: {
+        inlineDynamicImports: buildBackground  // ④ Pass 2 → single file; Pass 1 → chunks OK
+      },
     },
     target: 'chrome112',
   },
 });</code></pre>
+  <ol class="annot">
+    <li><strong><code>emptyOutDir</code>.</strong> Pass 1 sets this to <code>true</code> — it wipes <code>dist/</code> clean before writing popup files. Pass 2 sets it to <code>false</code> — it adds <code>background.js</code> alongside the popup output without deleting it.</li>
+    <li><strong>Pass 2 entry.</strong> <code>src/background.ts</code> imports everything it needs: StorageManager, BookmarkManager, SyncEngine, listeners, PathMapper. Vite follows every import and inlines them all into one file.</li>
+    <li><strong>Pass 1 entry.</strong> <code>src/popup.tsx</code> is the React app. Vite builds it normally with code-splitting — React, MUI, and app code may end up in separate chunks under <code>dist/assets/</code>.</li>
+    <li><strong><code>inlineDynamicImports</code>.</strong> This is the critical flag. Without it, Vite would produce <code>background.js</code> plus separate chunk files — and Chrome would reject the service worker because it can't resolve <code>import './chunk-abc123.js'</code> at runtime.</li>
+  </ol>
 
-<pre><code class="language-bash"># package.json
+<pre><code class="language-bash"># package.json — the full build command
 "build": "tsc && vite build && BUILD_BACKGROUND=true vite build && node scripts/copy-extension-files.js"</code></pre>
 
-  <ol>
-    <li><code>tsc</code> — typecheck only (Vite does the transpile).</li>
-    <li>First Vite pass — produces <code>popup.js</code> and its chunks.</li>
-    <li>Second Vite pass (<code>BUILD_BACKGROUND=true</code>) — produces one inlined <code>background.js</code>.</li>
-    <li>Copy script — moves <code>manifest.json</code>, HTML, icons into <code>dist/</code>.</li>
-  </ol>
+  <h3>What <code>dist/</code> looks like after build</h3>
+<pre><code class="language-bash">dist/
+├── popup.js              ← React app (popup UI)         ~920 KB
+├── popup.html            ← shell that loads popup.js
+├── background.js         ← service worker (ALL code)    ~124 KB, fully self-contained
+├── manifest.json         ← tells Chrome where to find popup.html and background.js
+├── opener.html           ← fallback page for file:// URLs
+├── welcome.html          ← first-install welcome page
+├── assets/
+│   └── popup.css         ← extracted MUI styles
+└── icons/
+    ├── icon16.png
+    ├── icon48.png
+    └── icon128.png</code></pre>
+  <p>
+    Notice: <code>background.js</code> has no companion chunks. It's one file containing the
+    StorageManager, BookmarkManager, SyncEngine, PathMapper, all listeners, and all utilities —
+    inlined by Vite. The popup, by contrast, references <code>assets/popup.css</code> separately.
+  </p>
 
   <h3>TypeScript and the Chrome types</h3>
   <p>
@@ -401,17 +463,19 @@ export default defineConfig({
   </p>
 
   <div class="callout">
-    <div class="label">Why Vite?</div>
-    You could use webpack, esbuild, Parcel, or raw tsc. Vite's advantage here is fast rebuilds
-    during <code>npm run watch</code> and a small config surface. Nothing in the extension model
-    requires Vite specifically.
+    <div class="label">Why two passes instead of two Vite configs?</div>
+    You could create <code>vite.config.popup.ts</code> and <code>vite.config.background.ts</code>.
+    The single-config-with-env-var approach is simpler for this project — one file to maintain,
+    one <code>npm run build</code> command. For a larger extension with content scripts or multiple
+    entry points, separate configs may be cleaner.
   </div>
 
   <div class="try">
     <div class="label">Try this</div>
-    Run <code>npm run build</code>, inspect <code>dist/</code>. Open <code>background.js</code> — see how
-    every <code>src/lib/*</code> import was inlined. Compare with <code>popup.js</code>, which uses
-    chunks under <code>assets/</code>.
+    Run <code>npm run build</code>, then inspect <code>dist/</code>. Open <code>background.js</code> and
+    search for <code>class StorageManager</code> — you'll find it inlined around line 800. Now open
+    <code>popup.js</code> — it's a React bundle that <em>doesn't</em> contain StorageManager, because
+    the popup uses message-proxy objects instead (see Part 09).
   </div>
 </section>
 
@@ -1437,26 +1501,89 @@ jobs:
     don't have this filter. This extension exploits that gap.
   </p>
 
-  <h3>The one-line fix</h3>
-  <p>The entire capture path was blocked by a single filter in <code>bookmarkManager.ts</code>:</p>
-<pre><code class="language-typescript">// Before — dropped file:// URLs:
-if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://'))
+  <h3>Walkthrough: the URL filter change</h3>
+  <p>The entire capture path was blocked by a single filter. Here's the actual code before and after, from <a href="https://github.com/kundeng/tabgroupsync/blob/main/src/lib/bookmarks/bookmarkManager.ts" class="file-ref">src/lib/bookmarks/bookmarkManager.ts</a> inside <code>syncGroupToFolder()</code>:</p>
 
-// After — allows file://:
-if (!isSyncableUrl(tab.url))   // http, https, OR file</code></pre>
-  <div class="code-caption">src/lib/bookmarks/bookmarkManager.ts — the gate that was blocking file:// tabs</div>
+<pre><code class="language-typescript">// src/lib/bookmarks/bookmarkManager.ts — syncGroupToFolder()
 
-  <p>That's it for capture. The restore path in <code>background.ts</code> already opened any URL from bookmarks without filtering — so file:// bookmarks "just work" on restore, as long as the browser has <em>"Allow access to file URLs"</em> enabled for the extension.</p>
+// BEFORE (line 369): only http and https passed through
+.filter((tab): tab is { title: string; url: string } => {
+  if (typeof tab.url !== 'string') return false;
+  if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://')) {  // ①
+    this.logger.debug('sync:invalidTab', { url: tab.url, reason: 'non-http URL' });
+    return false;
+  }
+  if (existingUrls.has(tab.url)) return false;                              // ②
+  return true;
+});
 
-  <h3>The opener page fallback</h3>
-  <p>When <code>chrome.tabs.create({url: 'file://...'})</code> fails (usually because file access isn't enabled), the extension opens <code>opener.html</code> instead — a plain HTML page that shows the target path, setup instructions, and a "Try opening" button.</p>
+// AFTER: file:// URLs pass through, with canonicalization for dedup
+.filter((tab): tab is { title: string; url: string } => {
+  if (typeof tab.url !== 'string') return false;
+  if (!isSyncableUrl(tab.url)) return false;                                // ③
+  const canonical = isFileUrl(tab.url)
+    ? canonicalize(tab.url, mappingConfig)                                  // ④
+    : tab.url;
+  if (existingUrls.has(canonical)) return false;                            // ⑤
+  return true;
+});</code></pre>
+  <ol class="annot">
+    <li><strong>The old gate.</strong> This line was why every <code>file://</code>, <code>chrome://</code>, <code>edge://</code>, and <code>about:</code> URL was silently dropped. It was a reasonable default — but it also blocked the one non-http scheme users actually need.</li>
+    <li><strong>Old dedup.</strong> Compared raw URLs. This worked because all URLs were http/https — the same URL string on every machine.</li>
+    <li><strong>The new gate.</strong> <code>isSyncableUrl()</code> returns <code>true</code> for <code>http://</code>, <code>https://</code>, and <code>file://</code>. Browser-internal URLs (<code>chrome://</code>, <code>edge://</code>, <code>about:</code>) are still dropped.</li>
+    <li><strong>Canonicalize before dedup.</strong> A file:// URL like <code>/home/bar/Dropbox/ch1.html</code> (Linux) gets rewritten to <code>/Users/foo/Dropbox/ch1.html</code> (canonical form) before the duplicate check. This prevents the flip-flop problem (Part 17).</li>
+    <li><strong>New dedup.</strong> Compares the <em>canonicalized</em> URL against existing bookmarks (which are also canonicalized). Two machines syncing the same file produce the same canonical URL — no duplicates.</li>
+  </ol>
 
-  <div class="diagram">Tab has file:// URL
+  <h3>The restore path — already worked</h3>
+  <p>The restore handler in <a href="https://github.com/kundeng/tabgroupsync/blob/main/src/background.ts" class="file-ref">src/background.ts</a> (line ~600) already opened any bookmark URL without filtering. The only addition: apply <code>localize()</code> to rewrite canonical paths to local paths before opening, and fall back to <code>opener.html</code> if <code>chrome.tabs.create()</code> fails.</p>
+
+<pre><code class="language-typescript">// src/background.ts — RESTORE_GROUP_FROM_BOOKMARKS handler
+const mappingConfig = await storage.getPathMappingConfig();
+for (const url of urls) {
+  const resolvedUrl = isFileUrl(url) ? localize(url, mappingConfig) : url;  // ①
+  try {
+    const tab = await chrome.tabs.create({ url: resolvedUrl, active: false });
+    createdTabs.push(tab);
+  } catch (error) {
+    if (isFileUrl(resolvedUrl)) {                                            // ②
+      const openerUrl = chrome.runtime.getURL('opener.html')
+        + '?target=' + encodeURIComponent(resolvedUrl)
+        + '&original=' + encodeURIComponent(url);
+      const tab = await chrome.tabs.create({ url: openerUrl, active: false });
+      createdTabs.push(tab);
+    } else {
+      throw error;
+    }
+  }
+}</code></pre>
+  <ol class="annot">
+    <li><strong>Localize.</strong> Canonical bookmark URL <code>file:///Users/foo/Dropbox/ch1.html</code> → local <code>file:///home/bar/Dropbox/ch1.html</code>. Non-file URLs pass through unchanged.</li>
+    <li><strong>Fallback.</strong> If <code>chrome.tabs.create</code> throws (typically "Allow access to file URLs" not enabled), open the opener page instead. The opener shows the path, setup instructions, and a manual "Try opening" button.</li>
+  </ol>
+
+  <h3>The full capture flow</h3>
+  <div class="diagram">Tab URL arrives at syncGroupToFolder()
        │
-  isSyncableUrl() ── yes ──▶ canonicalize() ──▶ bookmark created
+  isSyncableUrl()?
        │
-  chrome:// edge:// ── no ──▶ dropped (as before)
-</div>
+  ┌────┼────────────────┐
+  │    │                 │
+ YES   │                NO → dropped (chrome://, edge://, about://)
+  │    │
+  │  isFileUrl()?
+  │    │
+  ┌────┼──────┐
+  │           │
+ YES         NO → use URL as-is
+  │
+canonicalize() → rewrite local prefix to canonical
+  │
+  ▼
+dedup check against existing bookmarks (also canonicalized)
+  │
+  ▼
+chrome.bookmarks.create({ url: canonicalUrl })</div>
 
   <div class="callout">
     <div class="label">Why bookmarks work but saved groups don't</div>
@@ -1481,30 +1608,86 @@ if (!isSyncableUrl(tab.url))   // http, https, OR file</code></pre>
   </p>
 
   <h3>Bidirectional mapping</h3>
-  <p>Each machine has a config: a <em>canonical prefix</em> (what goes in bookmarks) and a <em>local prefix</em> (what opens on this machine). Mapping works in both directions:</p>
+  <p>Each machine has a config: a <em>canonical prefix</em> (what goes in bookmarks) and a <em>local prefix</em> (what opens on this machine). Mapping works in both directions.</p>
 
-<pre><code class="language-typescript">// src/lib/utils/pathMapper.ts — pure functions, no state
+  <h4>Concrete example: two machines, one Dropbox folder</h4>
+  <div class="diagram">Machine "mac" config:                  Machine "linux" config:
+  canonical: /Users/foo/Dropbox          canonical: /Users/foo/Dropbox
+  local:     /Users/foo/Dropbox          local:     /home/bar/Dropbox
+  (same — this IS the canonical machine) (different — needs rewriting)
 
-// At capture time: local → canonical (for bookmarks)
-canonicalize('file:///home/bar/Dropbox/ch1.html', config)
-// → 'file:///Users/foo/Dropbox/ch1.html'
+Mac captures a tab:                     Linux captures the same file:
+  tab URL:      file:///Users/foo/        tab URL:      file:///home/bar/
+                Dropbox/ch1.html                        Dropbox/ch1.html
+  canonicalize: no-op (already canonical) canonicalize: → file:///Users/foo/
+  bookmark:     file:///Users/foo/                        Dropbox/ch1.html
+                Dropbox/ch1.html          bookmark:     file:///Users/foo/
+                                                          Dropbox/ch1.html
 
-// At restore time: canonical → local (for opening)
-localize('file:///Users/foo/Dropbox/ch1.html', config)
-// → 'file:///home/bar/Dropbox/ch1.html'</code></pre>
+                    ↓ Both write the SAME bookmark URL ↓
+                    ↓     No duplicates — dedup works    ↓
 
-  <h3>Why pure functions, not a Manager</h3>
-  <p>
-    Every other domain concern in this codebase uses a Manager class. PathMapper deliberately
-    breaks the pattern. Mapping is a stateless transformation — URL in, URL out. No lifecycle,
-    no initialization, no Chrome API calls. It takes a config argument; it doesn't read storage.
-    This makes it trivially testable with fast-check:
-  </p>
+Linux restores from bookmark:           Mac restores from bookmark:
+  bookmark:     file:///Users/foo/        bookmark:     file:///Users/foo/
+                Dropbox/ch1.html                        Dropbox/ch1.html
+  localize:     → file:///home/bar/       localize:     no-op
+                  Dropbox/ch1.html        opens:        file:///Users/foo/
+  opens:        file:///home/bar/                       Dropbox/ch1.html
+                Dropbox/ch1.html</div>
 
-<pre><code class="language-typescript">// Correctness property: round-trip
-fc.assert(fc.property(arbUrl, arbConfig, (url, config) => {
-  expect(localize(canonicalize(url, config), config)).toBe(url);
-}));</code></pre>
+  <h3>Walkthrough: <code>canonicalize()</code> and <code>localize()</code></h3>
+  <p>From <a href="https://github.com/kundeng/tabgroupsync/blob/main/src/lib/utils/pathMapper.ts" class="file-ref">src/lib/utils/pathMapper.ts</a> — pure functions, no state, no Chrome APIs:</p>
+
+<pre><code class="language-typescript">// src/lib/utils/pathMapper.ts
+
+export function canonicalize(fileUrl: string, config: PathMappingConfig): string {
+  if (!isFileUrl(fileUrl) || config.rules.length === 0) return fileUrl;    // ①
+
+  const path = extractPath(fileUrl);                                       // ②
+  const rule = findMatchingRule(path, config.rules, r => r.localPrefix);   // ③
+  if (!rule) return fileUrl;                                               // ④
+
+  const newPath = rewritePath(path, rule.localPrefix, rule.canonicalPrefix);
+  const afterPath = fileUrl.slice(FILE_PROTOCOL.length + path.length);     // ⑤
+  return FILE_PROTOCOL + newPath + afterPath;
+}
+
+export function localize(fileUrl: string, config: PathMappingConfig): string {
+  if (!isFileUrl(fileUrl) || config.rules.length === 0) return fileUrl;
+
+  const path = extractPath(fileUrl);
+  const rule = findMatchingRule(path, config.rules, r => r.canonicalPrefix); // ⑥
+  if (!rule) return fileUrl;
+
+  const newPath = rewritePath(path, rule.canonicalPrefix, rule.localPrefix);
+  const afterPath = fileUrl.slice(FILE_PROTOCOL.length + path.length);
+  return FILE_PROTOCOL + newPath + afterPath;
+}</code></pre>
+  <ol class="annot">
+    <li><strong>Early return for non-file URLs.</strong> <code>http://</code> and <code>https://</code> URLs pass through untouched. No mapping config = no rewriting — graceful degradation for unconfigured machines.</li>
+    <li><strong>Extract the path.</strong> <code>file:///home/bar/Dropbox/ch1.html#section</code> → <code>/home/bar/Dropbox/ch1.html</code>. Strips the protocol and any fragment/query.</li>
+    <li><strong>Find matching rule.</strong> <code>canonicalize</code> matches against <code>localPrefix</code> — "does this path start with my local prefix?" Uses longest-prefix match when multiple rules apply.</li>
+    <li><strong>No match = no rewrite.</strong> If the path doesn't match any rule, return as-is. This handles file:// URLs outside mapped directories.</li>
+    <li><strong>Preserve fragments.</strong> <code>#section</code> and <code>?query</code> are re-appended after rewriting the path.</li>
+    <li><strong>The mirror.</strong> <code>localize</code> is structurally identical to <code>canonicalize</code> — it just matches against <code>canonicalPrefix</code> instead of <code>localPrefix</code>, and rewrites in the opposite direction.</li>
+  </ol>
+
+  <h3>Property tests prove correctness</h3>
+  <p>Four properties verified by fast-check across hundreds of random URL/config combinations:</p>
+
+<pre><code class="language-typescript">// tests/property/bookmarks/property-file-url-mapping.test.ts
+
+// 1. Round-trip: localize undoes canonicalize
+localize(canonicalize(url, config), config) === url
+
+// 2. Idempotency: canonicalizing twice = canonicalizing once
+canonicalize(canonicalize(url, config), config) === canonicalize(url, config)
+
+// 3. http passthrough: non-file URLs are never modified
+canonicalize('https://example.com', anyConfig) === 'https://example.com'
+
+// 4. No-mapping passthrough: empty config = no rewriting
+canonicalize(anyFileUrl, { machineId: '', rules: [] }) === anyFileUrl</code></pre>
 
   <h3>Storage design</h3>
   <p>
@@ -1546,36 +1729,74 @@ chrome.storage.local:
     fuzzy-searchable index, showing the sync relationship between each URL.
   </p>
 
-  <h3>The search index</h3>
-  <p>On focus, the SearchBar component loads two datasets and merges them by URL:</p>
-<pre><code class="language-typescript">// 1. Open tabs (grouped only)
-const tabs = await chrome.tabs.query({});
-const grouped = tabs.filter(t => t.groupId !== -1 && groupMap[t.groupId]);
+  <h3>Walkthrough: building the search index</h3>
+  <p>From <a href="https://github.com/kundeng/tabgroupsync/blob/main/src/components/SearchBar.tsx" class="file-ref">src/components/SearchBar.tsx</a> — the <code>useEffect</code> that runs on focus:</p>
 
-// 2. Backed-up bookmarks (from Tab Group Bookmarks folder)
-const bookmarks = await chrome.bookmarks.getChildren(tgb.id);
+<pre><code class="language-typescript">// src/components/SearchBar.tsx — index building (simplified)
 
-// 3. Merge by URL — items in both get inTab=true AND inBookmark=true
-if (seen.has(bm.url)) {
-  existing.inBookmark = true;  // "synced" — open AND backed up
-}</code></pre>
+React.useEffect(() =&gt; {
+  if (!focused) return;                                                     // ①
+
+  (async () =&gt; {
+    const [tabs, tabGroups] = await Promise.all([                           // ②
+      chrome.tabs.query({}),
+      chrome.tabGroups.query({})
+    ]);
+
+    const items: SearchResult[] = [];
+    const seen = new Set&lt;string&gt;();
+
+    // Phase 1: index all grouped tabs
+    for (const tab of tabs) {
+      if (tab.groupId === -1 || !groupMap[tab.groupId]) continue;           // ③
+      seen.add(tab.url);
+      items.push({ url: tab.url, title: tab.title, groupName: ...,
+                   inTab: true, inBookmark: false,
+                   isFile: tab.url.startsWith('file://') });
+    }
+
+    // Phase 2: index bookmarks, merge with tabs by URL
+    for (const group of groups) {
+      const bms = await chrome.bookmarks.getChildren(group.id);
+      for (const bm of bms) {
+        if (seen.has(bm.url)) {
+          items.find(i =&gt; i.url === bm.url)!.inBookmark = true;            // ④
+          continue;
+        }
+        items.push({ ..., inTab: false, inBookmark: true });                // ⑤
+      }
+    }
+
+    setHaystack(items.map(i =&gt; `${i.title} ${i.url} ${i.groupName}`));     // ⑥
+  })();
+}, [focused]);</code></pre>
+  <ol class="annot">
+    <li><strong>Load on focus only.</strong> The index isn't built on mount — it waits until the user clicks the search bar. Avoids unnecessary Chrome API calls when search isn't used.</li>
+    <li><strong>Parallel load.</strong> Tabs and tab groups are independent queries — <code>Promise.all</code> saves a round trip.</li>
+    <li><strong>Grouped tabs only.</strong> Ungrouped tabs aren't part of this extension's model. <code>groupId === -1</code> means "not in any group."</li>
+    <li><strong>Merge by URL.</strong> If a bookmark URL matches an open tab, that item gets <code>inBookmark = true</code> — making it "synced" (both open AND backed up).</li>
+    <li><strong>Bookmark-only items.</strong> URLs in bookmarks but not currently open get <code>inTab: false</code> — shown as "saved" in results.</li>
+    <li><strong>The haystack.</strong> uFuzzy searches concatenated strings: <code>"React Hooks Guide https://react.dev/hooks Web Development"</code>. Searching "react hooks" or "web dev react" both match.</li>
+  </ol>
 
   <h3>Sync status chips</h3>
   <table class="compare">
     <tr><th>Chip</th><th>Meaning</th><th>Click action</th></tr>
-    <tr><td><code>synced</code> (green)</td><td>Open in tab + backed up in bookmarks</td><td>Switch to tab</td></tr>
-    <tr><td><code>tab</code></td><td>Open but not yet backed up</td><td>Switch to tab</td></tr>
+    <tr><td><code>synced</code> (green)</td><td>Open in tab + backed up in bookmarks</td><td>Switch to that tab</td></tr>
+    <tr><td><code>tab</code></td><td>Open but not yet backed up</td><td>Switch to that tab</td></tr>
     <tr><td><code>saved</code></td><td>Backed up but not currently open</td><td>Open as new tab</td></tr>
-    <tr><td><code>file</code> (blue)</td><td>A <code>file://</code> URL</td><td>Open with path mapping</td></tr>
+    <tr><td><code>file</code> (blue)</td><td>A <code>file://</code> URL</td><td>Open with path mapping applied</td></tr>
   </table>
 
-  <h3>Why uFuzzy</h3>
+  <h3>Why uFuzzy over Fuse.js</h3>
   <p>
-    <a href="https://github.com/leeoniya/uFuzzy">uFuzzy</a> is ~3KB, faster than Fuse.js (~25KB),
-    and handles URL patterns well with its <code>intraMode: 1</code> setting (allows gaps within
-    words). The haystack is <code>"${title} ${url} ${groupName}"</code> — searching "react hooks"
-    matches a tab titled "React Hooks Guide" in any group.
+    <a href="https://github.com/leeoniya/uFuzzy">uFuzzy</a> is ~3KB (vs Fuse.js at ~25KB), faster,
+    and better at URL patterns with its <code>intraMode: 1</code> setting (allows gaps within words).
+    The search pipeline is three calls:
   </p>
+<pre><code class="language-typescript">const idxs = uf.filter(haystack, query);     // fast pre-filter
+const info = uf.info(idxs, haystack, query); // match quality scoring
+const order = uf.sort(info, haystack, query); // rank by relevance</code></pre>
 
   <h3>The restore dropdown</h3>
   <p>Each group has a cloud-download icon that opens a menu with four restore modes:</p>
