@@ -108,7 +108,7 @@
     - **Depends**: 1.2
     - **Properties**: 1, 2, 4, 5
 
-  - [ ] 5.3 Unit tests for capture flow (bookmarkManager)
+  - [x] 5.3 Unit tests for capture flow (bookmarkManager)
     - file:// URL is included (not filtered)
     - file:// URL is canonicalized before bookmark creation
     - Dedup works across canonical forms (no flip-flop duplicates)
@@ -118,7 +118,7 @@
     - **Depends**: 2.1
     - **Properties**: 3, 4
 
-  - [ ] 5.4 Unit tests for restore flow (background.ts)
+  - [~] 5.4 Unit tests for restore flow (background.ts)
     - file:// bookmark localized before tab creation
     - Fallback to opener page on create failure
     - http(s) URLs unaffected
