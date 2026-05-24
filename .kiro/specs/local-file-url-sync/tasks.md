@@ -100,7 +100,7 @@
     - **Depends**: 1.2
     - **Properties**: 1, 2, 4, 5
 
-  - [ ] 5.2 Property tests for pathMapper.ts
+  - [x] 5.2 Property tests for pathMapper.ts
     - Round-trip: `localize(canonicalize(url, c), c) === url`
     - Idempotency: `canonicalize(canonicalize(url, c), c) === canonicalize(url, c)`
     - http(s) passthrough: `canonicalize(httpUrl, anyConfig) === httpUrl`
