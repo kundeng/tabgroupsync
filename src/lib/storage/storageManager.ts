@@ -9,7 +9,9 @@ import {
   RuntimeMapping,
   RuntimeMappingUpdate,
   CombinedState,
-  GroupSyncPreferences
+  GroupSyncPreferences,
+  PathMappingConfig,
+  PathMappingStore
 } from '../types/storage';
 import { validateStorageState, validateSyncHistoryEntry } from '../utils/validators';
 import { StorageError, withErrorHandling, ErrorType } from '../utils/errors';
@@ -504,6 +506,38 @@ export class StorageManager {
       ...this.persistedState,
       runtime: this.runtimeState
     };
+  }
+
+  // Path Mapping Operations
+  async getPathMappingConfig(): Promise<PathMappingConfig> {
+    const machineId = await this.getCurrentMachineId();
+    if (!machineId) return { machineId: '', rules: [] };
+
+    const store = this.persistedState.settings.pathMappings;
+    if (!store?.machines[machineId]) return { machineId, rules: [] };
+
+    return store.machines[machineId];
+  }
+
+  async setPathMappingConfig(config: PathMappingConfig): Promise<void> {
+    const store: PathMappingStore = this.persistedState.settings.pathMappings ?? { machines: {} };
+    store.machines[config.machineId] = config;
+    this.persistedState.settings.pathMappings = store;
+    await this.saveState();
+    this.notify('settings-changed', this.persistedState);
+  }
+
+  async getAllMachineConfigs(): Promise<PathMappingStore> {
+    return this.persistedState.settings.pathMappings ?? { machines: {} };
+  }
+
+  async getCurrentMachineId(): Promise<string | undefined> {
+    const data = await chrome.storage.local.get('machineId');
+    return data.machineId as string | undefined;
+  }
+
+  async setCurrentMachineId(id: string): Promise<void> {
+    await chrome.storage.local.set({ machineId: id });
   }
 
   async clearAllData(): Promise<void> {

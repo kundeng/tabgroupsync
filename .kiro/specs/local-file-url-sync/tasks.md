@@ -24,7 +24,7 @@
     - **Requirements**: 1.2, 1.3, 1.4, 2.6, 3.1, 3.2
     - **Properties**: 1, 2, 4, 5
 
-  - [ ] 1.3 Add StorageManager methods for path mapping
+  - [x] 1.3 Add StorageManager methods for path mapping
     - `getPathMappingConfig()` — returns config for current machine
     - `setPathMappingConfig(config)` — saves config for current machine
     - `getAllMachineConfigs()` — returns all machines' configs
