@@ -90,7 +90,7 @@
     - **Requirements**: 5.1, 5.2, 5.3, 5.4
 
 - [ ] 5. Tests
-  - [ ] 5.1 Unit tests for pathMapper.ts
+  - [x] 5.1 Unit tests for pathMapper.ts
     - canonicalize: with mapping, without mapping, longest-prefix match
     - localize: with mapping, without mapping, no matching rule
     - areSameFile: same file different machines, different files

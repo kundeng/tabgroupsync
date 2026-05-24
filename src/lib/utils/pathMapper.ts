@@ -75,7 +75,18 @@ function rewritePath(
     return normalizeTrailingSlash(toPrefix);
   }
 
-  const suffix = decoded.slice(normalizedFrom.length);
+  // Preserve original encoding in the suffix by slicing from the raw path
+  // The decoded prefix length may differ from encoded, so find the encoded boundary
+  const encodedFrom = normalizedFrom.replace(/ /g, '%20');
+  const normalizedPath = normalizeTrailingSlash(path);
+  let suffix: string;
+  if (path.startsWith(encodedFrom + '/') || normalizedPath === encodedFrom) {
+    suffix = path.slice(encodedFrom.length);
+  } else if (decoded.startsWith(normalizedFrom + '/')) {
+    suffix = decoded.slice(normalizedFrom.length);
+  } else {
+    suffix = decoded.slice(normalizedFrom.length);
+  }
   return normalizeTrailingSlash(toPrefix) + suffix;
 }
 
