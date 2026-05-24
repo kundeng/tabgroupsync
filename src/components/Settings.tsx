@@ -650,17 +650,73 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
                       variant="contained"
                       onClick={async () => {
                         try {
-                          const resp = await new Promise<{ success?: boolean; totalOpened?: number; error?: string }>((resolve, reject) => {
-                            chrome.runtime.sendMessage({ type: 'RESTORE_FILE_URLS' }, r => {
-                              if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
-                              else resolve(r);
-                            });
-                          });
-                          if (resp.error) {
-                            alert('Error: ' + resp.error);
-                          } else {
-                            alert(`Opened ${resp.totalOpened} file tab(s) across all groups.`);
+                          const [syncData, localData] = await Promise.all([
+                            chrome.storage.sync.get('state:pathMappings'),
+                            chrome.storage.local.get('machineId')
+                          ]);
+                          const store = syncData['state:pathMappings'] as any;
+                          const mid = localData.machineId as string;
+                          const rules = (store?.machines?.[mid]?.rules || []) as Array<{canonicalPrefix: string; localPrefix: string}>;
+
+                          // Find Tab Group Bookmarks folder
+                          const tree = await chrome.bookmarks.getTree();
+                          function findTGB(nodes: chrome.bookmarks.BookmarkTreeNode[]): chrome.bookmarks.BookmarkTreeNode | null {
+                            for (const n of nodes) {
+                              if (n.title === 'Tab Group Bookmarks' && !n.url) return n;
+                              if (n.children) { const f = findTGB(n.children); if (f) return f; }
+                            }
+                            return null;
                           }
+                          const tgb = findTGB(tree);
+                          if (!tgb) { alert('No Tab Group Bookmarks folder found'); return; }
+
+                          const allTabGroups = await chrome.tabGroups.query({});
+                          const groupByName: Record<string, number> = {};
+                          for (const g of allTabGroups) { if (g.title) groupByName[g.title] = g.id; }
+
+                          const groups = await chrome.bookmarks.getChildren(tgb.id);
+                          let totalOpened = 0;
+
+                          for (const group of groups) {
+                            if (group.url) continue;
+                            const bms = await chrome.bookmarks.getChildren(group.id);
+                            const fileUrls = bms.filter(b => b.url?.startsWith('file://'));
+                            if (fileUrls.length === 0) continue;
+
+                            let openUrls = new Set<string>();
+                            if (groupByName[group.title]) {
+                              const tabs = await chrome.tabs.query({ groupId: groupByName[group.title] });
+                              openUrls = new Set(tabs.map(t => t.url || ''));
+                            }
+
+                            const created: chrome.tabs.Tab[] = [];
+                            for (const bm of fileUrls) {
+                              let resolved = bm.url!;
+                              for (const rule of rules) {
+                                const canon = rule.canonicalPrefix.replace(/\/$/, '');
+                                if (resolved.startsWith('file://' + canon + '/') || resolved === 'file://' + canon) {
+                                  resolved = 'file://' + rule.localPrefix.replace(/\/$/, '') + resolved.slice(7 + canon.length);
+                                  break;
+                                }
+                              }
+                              if (openUrls.has(resolved)) continue;
+                              const tab = await chrome.tabs.create({ url: resolved, active: false });
+                              created.push(tab);
+                            }
+
+                            if (created.length > 0) {
+                              const tabIds = created.map(t => t.id!).filter(Boolean);
+                              if (groupByName[group.title]) {
+                                await chrome.tabs.group({ tabIds, groupId: groupByName[group.title] });
+                              } else {
+                                const gid = await chrome.tabs.group({ tabIds });
+                                await chrome.tabGroups.update(gid, { title: group.title, collapsed: true });
+                              }
+                              totalOpened += created.length;
+                            }
+                          }
+
+                          alert(`Opened ${totalOpened} file tab(s) across all groups.`);
                         } catch (e) {
                           alert('Failed: ' + (e instanceof Error ? e.message : e));
                         }
