@@ -13,7 +13,7 @@
     - **Requirements**: 2.2, 2.3
     - **Properties**: 5
 
-  - [ ] 1.2 Create pathMapper.ts utility module
+  - [x] 1.2 Create pathMapper.ts utility module
     - Implement `isFileUrl()`, `isSyncableUrl()`, `extractFilename()`
     - Implement `canonicalize(fileUrl, config)` — local→canonical prefix rewrite
     - Implement `localize(fileUrl, config)` — canonical→local prefix rewrite
