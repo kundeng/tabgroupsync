@@ -12,6 +12,10 @@ import {
   Divider,
   Collapse,
   Alert,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
@@ -19,6 +23,10 @@ import {
   DriveFileMove as DriveFileMoveIcon,
   Refresh as RefreshIcon,
   OpenInNew as RestoreIcon,
+  InsertDriveFile as FileIcon,
+  CloudDownload as RestoreMenuIcon,
+  PlaylistAdd as AddMissingIcon,
+  SwapHoriz as ReplaceIcon,
 } from '@mui/icons-material';
 import { GroupViewModel } from '../lib/types/storage';
 import { StorageManager } from '../lib/storage/storageManager';
@@ -59,6 +67,8 @@ export default function GroupSection({
   const [restoring, setRestoring] = React.useState<Record<string, boolean>>({});
   const [errors, setErrors] = React.useState<Record<string, ErrorWithTimestamp>>({});
   const [moveDialogGroup, setMoveDialogGroup] = React.useState<GroupViewModel | null>(null);
+  const [restoringFiles, setRestoringFiles] = React.useState<Record<string, boolean>>({});
+  const [menuAnchor, setMenuAnchor] = React.useState<{ el: HTMLElement; group: GroupViewModel } | null>(null);
 
   const handleFullResync = async (group: GroupViewModel) => {
     if (!parentFolder) {
@@ -98,6 +108,101 @@ export default function GroupSection({
     if (days < 1) return 'Last seen today';
     if (days === 1) return 'Last seen yesterday';
     return `Last seen ${days} days ago`;
+  };
+
+  const getMappingRules = async () => {
+    const [syncData, localData] = await Promise.all([
+      chrome.storage.sync.get('state:pathMappings'),
+      chrome.storage.local.get('machineId')
+    ]);
+    const store = syncData['state:pathMappings'] as any;
+    const mid = localData.machineId as string;
+    return (store?.machines?.[mid]?.rules || []) as Array<{canonicalPrefix: string; localPrefix: string}>;
+  };
+
+  const localizeUrl = (url: string, rules: Array<{canonicalPrefix: string; localPrefix: string}>) => {
+    if (!url.startsWith('file://')) return url;
+    for (const rule of rules) {
+      const canon = rule.canonicalPrefix.replace(/\/$/, '');
+      if (url.startsWith('file://' + canon + '/') || url === 'file://' + canon) {
+        return 'file://' + rule.localPrefix.replace(/\/$/, '') + url.slice(7 + canon.length);
+      }
+    }
+    return url;
+  };
+
+  const handleRestoreAction = async (group: GroupViewModel, mode: 'all' | 'missing' | 'files' | 'replace') => {
+    if (!group.folder?.id) return;
+    setMenuAnchor(null);
+    setRestoringFiles(prev => ({ ...prev, [group.id]: true }));
+    try {
+      const rules = await getMappingRules();
+      const bookmarks = await chrome.bookmarks.getChildren(group.folder.id);
+      const bmUrls = bookmarks.filter(b => b.url).map(b => ({
+        original: b.url!,
+        resolved: localizeUrl(b.url!, rules)
+      }));
+
+      if (mode === 'files') {
+        const fileOnly = bmUrls.filter(u => u.resolved.startsWith('file://'));
+        if (fileOnly.length === 0) {
+          setErrors(prev => ({ ...prev, [group.id]: { message: 'No file:// URLs in this group', timestamp: Date.now() } }));
+          return;
+        }
+      }
+
+      const urlsToOpen = mode === 'files'
+        ? bmUrls.filter(u => u.resolved.startsWith('file://'))
+        : bmUrls;
+
+      // Find existing group tabs
+      const allTabGroups = await chrome.tabGroups.query({});
+      const matchingGroup = allTabGroups.find(g => g.title === group.name);
+      let openUrls = new Set<string>();
+
+      if (matchingGroup) {
+        const existingTabs = await chrome.tabs.query({ groupId: matchingGroup.id });
+        openUrls = new Set(existingTabs.map(t => t.url || ''));
+
+        if (mode === 'replace') {
+          for (const tab of existingTabs) {
+            if (tab.id) await chrome.tabs.remove(tab.id);
+          }
+          openUrls = new Set();
+        }
+      }
+
+      const created: chrome.tabs.Tab[] = [];
+      for (const { resolved } of urlsToOpen) {
+        if (mode !== 'replace' && mode !== 'all' && openUrls.has(resolved)) continue;
+        if (mode === 'all' && openUrls.has(resolved)) continue;
+        try {
+          const tab = await chrome.tabs.create({ url: resolved, active: false });
+          created.push(tab);
+        } catch {
+          const openerUrl = chrome.runtime.getURL('opener.html')
+            + '?target=' + encodeURIComponent(resolved);
+          const tab = await chrome.tabs.create({ url: openerUrl, active: false });
+          created.push(tab);
+        }
+      }
+
+      if (created.length > 0) {
+        const tabIds = created.map(t => t.id!).filter(Boolean);
+        if (matchingGroup && mode !== 'replace') {
+          await chrome.tabs.group({ tabIds, groupId: matchingGroup.id });
+        } else {
+          const gid = await chrome.tabs.group({ tabIds });
+          await chrome.tabGroups.update(gid, { title: group.name, collapsed: false });
+        }
+      }
+
+      setErrors(prev => { const n = {...prev}; delete n[group.id]; return n; });
+    } catch (error) {
+      setErrors(prev => ({ ...prev, [group.id]: { message: error instanceof Error ? error.message : 'Failed', timestamp: Date.now() } }));
+    } finally {
+      setRestoringFiles(prev => ({ ...prev, [group.id]: false }));
+    }
   };
 
   return (
@@ -258,6 +363,23 @@ export default function GroupSection({
                         </span>
                       </Tooltip>
 
+                      <Tooltip title={!group.folder?.id ? 'No bookmark folder' : 'Restore tabs from bookmarks'}>
+                        <span>
+                          <IconButton
+                            onClick={(e) => setMenuAnchor({ el: e.currentTarget, group })}
+                            disabled={!group.folder?.id || restoringFiles[group.id]}
+                            size="small"
+                            sx={{ padding: '6px' }}
+                          >
+                            {restoringFiles[group.id] ? (
+                              <CircularProgress size={16} />
+                            ) : (
+                              <RestoreMenuIcon fontSize="small" />
+                            )}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+
                       <Tooltip title={!group.isActive ? 'Group must be active to move' : 'Move group to another window'}>
                         <span>
                           <IconButton
@@ -345,6 +467,31 @@ export default function GroupSection({
         </List>
       </Collapse>
     </Box>
+    <Menu
+      anchorEl={menuAnchor?.el}
+      open={!!menuAnchor}
+      onClose={() => setMenuAnchor(null)}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+    >
+      <MenuItem onClick={() => menuAnchor && handleRestoreAction(menuAnchor.group, 'all')}>
+        <ListItemIcon><RestoreIcon fontSize="small" /></ListItemIcon>
+        <ListItemText primary="Restore all tabs" secondary="Open all bookmarks as tabs" />
+      </MenuItem>
+      <MenuItem onClick={() => menuAnchor && handleRestoreAction(menuAnchor.group, 'missing')}>
+        <ListItemIcon><AddMissingIcon fontSize="small" /></ListItemIcon>
+        <ListItemText primary="Add missing tabs" secondary="Only open tabs not already in group" />
+      </MenuItem>
+      <MenuItem onClick={() => menuAnchor && handleRestoreAction(menuAnchor.group, 'files')}>
+        <ListItemIcon><FileIcon fontSize="small" /></ListItemIcon>
+        <ListItemText primary="Add file:// tabs only" secondary="Open local file bookmarks with path mapping" />
+      </MenuItem>
+      <Divider />
+      <MenuItem onClick={() => menuAnchor && handleRestoreAction(menuAnchor.group, 'replace')}>
+        <ListItemIcon><ReplaceIcon fontSize="small" color="error" /></ListItemIcon>
+        <ListItemText primary="Replace group" primaryTypographyProps={{ color: 'error' }} secondary="Close existing tabs, restore fresh" />
+      </MenuItem>
+    </Menu>
     {moveDialogGroup && onMoveGroup && (
       <MoveGroupDialog
         open={!!moveDialogGroup}

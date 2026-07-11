@@ -9,16 +9,28 @@ adheres to [Semantic Versioning](https://semver.org/).
 ## [1.3.0]
 
 ### Added
+- **Local file URL sync**: `file://` URLs in tab groups are now captured to
+  bookmarks (previously silently dropped by all Chromium browsers)
+- **Cross-machine path mapping**: Bidirectional prefix rewriting so file://
+  bookmarks open correctly across macOS, Linux, and Windows
+  (e.g., `/Users/foo/Dropbox` ↔ `/home/foo/Dropbox`)
+- **Per-group file restore**: Button on each group to open file:// tabs from
+  bookmarks with path mapping applied
+- **Bulk file restore**: "Open all file:// tabs" button in Settings to recover
+  all file:// URLs across all groups at once
+- **Opener page**: Fallback page when file:// access is not enabled, with
+  setup instructions and manual path input
+- **Edge Workspace warning**: Alerts users that closing "workspace unsupported"
+  tabs kills the real tab on the source machine
+- **File URL access detection**: Banner in Settings when "Allow access to file
+  URLs" is not enabled
 - Bookmark folder cleanup button in Settings — scan and remove prefix-chain
-  cruft folders with preview before deletion, union-merging bookmarks into
-  the canonical folder
+  cruft folders with preview before deletion
 - E2E test for the cleanup feature
 
 ### Fixed
 - Tab group rename no longer creates intermediate bookmark folders per keystroke
-  (debounce at listener level + rename-in-place at sync engine level)
-- Duplicate-title bookmark folders are now handled correctly via rename-in-place
-  instead of orphan-and-create
+- Duplicate-title bookmark folders handled correctly via rename-in-place
 
 ## [1.2.0]
 

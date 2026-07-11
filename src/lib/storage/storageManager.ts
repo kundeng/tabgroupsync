@@ -9,7 +9,10 @@ import {
   RuntimeMapping,
   RuntimeMappingUpdate,
   CombinedState,
-  GroupSyncPreferences
+  GroupSyncPreferences,
+  PathMappingConfig,
+  PathMappingRule,
+  PathMappingStore
 } from '../types/storage';
 import { validateStorageState, validateSyncHistoryEntry } from '../utils/validators';
 import { StorageError, withErrorHandling, ErrorType } from '../utils/errors';
@@ -504,6 +507,51 @@ export class StorageManager {
       ...this.persistedState,
       runtime: this.runtimeState
     };
+  }
+
+  // Path Mapping Operations — read live from storage, not stale in-memory state,
+  // because the popup writes directly to chrome.storage.sync
+  async getPathMappingConfig(): Promise<PathMappingConfig> {
+    const machineId = await this.getCurrentMachineId();
+    if (!machineId) return { machineId: '', rules: [] };
+
+    const data = await chrome.storage.sync.get('state:pathMappings');
+    const store = data['state:pathMappings'] as PathMappingStore | undefined;
+    if (!store?.machines[machineId]) return { machineId, rules: [] };
+
+    return store.machines[machineId];
+  }
+
+  async getAllPathMappingRules(): Promise<PathMappingRule[]> {
+    const data = await chrome.storage.sync.get('state:pathMappings');
+    const store = data['state:pathMappings'] as PathMappingStore | undefined;
+    if (!store) return [];
+    const allRules: PathMappingRule[] = [];
+    for (const config of Object.values(store.machines)) {
+      allRules.push(...(config as PathMappingConfig).rules);
+    }
+    return allRules;
+  }
+
+  async setPathMappingConfig(config: PathMappingConfig): Promise<void> {
+    const data = await chrome.storage.sync.get('state:pathMappings');
+    const store: PathMappingStore = (data['state:pathMappings'] as PathMappingStore) ?? { machines: {} };
+    store.machines[config.machineId] = config;
+    await chrome.storage.sync.set({ 'state:pathMappings': store });
+  }
+
+  async getAllMachineConfigs(): Promise<PathMappingStore> {
+    const data = await chrome.storage.sync.get('state:pathMappings');
+    return (data['state:pathMappings'] as PathMappingStore) ?? { machines: {} };
+  }
+
+  async getCurrentMachineId(): Promise<string | undefined> {
+    const data = await chrome.storage.local.get('machineId');
+    return data.machineId as string | undefined;
+  }
+
+  async setCurrentMachineId(id: string): Promise<void> {
+    await chrome.storage.local.set({ machineId: id });
   }
 
   async clearAllData(): Promise<void> {

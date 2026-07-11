@@ -3,6 +3,7 @@ import { createBookmark, removeBookmark, updateBookmark } from './bookmarkMutati
 import { findBookmarksByTitle, getBookmark, getBookmarkChildren } from './bookmarkQueries';
 import { Logger } from '../utils/logger';
 import { RuntimeMapping } from '../types/storage';
+import { isSyncableUrl, isFileUrl, canonicalize, extractFilename } from '../utils/pathMapper';
 import { BOOKMARK_FOLDERS } from '../constants';
 
 export class BookmarkManager {
@@ -350,8 +351,22 @@ export class BookmarkManager {
         groupFolder = await this.ensureGroupFolder(name);
       }
       
-      // Get existing bookmarks to check for duplicates
+      // Get existing bookmarks and canonicalize for dedup
       const existingBookmarks = await getBookmarkChildren(groupFolder.id);
+      const mappingConfig = await this.storage.getPathMappingConfig();
+
+      // Re-canonicalize existing file:// bookmarks that have stale local paths
+      for (const bm of existingBookmarks) {
+        if (bm.url && isFileUrl(bm.url)) {
+          const canonical = canonicalize(bm.url, mappingConfig);
+          if (canonical !== bm.url) {
+            await updateBookmark(bm.id, { url: canonical });
+            bm.url = canonical;
+            this.logger.info('sync:recanonicalized', { old: bm.url, canonical });
+          }
+        }
+      }
+
       const existingUrls = new Set(existingBookmarks.map(b => b.url));
 
       // Filter valid tabs and remove duplicates
@@ -365,12 +380,14 @@ export class BookmarkManager {
             this.logger.debug('sync:invalidTab', { url: tab.url, reason: 'not a string' });
             return false;
           }
-          // Skip non-http(s) URLs (chrome://, about:, edge://, brave://, etc.)
-          if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://')) {
-            this.logger.debug('sync:invalidTab', { url: tab.url, reason: 'non-http URL' });
+          if (!isSyncableUrl(tab.url)) {
+            this.logger.debug('sync:invalidTab', { url: tab.url, reason: 'non-syncable URL' });
             return false;
           }
-          if (existingUrls.has(tab.url)) {
+          const canonical = isFileUrl(tab.url)
+            ? canonicalize(tab.url, mappingConfig)
+            : tab.url;
+          if (existingUrls.has(canonical)) {
             return false;
           }
           return true;
@@ -385,10 +402,14 @@ export class BookmarkManager {
       const results = await Promise.all(
         validTabs.map(async (tab) => {
           try {
+            const bookmarkUrl = isFileUrl(tab.url)
+              ? canonicalize(tab.url, mappingConfig)
+              : tab.url;
+            const bookmarkTitle = tab.title || (isFileUrl(tab.url) ? extractFilename(tab.url) : '');
             const result = await chrome.bookmarks.create({
               parentId: groupFolder.id,
-              title: tab.title,
-              url: tab.url
+              title: bookmarkTitle,
+              url: bookmarkUrl
             });
             
             this.logger.debug('sync:bookmarkCreated', {

@@ -1,3 +1,18 @@
+// Path mapping for file:// URL sync across machines
+export interface PathMappingRule {
+  canonicalPrefix: string;
+  localPrefix: string;
+}
+
+export interface PathMappingConfig {
+  machineId: string;
+  rules: PathMappingRule[];
+}
+
+export interface PathMappingStore {
+  machines: Record<string, PathMappingConfig>;
+}
+
 // Unique identifiers
 export type TabGroupId = string;
 export type BookmarkFolderId = string;
@@ -67,6 +82,8 @@ export interface GlobalSettings {
   syncInterval?: number; // in minutes
   keepRemoved: boolean; // keep bookmarks when group is removed
   cleanup: CleanupSettings;
+  pathMappings?: PathMappingStore;
+  currentMachineId?: string;
 }
 
 // Runtime mapping for current session

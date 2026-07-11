@@ -51,3 +51,6 @@ TECHNICAL.html
 TECHNICAL_files/
 docs/TECHNICAL.html
 docs/TECHNICAL_files/
+
+# Serena MCP tool state (machine-local project config and cache)
+.serena/
