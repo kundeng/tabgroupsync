@@ -97,13 +97,33 @@ both. So we swap:
   mapping matches → open `opener.html?target=<file>&original=<carrier>` with the
   path shown + "enable Allow access to file URLs" guidance. Reuses v2's page.
 
-## Path mapping (unchanged, now per-tab)
+## Path mapping (now per-tab)
 Same `pathMapper` (canonicalize/localize, longest-prefix, machine-keyed rules in
-`chrome.storage.sync`). Applied at Point 1 (canonicalize) and Points 2/3
-(localize). **Note the field bug found 2026-07-11:** mappings live under the
-sync key `state:pathMappings`, and each machine needs its own rule (the Windows
+`chrome.storage.sync`). **Note the field bug found 2026-07-11:** mappings live under
+the sync key `state:pathMappings`, and each machine needs its own rule (the Windows
 box had none → restore opened a Mac path). The Settings UI must make "add this
 machine" obvious.
+
+## UPDATE 2026-07-11: zero-config home normalization + ABSOLUTE carrier
+Manual per-machine rules are now only a FALLBACK. The common case is zero-config:
+- **Learn home:** the extension caches this machine's home prefix (`/Users/<u>`,
+  `/home/<u>`, `/C:/Users/<u>`) in `storage.local` (`localHome`), learned from any
+  `file://` the user opens (`detectHome`/`homeFromFileUrl`).
+- **Gate (`shouldCarrier`):** only carrier-ize files under a synced home root
+  (default `~/Dropbox`) or a manual rule — never Downloads/system paths.
+- **Encode (`fileUrlToCarrier`):** emit the **ABSOLUTE** source path in the carrier
+  (`open/#/home/kundeng/Dropbox/…`). A short-lived design put a home-RELATIVE `~`
+  in the carrier (`#~/Dropbox/…`); that was REVERTED because any peer that can't
+  expand `~` (old build, or home not yet learned) decodes it to the un-openable
+  literal `file://~/…` (hit live on a Mac). **Never reintroduce `~`-carriers.**
+- **Decode (`carrierToFileUrl`):** swap the detected SOURCE-home prefix for THIS
+  machine's `localHome` (cross-OS / cross-user) when home is known; else fall back
+  to manual rules / the raw absolute path (always a valid file://). Legacy `~`
+  carriers still expand, or return null → opener page — never `file://~/`.
+- Verified live both directions on bayes-pop (commit 6e19330). Transport note:
+  Edge Workspace sync carries the carrier URL **with its `#fragment` intact**
+  (found verbatim in a peer's `Sync Data` LevelDB) — sync is NOT the failure point;
+  decode was.
 
 ## Permissions (manifest additions)
 - `"webNavigation"` — Point 3.
