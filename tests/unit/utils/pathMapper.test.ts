@@ -16,6 +16,7 @@ import {
   homeFromFileUrl,
   fileUrlToCarrier,
   carrierToFileUrl,
+  inferLocalHome,
   shouldCarrier,
 } from '../../../src/lib/utils/pathMapper';
 import type { PathMappingConfig } from '../../../src/lib/types/storage';
@@ -355,6 +356,35 @@ describe('carrier decode robustness — never strand an un-openable URL', () => 
   it('legacy `~` carrier with unknown home → null (opener page), NOT file://~/', () => {
     const legacy = `${CARRIER}~/Dropbox/x.html`;
     expect(carrierToFileUrl(legacy, null, emptyConfig)).toBe(null);
+  });
+});
+
+describe('bootstrap OS-inference (home not learned yet, cross-OS same user)', () => {
+  const CARRIER = `https://${CARRIER_HOST}${CARRIER_PATH}#`;
+  const macCarrier = `${CARRIER}/Users/kundeng/Dropbox/book/ch1.html`;
+  const linuxCarrier = `${CARRIER}/home/kundeng/Dropbox/book/ch1.html`;
+  it('infers this machine\'s home from OS + source username when localHome is null', () => {
+    // Mac-origin carrier, opened on a Linux box that has not learned its home:
+    expect(carrierToFileUrl(macCarrier, null, emptyConfig, 'linux')).toBe('file:///home/kundeng/Dropbox/book/ch1.html');
+    // Linux-origin carrier, opened on a Mac that has not learned its home:
+    expect(carrierToFileUrl(linuxCarrier, null, emptyConfig, 'mac')).toBe('file:///Users/kundeng/Dropbox/book/ch1.html');
+    // Windows:
+    expect(carrierToFileUrl(macCarrier, null, emptyConfig, 'win')).toBe('file:///C:/Users/kundeng/Dropbox/book/ch1.html');
+  });
+  it('learned localHome always wins over OS inference', () => {
+    expect(carrierToFileUrl(macCarrier, '/home/otheruser', emptyConfig, 'linux')).toBe('file:///home/otheruser/Dropbox/book/ch1.html');
+  });
+  it('same-OS carrier is unchanged even via inference', () => {
+    expect(carrierToFileUrl(linuxCarrier, null, emptyConfig, 'linux')).toBe('file:///home/kundeng/Dropbox/book/ch1.html');
+  });
+  it('no OS + no home → raw absolute path (still valid), never broken', () => {
+    expect(carrierToFileUrl(macCarrier, null, emptyConfig, null)).toBe('file:///Users/kundeng/Dropbox/book/ch1.html');
+  });
+  it('inferLocalHome maps username across OSes', () => {
+    expect(inferLocalHome('/Users/alice', 'linux')).toBe('/home/alice');
+    expect(inferLocalHome('/home/bob', 'mac')).toBe('/Users/bob');
+    expect(inferLocalHome('/C:/Users/carol', 'linux')).toBe('/home/carol');
+    expect(inferLocalHome('/Users/dave', null)).toBe(null);
   });
 });
 

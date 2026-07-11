@@ -8,7 +8,17 @@ import {
   shouldCarrier,
   homeFromFileUrl,
   CARRIER_HOST,
+  type LocalOs,
 } from './utils/pathMapper';
+
+/** This machine's OS family from the SW's navigator — for bootstrap home inference. */
+function detectOs(): LocalOs | null {
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  if (/Macintosh|Mac OS X/.test(ua)) return 'mac';
+  if (/Windows/.test(ua)) return 'win';
+  if (/Linux|X11|CrOS/.test(ua)) return 'linux';
+  return null;
+}
 
 type Cfg = Awaited<ReturnType<StorageManager['getPathMappingConfig']>>;
 
@@ -35,6 +45,7 @@ export class CarrierTabManager {
   private updating = new Set<number>();
   private localHome: string | null = null;
   private homeLoaded = false;
+  private readonly localOs: LocalOs | null = detectOs();
 
   static readonly CARRIER_HOST = CARRIER_HOST;
 
@@ -90,7 +101,7 @@ export class CarrierTabManager {
 
   /** Hydrate a carrier tab back to the machine-local file:// (or opener page). */
   private async hydrateTab(tabId: number, carrierUrl: string, config: Cfg): Promise<void> {
-    const fileUrl = carrierToFileUrl(carrierUrl, this.localHome, config);
+    const fileUrl = carrierToFileUrl(carrierUrl, this.localHome, config, this.localOs);
     const canOpen = fileUrl !== null && await this.hasFileAccess();
     if (canOpen) {
       await this.update(tabId, fileUrl as string);

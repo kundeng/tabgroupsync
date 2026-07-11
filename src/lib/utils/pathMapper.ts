@@ -208,6 +208,28 @@ export function homeFromFileUrl(fileUrl: string): string | null {
   return detectHome(decodePath(extractPath(fileUrl)));
 }
 
+export type LocalOs = 'mac' | 'linux' | 'win';
+const OS_HOME_PREFIX: Record<LocalOs, string> = {
+  mac: '/Users/',
+  linux: '/home/',
+  win: '/C:/Users/',
+};
+
+/**
+ * Bootstrap fallback: infer THIS machine's home for the SAME username when we
+ * haven't learned it from a local file yet. e.g. source `/Users/alice` on a
+ * Linux box → `/home/alice`. Lets a fresh machine open a cross-OS carrier before
+ * the user has opened any local file. Only sound when usernames match across
+ * machines (the common case); a learned `localHome` always wins over this.
+ */
+export function inferLocalHome(sourceHome: string, localOs: LocalOs | null): string | null {
+  if (!localOs) return null;
+  const prefix = OS_HOME_PREFIX[localOs];
+  if (!prefix) return null;
+  const user = sourceHome.split('/').filter(Boolean).pop();
+  return user ? prefix + user : null;
+}
+
 /**
  * If `path` is under home AND under one of the synced roots, return its
  * home-relative canonical form (`~/Dropbox/...`); otherwise null.
@@ -276,6 +298,7 @@ export function carrierToFileUrl(
   carrierUrl: string,
   localHome: string | null,
   config: PathMappingConfig,
+  localOs: LocalOs | null = null,
 ): string | null {
   if (!isCarrierUrl(carrierUrl)) return carrierUrl;
   const frag = carrierUrl.slice(carrierUrl.indexOf('#') + 1);
@@ -288,13 +311,22 @@ export function carrierToFileUrl(
     if (!localHome) return null;
     return FILE_PROTOCOL + localHome + cpath.slice(1) + suffix;
   }
-  // Absolute carrier: swap the SOURCE machine's home prefix for THIS machine's
-  // home — handles /Users/<u> ⇄ /home/<u> ⇄ /C:/Users/<u> and differing
-  // usernames — when our home is known. Otherwise fall through to manual rules /
-  // the raw absolute path (still a valid, openable file:// on a same-layout peer).
+  // Absolute carrier. Explicit manual mapping rules are user config — they win
+  // when one matches.
+  const raw = FILE_PROTOCOL + cpath + suffix;
+  const ruled = localize(raw, config);
+  if (ruled !== raw) return ruled;
+  // Zero-config: swap the SOURCE machine's home prefix for THIS machine's home —
+  // handles /Users/<u> ⇄ /home/<u> ⇄ /C:/Users/<u> and differing usernames.
+  // Prefer the LEARNED localHome; if not learned yet (bootstrap), infer it from
+  // this machine's OS + the source username. Otherwise return the raw absolute
+  // path (still a valid file:// — opens on a same-layout peer).
   const srcHome = detectHome(cpath);
-  if (srcHome && localHome && srcHome !== localHome) {
-    return FILE_PROTOCOL + localHome + cpath.slice(srcHome.length) + suffix;
+  if (srcHome) {
+    const target = localHome || inferLocalHome(srcHome, localOs);
+    if (target && target !== srcHome) {
+      return FILE_PROTOCOL + target + cpath.slice(srcHome.length) + suffix;
+    }
   }
-  return localize(FILE_PROTOCOL + cpath + suffix, config); // absolute -> rules / as-is
+  return raw;
 }
