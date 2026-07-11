@@ -30,6 +30,9 @@ beforeEach(() => {
     getLastFocused: vi.fn().mockResolvedValue({ id: 1, focused: true }),
   };
   g.chrome.runtime = { getURL: (p: string) => `chrome-extension://ID/${p}` };
+  g.chrome.storage = {
+    local: { get: vi.fn().mockResolvedValue({}), set: vi.fn().mockResolvedValue(undefined) },
+  };
 });
 
 describe('CarrierTabManager.handleUpdated (encode at rest)', () => {
@@ -37,7 +40,7 @@ describe('CarrierTabManager.handleUpdated (encode at rest)', () => {
     const mgr = makeManager();
     await mgr.handleUpdated(1, { url: 'file:///home/bar/Dropbox/book/ch1.html' } as any, { active: false } as any);
     expect(chrome.tabs.update).toHaveBeenCalledWith(1, {
-      url: `${CARRIER}/Users/foo/Dropbox/book/ch1.html`, // localPrefix -> canonicalPrefix
+      url: `${CARRIER}~/Dropbox/book/ch1.html`, // home-relative (zero-config)
     });
   });
 
@@ -114,8 +117,8 @@ describe('CarrierTabManager.handleActivated (hydrate focus + encode the rest)', 
     await mgr.handleActivated({ tabId: 5 } as any);
     // hydrated the active carrier tab 5 to local file://
     expect(chrome.tabs.update).toHaveBeenCalledWith(5, { url: 'file:///home/bar/Dropbox/a.html' });
-    // encoded the other inactive mapped file tab 9
-    expect(chrome.tabs.update).toHaveBeenCalledWith(9, { url: `${CARRIER}/Users/foo/Dropbox/b.html` });
+    // encoded the other inactive mapped file tab 9 (home-relative)
+    expect(chrome.tabs.update).toHaveBeenCalledWith(9, { url: `${CARRIER}~/Dropbox/b.html` });
     // did NOT touch the unmapped file tab 7
     expect(chrome.tabs.update).not.toHaveBeenCalledWith(7, expect.anything());
   });
@@ -129,8 +132,8 @@ describe('CarrierTabManager.handleFocusChanged', () => {
       { id: 2, active: false, url: 'file:///home/bar/Dropbox/b.html' },
     ]);
     await mgr.handleFocusChanged(-1 /* WINDOW_ID_NONE */);
-    expect(chrome.tabs.update).toHaveBeenCalledWith(1, { url: `${CARRIER}/Users/foo/Dropbox/a.html` });
-    expect(chrome.tabs.update).toHaveBeenCalledWith(2, { url: `${CARRIER}/Users/foo/Dropbox/b.html` });
+    expect(chrome.tabs.update).toHaveBeenCalledWith(1, { url: `${CARRIER}~/Dropbox/a.html` });
+    expect(chrome.tabs.update).toHaveBeenCalledWith(2, { url: `${CARRIER}~/Dropbox/b.html` });
   });
 
   it('on FOCUS gained, hydrates the focused window\'s active carrier tab', async () => {
@@ -158,7 +161,7 @@ describe('CarrierTabManager.sweepAtRest', () => {
     });
     await mgr.sweepAtRest();
     expect(chrome.tabs.update).not.toHaveBeenCalledWith(5, expect.anything());       // viewed -> untouched
-    expect(chrome.tabs.update).toHaveBeenCalledWith(6, { url: `${CARRIER}/Users/foo/Dropbox/bgwin.html` });
-    expect(chrome.tabs.update).toHaveBeenCalledWith(8, { url: `${CARRIER}/Users/foo/Dropbox/rest.html` });
+    expect(chrome.tabs.update).toHaveBeenCalledWith(6, { url: `${CARRIER}~/Dropbox/bgwin.html` });
+    expect(chrome.tabs.update).toHaveBeenCalledWith(8, { url: `${CARRIER}~/Dropbox/rest.html` });
   });
 });

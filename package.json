@@ -12,7 +12,8 @@
     "test:e2e": "npm run build && playwright test --config tests/e2e/playwright.config.ts",
     "test:e2e:ui": "npm run build && playwright test --config tests/e2e/playwright.config.ts --ui",
     "test:e2e:debug": "npm run build && playwright test --config tests/e2e/playwright.config.ts --debug",
-    "test:e2e:headed": "npm run build && playwright test --config tests/e2e/playwright.config.ts --headed"
+    "test:e2e:headed": "npm run build && playwright test --config tests/e2e/playwright.config.ts --headed",
+    "postbuild": "node scripts/deploy-to-build-folder.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

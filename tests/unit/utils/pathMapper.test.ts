@@ -12,6 +12,11 @@ import {
   pathHasMapping,
   CARRIER_HOST,
   CARRIER_PATH,
+  detectHome,
+  homeFromFileUrl,
+  fileUrlToCarrier,
+  carrierToFileUrl,
+  shouldCarrier,
 } from '../../../src/lib/utils/pathMapper';
 import type { PathMappingConfig } from '../../../src/lib/types/storage';
 
@@ -260,5 +265,85 @@ describe('pathHasMapping (rewrite scope guard)', () => {
   it('false for non-file URLs and empty config', () => {
     expect(pathHasMapping('https://example.com', linuxConfig)).toBe(false);
     expect(pathHasMapping('file:///home/bar/Dropbox/x', emptyConfig)).toBe(false);
+  });
+});
+
+describe('detectHome / homeFromFileUrl (OS home patterns)', () => {
+  it('detects macOS, Linux, and Windows home prefixes', () => {
+    expect(detectHome('/Users/kundeng/Dropbox/x.html')).toBe('/Users/kundeng');
+    expect(detectHome('/home/kundeng/Dropbox/x.html')).toBe('/home/kundeng');
+    expect(detectHome('/C:/Users/kundeng/Dropbox/x.html')).toBe('/C:/Users/kundeng');
+  });
+  it('returns null for non-home paths', () => {
+    expect(detectHome('/mnt/data/x')).toBe(null);
+    expect(detectHome('/etc/hosts')).toBe(null);
+  });
+  it('homeFromFileUrl works on file URLs, null otherwise', () => {
+    expect(homeFromFileUrl('file:///Users/kundeng/Dropbox/x.html')).toBe('/Users/kundeng');
+    expect(homeFromFileUrl('https://example.com')).toBe(null);
+  });
+});
+
+describe('fileUrlToCarrier — home-relative (zero-config)', () => {
+  const CARRIER = `https://${CARRIER_HOST}${CARRIER_PATH}#`;
+  it('normalizes Mac/Linux/Windows Dropbox files to the SAME carrier (~/Dropbox/...)', () => {
+    const want = `${CARRIER}~/Dropbox/Projects/X/file.html`;
+    // localHome=null -> auto-detect from the URL itself
+    expect(fileUrlToCarrier('file:///Users/kundeng/Dropbox/Projects/X/file.html', null, emptyConfig)).toBe(want);
+    expect(fileUrlToCarrier('file:///home/kundeng/Dropbox/Projects/X/file.html', null, emptyConfig)).toBe(want);
+    expect(fileUrlToCarrier('file:///C:/Users/kundeng/Dropbox/Projects/X/file.html', null, emptyConfig)).toBe(want);
+  });
+  it('does NOT carrier-ize non-synced home files (Downloads) with no rule', () => {
+    // falls back to encodeCarrier(canonicalize) which, with empty config, is the raw path
+    const r = fileUrlToCarrier('file:///Users/kundeng/Downloads/x.pdf', null, emptyConfig);
+    expect(r).toBe(`${CARRIER}/Users/kundeng/Downloads/x.pdf`); // absolute, not ~-relative
+  });
+  it('falls back to a manual rule for non-home paths', () => {
+    const cfg: PathMappingConfig = { machineId: 'm', rules: [{ canonicalPrefix: '/data/shared', localPrefix: '/mnt/data/shared' }] };
+    expect(fileUrlToCarrier('file:///mnt/data/shared/y.html', null, cfg)).toBe(`${CARRIER}/data/shared/y.html`);
+  });
+});
+
+describe('carrierToFileUrl — home-expand per machine', () => {
+  const CARRIER = `https://${CARRIER_HOST}${CARRIER_PATH}#`;
+  const c = `${CARRIER}~/Dropbox/Projects/X/file.html`;
+  it('expands the same carrier to each machine\'s local path', () => {
+    expect(carrierToFileUrl(c, '/Users/kundeng', emptyConfig)).toBe('file:///Users/kundeng/Dropbox/Projects/X/file.html');
+    expect(carrierToFileUrl(c, '/home/kundeng', emptyConfig)).toBe('file:///home/kundeng/Dropbox/Projects/X/file.html');
+    expect(carrierToFileUrl(c, '/C:/Users/kundeng', emptyConfig)).toBe('file:///C:/Users/kundeng/Dropbox/Projects/X/file.html');
+  });
+  it('returns null when the home isn\'t learned yet (bootstrap gap)', () => {
+    expect(carrierToFileUrl(c, null, emptyConfig)).toBe(null);
+  });
+  it('localizes ABSOLUTE (non-~) carriers via manual rules', () => {
+    const abs = `${CARRIER}/data/shared/y.html`;
+    const cfg: PathMappingConfig = { machineId: 'm', rules: [{ canonicalPrefix: '/data/shared', localPrefix: '/mnt/data/shared' }] };
+    expect(carrierToFileUrl(abs, null, cfg)).toBe('file:///mnt/data/shared/y.html');
+  });
+});
+
+describe('home-relative round-trip (cross-OS)', () => {
+  it('Mac encodes -> Linux decodes to the Linux path (no rules, no machine IDs)', () => {
+    const macFile = 'file:///Users/kundeng/Dropbox/book/ch1.html';
+    const carrier = fileUrlToCarrier(macFile, null, emptyConfig);
+    expect(carrierToFileUrl(carrier, '/home/kundeng', emptyConfig)).toBe('file:///home/kundeng/Dropbox/book/ch1.html');
+  });
+});
+
+describe('shouldCarrier (home OR manual gate)', () => {
+  it('true for synced home files even with empty config', () => {
+    expect(shouldCarrier('file:///Users/kundeng/Dropbox/x', null, emptyConfig)).toBe(true);
+    expect(shouldCarrier('file:///home/kundeng/Dropbox/x', null, emptyConfig)).toBe(true);
+  });
+  it('false for non-synced home files (Downloads) with no rule', () => {
+    expect(shouldCarrier('file:///Users/kundeng/Downloads/x.pdf', null, emptyConfig)).toBe(false);
+  });
+  it('true for non-home paths that match a manual rule', () => {
+    const cfg: PathMappingConfig = { machineId: 'm', rules: [{ canonicalPrefix: '/data', localPrefix: '/mnt/data' }] };
+    expect(shouldCarrier('file:///mnt/data/x', null, cfg)).toBe(true);
+  });
+  it('false for non-file and unmapped', () => {
+    expect(shouldCarrier('https://example.com', null, emptyConfig)).toBe(false);
+    expect(shouldCarrier('file:///etc/hosts', null, emptyConfig)).toBe(false);
   });
 });
