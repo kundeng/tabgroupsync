@@ -223,7 +223,12 @@
     - D HYDRATE-ON-FOCUS: activating the carrier tab → `file:///tmp/carrier-test/y.html`. ✅
     Entire mechanism + path translation confirmed. Only cross-machine cloud-sync
     survival still needs human eyes (already proven separately with the raw URL).
-  - [ ] 7.7 MANUAL round-trip test (user, headed signed-in Edge) — see Notes.
+  - [x] 7.7 MANUAL cross-machine round-trip — DONE, WORKS IN PRODUCTION 2026-07-11.
+    A new-host carrier (kundeng.github.io/tabgroupsync/open/#/Users/...) created on
+    the Linux box synced via Edge Workspace to the user's Mac; the 1.5.0 extension
+    there intercepted + decoded it and opened the local file. Full user-transparent
+    round-trip confirmed live. (Gotcha: stale OLD-host `tabgroupsync.github.io`
+    carriers from early demos are NOT recognized by the extension — close them.)
 
 ## Notes
 
