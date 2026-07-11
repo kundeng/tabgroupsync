@@ -25,7 +25,10 @@ beforeEach(() => {
     create: vi.fn().mockResolvedValue({ id: 1 }),
   };
   g.chrome.extension = { isAllowedFileSchemeAccess: vi.fn().mockResolvedValue(true) };
-  g.chrome.windows = { WINDOW_ID_NONE: -1 };
+  g.chrome.windows = {
+    WINDOW_ID_NONE: -1,
+    getLastFocused: vi.fn().mockResolvedValue({ id: 1, focused: true }),
+  };
   g.chrome.runtime = { getURL: (p: string) => `chrome-extension://ID/${p}` };
 });
 
@@ -115,5 +118,47 @@ describe('CarrierTabManager.handleActivated (hydrate focus + encode the rest)', 
     expect(chrome.tabs.update).toHaveBeenCalledWith(9, { url: `${CARRIER}/Users/foo/Dropbox/b.html` });
     // did NOT touch the unmapped file tab 7
     expect(chrome.tabs.update).not.toHaveBeenCalledWith(7, expect.anything());
+  });
+});
+
+describe('CarrierTabManager.handleFocusChanged', () => {
+  it('on browser BLUR encodes ALL mapped file tabs, including the active one', async () => {
+    const mgr = makeManager();
+    (chrome.tabs.query as any).mockResolvedValue([
+      { id: 1, active: true, url: 'file:///home/bar/Dropbox/a.html' },
+      { id: 2, active: false, url: 'file:///home/bar/Dropbox/b.html' },
+    ]);
+    await mgr.handleFocusChanged(-1 /* WINDOW_ID_NONE */);
+    expect(chrome.tabs.update).toHaveBeenCalledWith(1, { url: `${CARRIER}/Users/foo/Dropbox/a.html` });
+    expect(chrome.tabs.update).toHaveBeenCalledWith(2, { url: `${CARRIER}/Users/foo/Dropbox/b.html` });
+  });
+
+  it('on FOCUS gained, hydrates the focused window\'s active carrier tab', async () => {
+    const mgr = makeManager();
+    (chrome.tabs.query as any).mockResolvedValue([{ id: 7, active: true, url: `${CARRIER}/Users/foo/Dropbox/c.html` }]);
+    await mgr.handleFocusChanged(3);
+    expect(chrome.tabs.query).toHaveBeenCalledWith({ active: true, windowId: 3 });
+    expect(chrome.tabs.update).toHaveBeenCalledWith(7, { url: 'file:///home/bar/Dropbox/c.html' });
+  });
+});
+
+describe('CarrierTabManager.sweepAtRest', () => {
+  it('encodes every mapped file tab EXCEPT the viewed (focused-window active) tab', async () => {
+    const mgr = makeManager();
+    (chrome.windows.getLastFocused as any).mockResolvedValue({ id: 2, focused: true });
+    (chrome.tabs.query as any).mockImplementation((q: any) => {
+      if (q && q.active && q.windowId != null) {
+        return Promise.resolve([{ id: 5, active: true, url: 'file:///home/bar/Dropbox/viewed.html' }]);
+      }
+      return Promise.resolve([
+        { id: 5, active: true, url: 'file:///home/bar/Dropbox/viewed.html' },       // the viewed tab
+        { id: 6, active: true, url: 'file:///home/bar/Dropbox/bgwin.html' },        // active in a NON-focused window
+        { id: 8, active: false, url: 'file:///home/bar/Dropbox/rest.html' },        // background
+      ]);
+    });
+    await mgr.sweepAtRest();
+    expect(chrome.tabs.update).not.toHaveBeenCalledWith(5, expect.anything());       // viewed -> untouched
+    expect(chrome.tabs.update).toHaveBeenCalledWith(6, { url: `${CARRIER}/Users/foo/Dropbox/bgwin.html` });
+    expect(chrome.tabs.update).toHaveBeenCalledWith(8, { url: `${CARRIER}/Users/foo/Dropbox/rest.html` });
   });
 });
