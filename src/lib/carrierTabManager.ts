@@ -126,6 +126,17 @@ export class CarrierTabManager {
     }
   }
 
+  /** True if nobody is at THIS machine (idle/locked) → no tab is really "viewed". */
+  private async isIdle(): Promise<boolean> {
+    try {
+      const state = await new Promise<chrome.idle.IdleState>((resolve) =>
+        chrome.idle.queryState(15, resolve));
+      return state !== 'active';
+    } catch {
+      return false;
+    }
+  }
+
   // --- event handlers (registered top-level in background.ts) --------------
 
   /** file:// tab opened/navigated in the background → encode to carrier. */
@@ -135,7 +146,7 @@ export class CarrierTabManager {
     if (!url || !isFileUrl(url)) return;
     await this.ensureHome();
     await this.learnHome(url);              // learn home from any file the user opens
-    if (tab.active) return;                 // active tabs stay file:// for viewing
+    if (tab.active && !(await this.isIdle())) return; // active & user present → keep file://
     const config = await this.storage.getPathMappingConfig();
     if (shouldCarrier(url, this.localHome, config)) await this.encodeTab(tabId, url, config);
   };
@@ -193,6 +204,20 @@ export class CarrierTabManager {
   };
 
   /**
+   * Machine went idle or locked → nobody is viewing anything HERE, so the
+   * "active" tab isn't really being read. Encode ALL local-file tabs (including
+   * the active one) to carriers so an unattended machine stops leaking a live
+   * file:// tab that other machines pick up as workspace-unsupported.
+   */
+  handleIdleState = async (state: chrome.idle.IdleState): Promise<void> => {
+    if (state === 'active') return; // user is here — leave the viewed tab as file://
+    await this.ensureHome();
+    const config = await this.storage.getPathMappingConfig();
+    await this.encodeFileTabs(config, { includeActive: true });
+    this.logger.debug('carrier:idle-encoded', { state });
+  };
+
+  /**
    * Idle-alarm sweep: force every AT-REST local-file tab to carrier. "At rest" =
    * everything except the tab the user is actually viewing (active tab of the
    * currently-focused window).
@@ -201,13 +226,17 @@ export class CarrierTabManager {
     await this.ensureHome();
     const config = await this.storage.getPathMappingConfig();
     let viewedTabId: number | undefined;
-    try {
-      const win = await chrome.windows.getLastFocused();
-      if (win?.focused && win.id != null) {
-        const [t] = await chrome.tabs.query({ active: true, windowId: win.id });
-        viewedTabId = t?.id;
-      }
-    } catch { /* no focused window -> nothing is being viewed */ }
+    // Only exempt a "viewed" tab if the user is actually here; if idle/locked,
+    // nothing is being viewed → encode everything.
+    if (!(await this.isIdle())) {
+      try {
+        const win = await chrome.windows.getLastFocused();
+        if (win?.focused && win.id != null) {
+          const [t] = await chrome.tabs.query({ active: true, windowId: win.id });
+          viewedTabId = t?.id;
+        }
+      } catch { /* no focused window -> nothing is being viewed */ }
+    }
     await this.encodeFileTabs(config, { includeActive: true, exceptTabId: viewedTabId });
   };
 

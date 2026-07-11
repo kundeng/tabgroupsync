@@ -33,6 +33,11 @@ beforeEach(() => {
   g.chrome.storage = {
     local: { get: vi.fn().mockResolvedValue({}), set: vi.fn().mockResolvedValue(undefined) },
   };
+  g.chrome.idle = {
+    queryState: vi.fn((_i: number, cb: (s: string) => void) => cb('active')), // default: present
+    setDetectionInterval: vi.fn(),
+    onStateChanged: { addListener: vi.fn() },
+  };
 });
 
 describe('CarrierTabManager.handleUpdated (encode at rest)', () => {
@@ -44,10 +49,18 @@ describe('CarrierTabManager.handleUpdated (encode at rest)', () => {
     });
   });
 
-  it('leaves an ACTIVE file:// tab as-is (user is viewing it)', async () => {
+  it('leaves an ACTIVE file:// tab as-is when the user is present (not idle)', async () => {
     const mgr = makeManager();
+    (chrome.idle.queryState as any).mockImplementation((_i: number, cb: (s: string) => void) => cb('active'));
     await mgr.handleUpdated(1, { url: 'file:///home/bar/Dropbox/book/ch1.html' } as any, { active: true } as any);
     expect(chrome.tabs.update).not.toHaveBeenCalled();
+  });
+
+  it('encodes an ACTIVE file:// tab when the machine is IDLE (nobody viewing)', async () => {
+    const mgr = makeManager();
+    (chrome.idle.queryState as any).mockImplementation((_i: number, cb: (s: string) => void) => cb('idle'));
+    await mgr.handleUpdated(1, { url: 'file:///home/bar/Dropbox/book/ch1.html' } as any, { active: true } as any);
+    expect(chrome.tabs.update).toHaveBeenCalledWith(1, { url: `${CARRIER}/home/bar/Dropbox/book/ch1.html` });
   });
 
   it('ignores file:// tabs NOT under a mapped prefix', async () => {
@@ -142,6 +155,25 @@ describe('CarrierTabManager.handleFocusChanged', () => {
     await mgr.handleFocusChanged(3);
     expect(chrome.tabs.query).toHaveBeenCalledWith({ active: true, windowId: 3 });
     expect(chrome.tabs.update).toHaveBeenCalledWith(7, { url: 'file:///home/bar/Dropbox/c.html' });
+  });
+});
+
+describe('CarrierTabManager.handleIdleState', () => {
+  it('on IDLE encodes ALL mapped file tabs including the active one', async () => {
+    const mgr = makeManager();
+    (chrome.tabs.query as any).mockResolvedValue([
+      { id: 1, active: true, url: 'file:///home/bar/Dropbox/a.html' },
+      { id: 2, active: false, url: 'file:///home/bar/Dropbox/b.html' },
+    ]);
+    await mgr.handleIdleState('idle' as any);
+    expect(chrome.tabs.update).toHaveBeenCalledWith(1, { url: `${CARRIER}/home/bar/Dropbox/a.html` });
+    expect(chrome.tabs.update).toHaveBeenCalledWith(2, { url: `${CARRIER}/home/bar/Dropbox/b.html` });
+  });
+  it('does nothing when the machine becomes ACTIVE (user is here)', async () => {
+    const mgr = makeManager();
+    (chrome.tabs.query as any).mockResolvedValue([{ id: 1, active: true, url: 'file:///home/bar/Dropbox/a.html' }]);
+    await mgr.handleIdleState('active' as any);
+    expect(chrome.tabs.update).not.toHaveBeenCalled();
   });
 });
 

@@ -166,6 +166,15 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
   await carrierTabManager.handleFocusChanged(windowId);
 });
 
+// Idle detection: when THIS machine goes idle/locked, encode all its file://
+// tabs (incl. the active one) to carriers, so an unattended machine stops
+// leaking live file:// tabs that others pick up as workspace-unsupported.
+chrome.idle.setDetectionInterval(30);
+chrome.idle.onStateChanged.addListener(async (state) => {
+  if (!await ensureInitialized()) return;
+  await carrierTabManager.handleIdleState(state);
+});
+
 // Decode carrier URLs when navigated (filtered to the carrier host only, so
 // this never fires for ordinary browsing).
 chrome.webNavigation.onBeforeNavigate.addListener(

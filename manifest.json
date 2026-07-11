@@ -10,7 +10,8 @@
     "storage",
     "unlimitedStorage",
     "alarms",
-    "webNavigation"
+    "webNavigation",
+    "idle"
   ],
   "host_permissions": [
     "https://kundeng.github.io/tabgroupsync/*"
