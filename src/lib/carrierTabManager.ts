@@ -111,14 +111,29 @@ export class CarrierTabManager {
       await this.hydrateTab(activeInfo.tabId, active.url, config);
     }
     // put any other local-file tabs back to rest (carrier)
-    await this.encodeInactiveFileTabs(config, activeInfo.tabId);
+    await this.encodeFileTabs(config, { exceptTabId: activeInfo.tabId });
   };
 
   /** Browser lost focus → put the active local-file tab back to rest. */
   handleFocusChanged = async (windowId: number): Promise<void> => {
-    if (windowId !== chrome.windows.WINDOW_ID_NONE) return;
     const config = await this.storage.getPathMappingConfig();
-    await this.encodeInactiveFileTabs(config, -1);
+    if (windowId === chrome.windows.WINDOW_ID_NONE) {
+      // Browser lost focus: nothing is being viewed -> ALL mapped file tabs to
+      // carrier (including the active one, which is no longer on screen).
+      await this.encodeFileTabs(config, { includeActive: true });
+      return;
+    }
+    // Browser gained focus on `windowId`: hydrate its active tab if it's a carrier.
+    let active: chrome.tabs.Tab[] = [];
+    try {
+      active = await chrome.tabs.query({ active: true, windowId });
+    } catch {
+      return;
+    }
+    const t = active[0];
+    if (t?.id != null && t.url && isCarrierUrl(t.url) && !this.updating.has(t.id)) {
+      await this.hydrateTab(t.id, t.url, config);
+    }
   };
 
   /** Navigation to a carrier URL: decode ONLY for the active tab (at-rest stays). */
@@ -135,16 +150,34 @@ export class CarrierTabManager {
     await this.hydrateTab(details.tabId, details.url, config);
   };
 
-  /** Idle-alarm sweep (Point 1): force every at-rest local-file tab to carrier. */
+  /**
+   * Idle-alarm sweep (Point 1): force every AT-REST local-file tab to carrier.
+   * "At rest" = everything except the tab the user is actually viewing (the
+   * active tab of the currently-focused window).
+   */
   sweepAtRest = async (): Promise<void> => {
     const config = await this.storage.getPathMappingConfig();
-    await this.encodeInactiveFileTabs(config, -1);
+    let viewedTabId: number | undefined;
+    try {
+      const win = await chrome.windows.getLastFocused();
+      if (win?.focused && win.id != null) {
+        const [t] = await chrome.tabs.query({ active: true, windowId: win.id });
+        viewedTabId = t?.id;
+      }
+    } catch { /* no focused window -> nothing is being viewed */ }
+    await this.encodeFileTabs(config, { includeActive: true, exceptTabId: viewedTabId });
   };
 
-  private async encodeInactiveFileTabs(
+  /**
+   * Encode mapped local-file tabs to their carriers. By default skips ACTIVE
+   * tabs (being viewed); pass includeActive to also encode active ones (e.g. on
+   * browser blur). `exceptTabId` protects the one tab the user is viewing.
+   */
+  private async encodeFileTabs(
     config: Awaited<ReturnType<StorageManager['getPathMappingConfig']>>,
-    exceptTabId: number,
+    opts: { includeActive?: boolean; exceptTabId?: number } = {},
   ): Promise<void> {
+    const { includeActive = false, exceptTabId } = opts;
     // Query all tabs and filter in JS: the file:// match pattern is finicky
     // ('file:///*' vs 'file://*'), and querying by pattern would silently
     // return nothing on a malformed pattern. isFileUrl is the source of truth.
@@ -155,7 +188,8 @@ export class CarrierTabManager {
       return;
     }
     for (const t of tabs) {
-      if (t.id == null || t.id === exceptTabId || t.active || this.updating.has(t.id)) continue;
+      if (t.id == null || t.id === exceptTabId || this.updating.has(t.id)) continue;
+      if (!includeActive && t.active) continue;
       if (t.url && isFileUrl(t.url) && pathHasMapping(t.url, config)) {
         await this.encodeTab(t.id, t.url, config);
       }
