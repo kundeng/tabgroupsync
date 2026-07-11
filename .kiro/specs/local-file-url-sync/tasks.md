@@ -197,9 +197,13 @@
     - Top-level listeners (onUpdated/onActivated/onFocusChanged/webNavigation),
       periodic sweep on the sync alarm. Manifest: `webNavigation` +
       `host_permissions` for CARRIER_HOST. Typechecks + builds clean.
-  - [ ] 7.4 Publish the CARRIER_HOST `/open` fallback page (GitHub Pages)
-    - Reads `location.hash`, shows path + "install extension / enable file access".
-    - Update `CARRIER_HOST` constant to the real published URL.
+  - [x] 7.2b Unit tests for carrierTabManager state machine
+    - 9 tests: encode-at-rest (inactive/active/mapped/unmapped), decode-on-click
+      (active hydrate / background stays / opener fallback / subframe ignore),
+      handleActivated (hydrate active + encode others + skip unmapped). All green.
+  - [~] 7.4 CARRIER_HOST `/open` fallback page — ARTIFACT created
+    (`public/carrier-open.html`, parchment theme, reads location.hash). REMAINING:
+    publish it at `https://<CARRIER_HOST>/open` and set `CARRIER_HOST` to the real URL.
   - [ ] 7.5 Settings UI: per-machine path mapping + "this machine" helper
     - Make adding THIS machine's rule obvious (the missing-Windows-rule bug).
   - [ ]* 7.6 CDP integration test (blocked: Edge 148 refuses CLI unpacked-ext load;
