@@ -1,9 +1,11 @@
 // Mirror the built extension (dist/) into ../tabgroup_build/1.5.0 so the
 // "Load unpacked" reload path stays stable across rebuilds. Runs automatically
-// after `npm run build` (package.json "postbuild").
-const { cpSync, rmSync, mkdirSync, readdirSync, existsSync } = require('fs');
-const { join, resolve } = require('path');
+// after `npm run build` (package.json "postbuild"). ESM (package is type:module).
+import { cpSync, rmSync, mkdirSync, readdirSync, existsSync } from 'fs';
+import { join, resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const dist = resolve(__dirname, '..', 'dist');
 const dest = resolve(__dirname, '..', '..', 'tabgroup_build', '1.5.0');
 

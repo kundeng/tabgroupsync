@@ -254,11 +254,16 @@ export function fileUrlToCarrier(
   roots: string[] = DEFAULT_CARRIER_ROOTS,
 ): string {
   if (!isFileUrl(fileUrl)) return fileUrl;
-  const path = extractPath(fileUrl);
-  const suffix = fileUrl.slice(FILE_PROTOCOL.length + path.length); // own query/#frag
-  const rel = homeRelativePath(path, localHome, roots);
-  if (rel) return CARRIER_PREFIX + rel + suffix;
-  return encodeCarrier(canonicalize(fileUrl, config)); // rule-based fallback
+  // Gate: only carrier-ize files under a synced home root (zero-config) or a
+  // manual rule — never unrelated local files.
+  if (homeRelativePath(extractPath(fileUrl), localHome, roots) !== null) {
+    // Emit an ABSOLUTE carrier (full source path), NOT `~/…`. An absolute path
+    // always naively decodes to a valid file:// — even by an older/dumber peer
+    // that can't expand `~` (which would strand an un-openable `file://~/…`).
+    // Cross-OS / cross-user home remapping happens at DECODE time instead.
+    return encodeCarrier(fileUrl);
+  }
+  return encodeCarrier(canonicalize(fileUrl, config)); // manual-rule fallback
 }
 
 /**
@@ -274,11 +279,22 @@ export function carrierToFileUrl(
 ): string | null {
   if (!isCarrierUrl(carrierUrl)) return carrierUrl;
   const frag = carrierUrl.slice(carrierUrl.indexOf('#') + 1);
-  const cpath = frag.split(/[?#]/)[0];        // canonical/relative path portion
+  const cpath = frag.split(/[?#]/)[0];        // path portion of the fragment
   const suffix = frag.slice(cpath.length);    // file's own query/#frag
+  // Legacy home-relative carriers (`~/…`) from older builds: expand with our
+  // home. If our home isn't known yet, signal the caller (opener page) rather
+  // than emit an un-openable `file://~/…`.
   if (cpath.startsWith('~')) {
-    if (!localHome) return null;              // bootstrap: home not learned yet
+    if (!localHome) return null;
     return FILE_PROTOCOL + localHome + cpath.slice(1) + suffix;
   }
-  return localize(FILE_PROTOCOL + cpath + suffix, config); // absolute -> rules
+  // Absolute carrier: swap the SOURCE machine's home prefix for THIS machine's
+  // home — handles /Users/<u> ⇄ /home/<u> ⇄ /C:/Users/<u> and differing
+  // usernames — when our home is known. Otherwise fall through to manual rules /
+  // the raw absolute path (still a valid, openable file:// on a same-layout peer).
+  const srcHome = detectHome(cpath);
+  if (srcHome && localHome && srcHome !== localHome) {
+    return FILE_PROTOCOL + localHome + cpath.slice(srcHome.length) + suffix;
+  }
+  return localize(FILE_PROTOCOL + cpath + suffix, config); // absolute -> rules / as-is
 }

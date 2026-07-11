@@ -40,7 +40,7 @@ describe('CarrierTabManager.handleUpdated (encode at rest)', () => {
     const mgr = makeManager();
     await mgr.handleUpdated(1, { url: 'file:///home/bar/Dropbox/book/ch1.html' } as any, { active: false } as any);
     expect(chrome.tabs.update).toHaveBeenCalledWith(1, {
-      url: `${CARRIER}~/Dropbox/book/ch1.html`, // home-relative (zero-config)
+      url: `${CARRIER}/home/bar/Dropbox/book/ch1.html`, // home-relative (zero-config)
     });
   });
 
@@ -118,7 +118,7 @@ describe('CarrierTabManager.handleActivated (hydrate focus + encode the rest)', 
     // hydrated the active carrier tab 5 to local file://
     expect(chrome.tabs.update).toHaveBeenCalledWith(5, { url: 'file:///home/bar/Dropbox/a.html' });
     // encoded the other inactive mapped file tab 9 (home-relative)
-    expect(chrome.tabs.update).toHaveBeenCalledWith(9, { url: `${CARRIER}~/Dropbox/b.html` });
+    expect(chrome.tabs.update).toHaveBeenCalledWith(9, { url: `${CARRIER}/home/bar/Dropbox/b.html` });
     // did NOT touch the unmapped file tab 7
     expect(chrome.tabs.update).not.toHaveBeenCalledWith(7, expect.anything());
   });
@@ -132,8 +132,8 @@ describe('CarrierTabManager.handleFocusChanged', () => {
       { id: 2, active: false, url: 'file:///home/bar/Dropbox/b.html' },
     ]);
     await mgr.handleFocusChanged(-1 /* WINDOW_ID_NONE */);
-    expect(chrome.tabs.update).toHaveBeenCalledWith(1, { url: `${CARRIER}~/Dropbox/a.html` });
-    expect(chrome.tabs.update).toHaveBeenCalledWith(2, { url: `${CARRIER}~/Dropbox/b.html` });
+    expect(chrome.tabs.update).toHaveBeenCalledWith(1, { url: `${CARRIER}/home/bar/Dropbox/a.html` });
+    expect(chrome.tabs.update).toHaveBeenCalledWith(2, { url: `${CARRIER}/home/bar/Dropbox/b.html` });
   });
 
   it('on FOCUS gained, hydrates the focused window\'s active carrier tab', async () => {
@@ -161,7 +161,7 @@ describe('CarrierTabManager.sweepAtRest', () => {
     });
     await mgr.sweepAtRest();
     expect(chrome.tabs.update).not.toHaveBeenCalledWith(5, expect.anything());       // viewed -> untouched
-    expect(chrome.tabs.update).toHaveBeenCalledWith(6, { url: `${CARRIER}~/Dropbox/bgwin.html` });
-    expect(chrome.tabs.update).toHaveBeenCalledWith(8, { url: `${CARRIER}~/Dropbox/rest.html` });
+    expect(chrome.tabs.update).toHaveBeenCalledWith(6, { url: `${CARRIER}/home/bar/Dropbox/bgwin.html` });
+    expect(chrome.tabs.update).toHaveBeenCalledWith(8, { url: `${CARRIER}/home/bar/Dropbox/rest.html` });
   });
 });

@@ -284,14 +284,18 @@ describe('detectHome / homeFromFileUrl (OS home patterns)', () => {
   });
 });
 
-describe('fileUrlToCarrier — home-relative (zero-config)', () => {
+describe('fileUrlToCarrier — absolute carrier under synced root (zero-config)', () => {
   const CARRIER = `https://${CARRIER_HOST}${CARRIER_PATH}#`;
-  it('normalizes Mac/Linux/Windows Dropbox files to the SAME carrier (~/Dropbox/...)', () => {
-    const want = `${CARRIER}~/Dropbox/Projects/X/file.html`;
-    // localHome=null -> auto-detect from the URL itself
-    expect(fileUrlToCarrier('file:///Users/kundeng/Dropbox/Projects/X/file.html', null, emptyConfig)).toBe(want);
-    expect(fileUrlToCarrier('file:///home/kundeng/Dropbox/Projects/X/file.html', null, emptyConfig)).toBe(want);
-    expect(fileUrlToCarrier('file:///C:/Users/kundeng/Dropbox/Projects/X/file.html', null, emptyConfig)).toBe(want);
+  it('emits the ABSOLUTE source path for a Dropbox file (per-OS; normalized at decode)', () => {
+    // Each machine carries its own absolute path — an absolute path always
+    // decodes to a valid file:// even by a peer that cannot expand `~`. The
+    // cross-OS/cross-user remap happens in carrierToFileUrl, not here.
+    expect(fileUrlToCarrier('file:///Users/kundeng/Dropbox/Projects/X/file.html', null, emptyConfig))
+      .toBe(`${CARRIER}/Users/kundeng/Dropbox/Projects/X/file.html`);
+    expect(fileUrlToCarrier('file:///home/kundeng/Dropbox/Projects/X/file.html', null, emptyConfig))
+      .toBe(`${CARRIER}/home/kundeng/Dropbox/Projects/X/file.html`);
+    expect(fileUrlToCarrier('file:///C:/Users/kundeng/Dropbox/Projects/X/file.html', null, emptyConfig))
+      .toBe(`${CARRIER}/C:/Users/kundeng/Dropbox/Projects/X/file.html`);
   });
   it('does NOT carrier-ize non-synced home files (Downloads) with no rule', () => {
     // falls back to encodeCarrier(canonicalize) which, with empty config, is the raw path
@@ -327,6 +331,30 @@ describe('home-relative round-trip (cross-OS)', () => {
     const macFile = 'file:///Users/kundeng/Dropbox/book/ch1.html';
     const carrier = fileUrlToCarrier(macFile, null, emptyConfig);
     expect(carrierToFileUrl(carrier, '/home/kundeng', emptyConfig)).toBe('file:///home/kundeng/Dropbox/book/ch1.html');
+  });
+});
+
+describe('carrier decode robustness — never strand an un-openable URL', () => {
+  const CARRIER = `https://${CARRIER_HOST}${CARRIER_PATH}#`;
+  it('absolute carrier + home known but DIFFERENT username → swaps whole home prefix', () => {
+    const c = `${CARRIER}/Users/alice/Dropbox/x.html`;
+    expect(carrierToFileUrl(c, '/home/bob', emptyConfig)).toBe('file:///home/bob/Dropbox/x.html');
+  });
+  it('absolute carrier + home unknown → falls back to the raw absolute file:// (valid, openable on a same-layout peer)', () => {
+    const c = `${CARRIER}/Users/kundeng/Dropbox/x.html`;
+    expect(carrierToFileUrl(c, null, emptyConfig)).toBe('file:///Users/kundeng/Dropbox/x.html');
+  });
+  it('absolute carrier + SAME home → returned unchanged (no rules needed)', () => {
+    const c = `${CARRIER}/home/kundeng/Dropbox/x.html`;
+    expect(carrierToFileUrl(c, '/home/kundeng', emptyConfig)).toBe('file:///home/kundeng/Dropbox/x.html');
+  });
+  it('new encode NEVER produces a `~` carrier (so no peer can strand file://~/)', () => {
+    expect(fileUrlToCarrier('file:///Users/kundeng/Dropbox/x.html', null, emptyConfig)).not.toContain('#~');
+    expect(fileUrlToCarrier('file:///home/kundeng/Dropbox/x.html', '/home/kundeng', emptyConfig)).not.toContain('#~');
+  });
+  it('legacy `~` carrier with unknown home → null (opener page), NOT file://~/', () => {
+    const legacy = `${CARRIER}~/Dropbox/x.html`;
+    expect(carrierToFileUrl(legacy, null, emptyConfig)).toBe(null);
   });
 });
 
