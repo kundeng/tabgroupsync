@@ -206,15 +206,18 @@
     publish it at `https://<CARRIER_HOST>/open` and set `CARRIER_HOST` to the real URL.
   - [ ] 7.5 Settings UI: per-machine path mapping + "this machine" helper
     - Make adding THIS machine's rule obvious (the missing-Windows-rule bug).
-  - [x] 7.6 CDP integration test — DONE, LIVE-VERIFIED 2026-07-11 in real Edge 150.
-    Loaded the built extension headed on bayes-f0 (Wayland) via
-    `--load-extension=dist --disable-extensions-except=dist` (works HEADED; blocked
-    HEADLESS). Then over CDP:
-    - ENCODE: inactive `file://` tab under a mapped prefix → rewritten to the https
-      carrier `https://tabgroupsync.github.io/open#/tmp/carrier-test/x.html`. ✅
-    - DECODE: navigating to that carrier → back to `file:///tmp/carrier-test/x.html`. ✅
-    Full round-trip mechanism confirmed on one machine; only cross-machine cloud
-    sync survival still needs human eyes (already proven separately with raw URL).
+  - [x] 7.6 CDP integration test — DONE, ALL 4 POINTS LIVE-VERIFIED 2026-07-11 in
+    real Edge 150 (bayes-f0, headed/Wayland, `--load-extension` + `--disable-
+    extensions-except`; blocked headless). With a real canonical≠local mapping
+    (`/canonical/base` ↔ `/tmp/carrier-test`), over CDP:
+    - A ENCODE: `file:///tmp/carrier-test/x.html` → `…/open#/canonical/base/x.html`
+      (canonicalize local→canonical). ✅
+    - B DECODE: carrier(canonical) → `file:///tmp/carrier-test/x.html`
+      (localize canonical→local). ✅
+    - C AT-REST: a background carrier tab stays a carrier. ✅
+    - D HYDRATE-ON-FOCUS: activating the carrier tab → `file:///tmp/carrier-test/y.html`. ✅
+    Entire mechanism + path translation confirmed. Only cross-machine cloud-sync
+    survival still needs human eyes (already proven separately with the raw URL).
   - [ ] 7.7 MANUAL round-trip test (user, headed signed-in Edge) — see Notes.
 
 ## Notes
