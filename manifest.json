@@ -13,7 +13,7 @@
     "webNavigation"
   ],
   "host_permissions": [
-    "https://tabgroupsync.github.io/*"
+    "https://kundeng.github.io/tabgroupsync/*"
   ],
   "action": {
     "default_popup": "popup.html"

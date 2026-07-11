@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CarrierTabManager } from '../../src/lib/carrierTabManager';
 import type { PathMappingConfig } from '../../src/lib/types/storage';
 
-const CARRIER = 'https://tabgroupsync.github.io/open#';
+const CARRIER = 'https://kundeng.github.io/tabgroupsync/open#';
 
 const config: PathMappingConfig = {
   machineId: 'linux',

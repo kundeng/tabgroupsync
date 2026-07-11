@@ -132,10 +132,11 @@ export function areSameFile(
 // substring after `file://` is already percent-encoded and fragment-safe.
 // ---------------------------------------------------------------------------
 
-// Single source of truth for the carrier host. Swap this for the real
-// GitHub-Pages URL once the /open fallback page is published.
-export const CARRIER_HOST = 'tabgroupsync.github.io';
-const CARRIER_PREFIX = `https://${CARRIER_HOST}/open#`;
+// Single source of truth for the carrier host + path. Published fallback page
+// lives at https://<CARRIER_HOST><CARRIER_PATH> (GitHub Pages project site).
+export const CARRIER_HOST = 'kundeng.github.io';
+export const CARRIER_PATH = '/tabgroupsync/open';
+const CARRIER_PREFIX = `https://${CARRIER_HOST}${CARRIER_PATH}#`;
 
 export function isCarrierUrl(url: string): boolean {
   return url.startsWith(CARRIER_PREFIX);

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local file link — Tab Group Sync</title>
+  <!--
+    Publish this at  https://<CARRIER_HOST>/open  (e.g. /open/index.html on a
+    GitHub Pages site). It is the EXTENSIONLESS fallback: when someone opens a
+    carrier link on a machine without the Tab Group Sync extension, they land
+    here. The real file open is done by the extension (browsers block https->
+    file:// navigation), so this page only shows the path + guidance. The path
+    rides in the URL #fragment and is read CLIENT-SIDE ONLY — it is never sent
+    to this server.
+  -->
+  <style>
+    :root {
+      --page: #fbfaf6;      /* cream */
+      --panel: #ffffff;
+      --ink: #2a2418;       /* warm brown, not black */
+      --muted: #6b6250;
+      --rust: #b4602a;
+      --rust-dark: #8a3b12;
+      --rule: #d9d3c2;      /* tan */
+      --code-bg: #f3eee0;   /* cream code */
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Iowan Old Style', Palatino, Georgia, serif;
+      font-size: 17px; line-height: 1.65;
+      color: var(--ink); background: var(--page);
+    }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 3.5rem 1.5rem; }
+    .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 1.75rem 2rem; }
+    h1 { font-size: 1.5rem; line-height: 1.3; margin-bottom: .5rem; }
+    h1 .accent { color: var(--rust-dark); }
+    .lede { color: var(--muted); margin-bottom: 1.5rem; }
+    .path-label { font-size: .8rem; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin-bottom: .35rem; font-family: system-ui, sans-serif; }
+    .path {
+      background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px;
+      padding: 1rem 1.15rem; margin-bottom: 1.75rem; word-break: break-all;
+      font-family: 'Cascadia Code', 'Fira Code', ui-monospace, monospace; font-size: .92rem; color: var(--rust-dark);
+    }
+    h2 { font-size: 1.05rem; margin: 1.5rem 0 .5rem; }
+    ol { margin: 0 0 .5rem 1.25rem; }
+    li { margin-bottom: .4rem; }
+    .hr { height: 1px; background: var(--rule); border: 0; margin: 1.75rem 0; }
+    .foot { color: var(--muted); font-size: .9rem; }
+    code { background: var(--code-bg); border: 1px solid var(--rule); border-radius: 4px; padding: .05em .4em; font-family: 'Cascadia Code','Fira Code',ui-monospace,monospace; font-size: .85em; }
+    button {
+      font: inherit; font-size: .95rem; cursor: pointer; color: #fff; background: var(--rust);
+      border: 0; border-radius: 7px; padding: .55rem 1.1rem; margin-top: .25rem;
+    }
+    button:hover { background: var(--rust-dark); }
+    .copied { color: var(--rust-dark); font-size: .85rem; margin-left: .6rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>This is a <span class="accent">local file</span> link</h1>
+      <p class="lede">Tab Group Sync turned one of your local files into a syncable
+        web link so it survives syncing across your computers. To actually open the
+        file, the Tab Group Sync extension has to be installed on this machine.</p>
+
+      <div class="path-label">The local file this points to</div>
+      <div class="path" id="path">(reading…)</div>
+      <button id="copy" type="button">Copy path</button><span class="copied" id="copied"></span>
+
+      <hr class="hr">
+
+      <h2>To open it here</h2>
+      <ol>
+        <li>Install <strong>Tab Group Sync</strong> in this browser.</li>
+        <li>On the extension in <code>edge://extensions</code> (or <code>chrome://extensions</code>),
+          turn on <strong>“Allow access to file URLs.”</strong></li>
+        <li>Add a <strong>path mapping</strong> for <em>this</em> machine in the extension’s
+          settings so the file resolves to where it lives locally.</li>
+        <li>Reopen this link — the extension will load the file directly.</li>
+      </ol>
+
+      <p class="foot">Your file path is read only in your browser (it lives in the
+        link’s <code>#</code> fragment) and is never sent to this site.</p>
+    </div>
+  </div>
+
+  <script>
+    // Path rides in the fragment: https://host/open#/Users/you/Dropbox/file.html
+    (function () {
+      var raw = location.hash ? location.hash.slice(1) : '';
+      var path = raw ? decodeURIComponent(raw) : '';
+      var el = document.getElementById('path');
+      el.textContent = path ? 'file://' + path : 'No path found in this link.';
+      document.getElementById('copy').addEventListener('click', function () {
+        var text = path ? 'file://' + path : '';
+        if (!text) return;
+        navigator.clipboard && navigator.clipboard.writeText(text).then(function () {
+          document.getElementById('copied').textContent = 'copied';
+          setTimeout(function () { document.getElementById('copied').textContent = ''; }, 1500);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

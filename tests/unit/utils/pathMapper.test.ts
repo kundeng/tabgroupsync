@@ -11,6 +11,7 @@ import {
   isCarrierUrl,
   pathHasMapping,
   CARRIER_HOST,
+  CARRIER_PATH,
 } from '../../../src/lib/utils/pathMapper';
 import type { PathMappingConfig } from '../../../src/lib/types/storage';
 
@@ -209,12 +210,12 @@ describe('idempotency', () => {
 describe('carrier encode/decode', () => {
   it('encodes file:// into an https carrier under CARRIER_HOST with the path in the fragment', () => {
     const c = encodeCarrier('file:///Users/foo/Dropbox/book/ch1.html');
-    expect(c).toBe(`https://${CARRIER_HOST}/open#/Users/foo/Dropbox/book/ch1.html`);
+    expect(c).toBe(`https://${CARRIER_HOST}${CARRIER_PATH}#/Users/foo/Dropbox/book/ch1.html`);
     expect(isCarrierUrl(c)).toBe(true);
   });
 
   it('decodes a carrier back to the original file:// URL', () => {
-    const c = `https://${CARRIER_HOST}/open#/Users/foo/Dropbox/book/ch1.html`;
+    const c = `https://${CARRIER_HOST}${CARRIER_PATH}#/Users/foo/Dropbox/book/ch1.html`;
     expect(decodeCarrier(c)).toBe('file:///Users/foo/Dropbox/book/ch1.html');
   });
 
@@ -238,7 +239,7 @@ describe('carrier encode/decode', () => {
   });
 
   it('isCarrierUrl only matches the carrier host + /open# prefix', () => {
-    expect(isCarrierUrl(`https://${CARRIER_HOST}/open#/x`)).toBe(true);
+    expect(isCarrierUrl(`https://${CARRIER_HOST}${CARRIER_PATH}#/x`)).toBe(true);
     expect(isCarrierUrl(`https://${CARRIER_HOST}/other#/x`)).toBe(false);
     expect(isCarrierUrl('https://evil.com/open#/x')).toBe(false);
     expect(isCarrierUrl('file:///x')).toBe(false);

@@ -8,7 +8,7 @@ import { Logger } from './lib/utils/logger';
 import { SyncEngine } from './lib/sync/syncEngine';
 import { SnapshotManager } from './lib/bookmarks/snapshotManager';
 import { scanPrefixCruft, executePrefixCruftCleanup } from './lib/bookmarks/cleanupPrefixCruft';
-import { isFileUrl, localize, CARRIER_HOST } from './lib/utils/pathMapper';
+import { isFileUrl, localize, CARRIER_HOST, CARRIER_PATH } from './lib/utils/pathMapper';
 import { CarrierTabManager } from './lib/carrierTabManager';
 
 // Initialize logger
@@ -173,7 +173,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(
     if (!await ensureInitialized()) return;
     await carrierTabManager.handleBeforeNavigate(details);
   },
-  { url: [{ hostEquals: CARRIER_HOST, pathPrefix: '/open' }] }
+  { url: [{ hostEquals: CARRIER_HOST, pathPrefix: CARRIER_PATH }] }
 );
 
 // Initialize state and start sync
