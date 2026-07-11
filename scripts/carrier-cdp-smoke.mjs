@@ -29,7 +29,7 @@ const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, arr) => {
   return a;
 }, []));
 const PORT = args.port || '9345';
-const CARRIER = 'https://kundeng.github.io/tabgroupsync/open#';
+const CARRIER = 'https://kundeng.github.io/tabgroupsync/open/#';
 const TEST_DIR = '/tmp/carrier-test';
 const TEST_FILE = `${TEST_DIR}/x.html`;
 const sleep = ms => new Promise(r => setTimeout(r, ms));

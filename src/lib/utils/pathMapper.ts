@@ -134,8 +134,12 @@ export function areSameFile(
 
 // Single source of truth for the carrier host + path. Published fallback page
 // lives at https://<CARRIER_HOST><CARRIER_PATH> (GitHub Pages project site).
+// Trailing slash is REQUIRED: GitHub Pages serves /tabgroupsync/open/index.html
+// and 301-redirects /open -> /open/. Encoding the canonical carrier WITH the
+// slash avoids that redirect, so at-rest carrier tabs keep a URL that
+// isCarrierUrl still matches (a redirect to /open/# would break recognition).
 export const CARRIER_HOST = 'kundeng.github.io';
-export const CARRIER_PATH = '/tabgroupsync/open';
+export const CARRIER_PATH = '/tabgroupsync/open/';
 const CARRIER_PREFIX = `https://${CARRIER_HOST}${CARRIER_PATH}#`;
 
 export function isCarrierUrl(url: string): boolean {
