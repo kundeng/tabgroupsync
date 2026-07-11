@@ -8,7 +8,8 @@ import { Logger } from './lib/utils/logger';
 import { SyncEngine } from './lib/sync/syncEngine';
 import { SnapshotManager } from './lib/bookmarks/snapshotManager';
 import { scanPrefixCruft, executePrefixCruftCleanup } from './lib/bookmarks/cleanupPrefixCruft';
-import { isFileUrl, localize } from './lib/utils/pathMapper';
+import { isFileUrl, localize, CARRIER_HOST } from './lib/utils/pathMapper';
+import { CarrierTabManager } from './lib/carrierTabManager';
 
 // Initialize logger
 const logger = Logger.getInstance();
@@ -28,6 +29,7 @@ let bookmarkManager: BookmarkManager;
 let syncEngine: SyncEngine;
 let tabGroupManager: TabGroupManager;
 let snapshotManager: SnapshotManager;
+let carrierTabManager: CarrierTabManager;
 let isReady = false;
 
 // Reentrant initialization guard — deduplicates concurrent init attempts
@@ -64,7 +66,8 @@ async function initializeManagers() {
   
   // Initialize managers
   snapshotManager = new SnapshotManager(storage, bookmarkManager);
-  
+  carrierTabManager = new CarrierTabManager(storage, logger);
+
   // Initialize listeners
   initializeTabGroupListeners(tabGroupManager, workerStartTime);
   initializeTabListeners(tabGroupManager);
@@ -109,6 +112,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
     try {
       await syncEngine.syncAll();
+      await carrierTabManager?.sweepAtRest();
       logger.info('sync:periodic', { timestamp: Date.now() });
     } catch (error) {
       logger.error('sync:periodic:failed', {
@@ -137,6 +141,40 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
   }
 });
+
+// --- Carrier tab management (design-carrier-v3-livetab) ---------------------
+// Keep local-file tabs safe from Edge Workspace sync: hold them as https
+// carriers at rest, hydrate to file:// on focus, decode carriers on click.
+// Listeners are registered top-level (MV3 requirement) and delegate to the
+// manager once initialized. onUpdated is pre-filtered to URL changes so we
+// don't pay init cost on every tab event.
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (!changeInfo.url || !isFileUrl(changeInfo.url)) return;
+  if (!await ensureInitialized()) return;
+  await carrierTabManager.handleUpdated(tabId, changeInfo, tab);
+});
+
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  if (!await ensureInitialized()) return;
+  await carrierTabManager.handleActivated(activeInfo);
+});
+
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId !== chrome.windows.WINDOW_ID_NONE) return;
+  if (!await ensureInitialized()) return;
+  await carrierTabManager.handleFocusChanged(windowId);
+});
+
+// Decode carrier URLs when navigated (filtered to the carrier host only, so
+// this never fires for ordinary browsing).
+chrome.webNavigation.onBeforeNavigate.addListener(
+  async (details) => {
+    if (!await ensureInitialized()) return;
+    await carrierTabManager.handleBeforeNavigate(details);
+  },
+  { url: [{ hostEquals: CARRIER_HOST, pathPrefix: '/open' }] }
+);
 
 // Initialize state and start sync
 async function initializeAndSync() {

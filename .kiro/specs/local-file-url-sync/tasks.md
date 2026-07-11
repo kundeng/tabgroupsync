@@ -131,8 +131,97 @@
     - Requires test file on disk and "Allow access to file URLs"
     - **Depends**: 2.1, 3.1, 3.2
 
+- [~] 6. Revision v2 — HTTPS Carrier on BOOKMARKS (SUPERSEDED by v3, see below)
+  <!-- v2 premise (Edge stopped syncing file:// bookmarks) was DISPROVEN
+       2026-07-11: bookmark sync carries file:// fine. Real problem = Edge
+       Workspaces mangle file:// TABS. Superseded by group 7 (design-carrier-v3). -->
+- [ ] 6. Revision v2 — HTTPS Carrier (transport fix, see design-carrier-v2.md)
+  - [ ] 6.0 Verify Edge's new behavior on two synced machines FIRST
+    - Confirm `file://` bookmarks are dropped from the sync payload (and whether
+      they also vanish from LOCAL bookmark storage — migration 6.5 depends on
+      local survival)
+    - Confirm Edge preserves the `#fragment` of an `https://` bookmark verbatim
+      across sync
+    - **Depends**: — | **Gates**: all of task 6
+
+  - [ ] 6.1 Add carrier functions to pathMapper.ts
+    - `encodeCarrier(fileUrl)`, `decodeCarrier(carrierUrl)`, `isCarrierUrl(url)`
+    - `CARRIER_HOST` constant = the GitHub Pages host
+    - **Depends**: 6.0 | **Requirements**: 8.1, 8.2, 8.7 | **Properties**: 6
+
+  - [ ] 6.2 Capture: wrap canonical file URLs in carrier form
+    - `bookmarkManager.ts` ~line 405: store `encodeCarrier(canonicalize(url))`
+    - Decode carrier bookmarks back to canonical `file://` when building the
+      `existingUrls` dedup set AND in the re-canonicalize sweep (lines 354–365)
+    - **Depends**: 6.1 | **Requirements**: 8.1, 8.8
+
+  - [ ] 6.3 Restore: decode carrier before opening
+    - `background.ts` restore loop: route `isCarrierUrl` through
+      `localize(decodeCarrier(url))`; keep the bare-`file://` branch for v1 backups
+    - **Depends**: 6.1 | **Requirements**: 8.3, 8.8
+
+  - [ ] 6.4 Click-through: webNavigation intercept
+    - `onBeforeNavigate` filtered to `hostEquals: CARRIER_HOST, pathPrefix:/open`
+    - Decode + localize + `chrome.tabs.update` to file://; opener.html on failure
+    - Manifest: add `"webNavigation"` + `host_permissions: ["https://HOST/*"]`
+    - **Depends**: 6.1 | **Requirements**: 8.4
+
+  - [ ] 6.5 Idle migration alarm
+    - Alarm `migrate-file-carriers` (~6h): re-encode bare `file://` bookmarks under
+      the container to carrier form; idempotent
+    - **Depends**: 6.1 | **Requirements**: 8.6
+
+  - [ ] 6.6 Static carrier page on GitHub Pages
+    - `/open` reads `location.hash`, shows path + setup guidance; no file open
+    - Reuse `public/opener.html` styling; publish via `docs/` or `gh-pages`
+    - **Depends**: — | **Requirements**: 8.5
+
+  - [ ] 6.7 Tests
+    - Property: carrier round-trip `decodeCarrier(encodeCarrier(u)) === u` (Prop 6)
+    - Unit: capture stores carrier; restore accepts carrier AND bare file://;
+      migration is idempotent; dedup matches carrier vs raw file:// tab
+    - **Depends**: 6.1–6.5 | **Properties**: 6
+
+- [ ] 7. Revision v3 — LIVE-TAB HTTPS Carrier (workspace-safe, see design-carrier-v3-livetab.md)
+  - [x] 7.0 Prove the transport (live cross-machine test)
+    - file:// tab → mangled ("unsupported-workspace"); https carrier tab → survives;
+      #fragment survives. All confirmed 2026-07-11 (bayes-pop → Windows).
+  - [x] 7.1 Carrier + scope functions in pathMapper.ts
+    - `encodeCarrier`/`decodeCarrier`/`isCarrierUrl`/`CARRIER_HOST` + `pathHasMapping`
+      (mapped-prefix scope guard). Unit-tested (36 tests incl. bijection + scope).
+  - [x] 7.2 carrierTabManager.ts — at-rest/hydrate state machine
+    - Point 1 ENCODE (onUpdated + sweep), Point 2 HYDRATE (onActivated/focus swap,
+      ratified swap-on-focus), Point 3 DECODE (handleBeforeNavigate, active-only),
+      Point 4 opener fallback. Loop-safe via `updating` guard.
+  - [x] 7.3 Wire into background.ts + manifest
+    - Top-level listeners (onUpdated/onActivated/onFocusChanged/webNavigation),
+      periodic sweep on the sync alarm. Manifest: `webNavigation` +
+      `host_permissions` for CARRIER_HOST. Typechecks + builds clean.
+  - [ ] 7.4 Publish the CARRIER_HOST `/open` fallback page (GitHub Pages)
+    - Reads `location.hash`, shows path + "install extension / enable file access".
+    - Update `CARRIER_HOST` constant to the real published URL.
+  - [ ] 7.5 Settings UI: per-machine path mapping + "this machine" helper
+    - Make adding THIS machine's rule obvious (the missing-Windows-rule bug).
+  - [ ]* 7.6 CDP integration test (blocked: Edge 148 refuses CLI unpacked-ext load;
+    needs edge://extensions "Load unpacked" — a manual step). Logic is unit-covered.
+  - [ ] 7.7 MANUAL round-trip test (user, headed signed-in Edge) — see Notes.
+
 ## Notes
 
 - Task 3.2 (opener.html) has no dependencies and can be built in parallel with anything
+- **Group 7 (v3) is the live one; group 6 (v2 bookmark carrier) is superseded** —
+  the premise that Edge stopped syncing file:// bookmarks was disproven.
+- **MANUAL round-trip test (7.7)** — do this in your real signed-in Edge:
+  1. `edge://extensions` → Developer mode → Load unpacked → `dist/`.
+  2. Enable **"Allow access to file URLs"** for it.
+  3. Settings → add a path mapping for THIS machine (e.g. `/Users/you/Dropbox`
+     ↔ this machine's Dropbox path); set a Machine ID.
+  4. Open a `file://` under that prefix; switch to another tab → confirm the file
+     tab's URL becomes `https://tabgroupsync.github.io/open#…` (carrier at rest).
+  5. On a second signed-in machine, open the synced workspace → the carrier tab
+     survives; click it → the extension opens the local file (or opener page).
+- **Revision v2**: Task 6.0 is a hard gate — do not implement the carrier until the
+  new Edge behavior is confirmed on real synced machines. The carrier is a pure
+  wrapper around the existing (still-valid) path-mapping layer.
 - Machine ID storage uses chrome.storage.local, NOT sync — this is deliberate (Decision 2 in design)
 - The URL filter change in task 2.1 is the single most critical change — it's the gate that currently blocks file:// URLs

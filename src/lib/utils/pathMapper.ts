@@ -122,3 +122,49 @@ export function areSameFile(
   if (!isFileUrl(url1) || !isFileUrl(url2)) return url1 === url2;
   return canonicalize(url1, config) === canonicalize(url2, config);
 }
+
+// ---------------------------------------------------------------------------
+// HTTPS carrier (design-carrier-v3): rewrite file:// <-> https so the URL
+// survives Edge Workspace sync (which mangles every non-http(s) scheme into
+// "workspace-unsupported"). The local path rides in the URL #fragment, which
+// Edge preserves across sync (verified 2026-07-11) and which is never sent to
+// the carrier host's server (private). Encode/decode is a pure bijection: the
+// substring after `file://` is already percent-encoded and fragment-safe.
+// ---------------------------------------------------------------------------
+
+// Single source of truth for the carrier host. Swap this for the real
+// GitHub-Pages URL once the /open fallback page is published.
+export const CARRIER_HOST = 'tabgroupsync.github.io';
+const CARRIER_PREFIX = `https://${CARRIER_HOST}/open#`;
+
+export function isCarrierUrl(url: string): boolean {
+  return url.startsWith(CARRIER_PREFIX);
+}
+
+// file:///Users/a/b.html  ->  https://HOST/open#/Users/a/b.html
+export function encodeCarrier(fileUrl: string): string {
+  if (!isFileUrl(fileUrl)) return fileUrl;
+  return CARRIER_PREFIX + fileUrl.slice(FILE_PROTOCOL.length);
+}
+
+// https://HOST/open#/Users/a/b.html  ->  file:///Users/a/b.html
+export function decodeCarrier(carrierUrl: string): string {
+  if (!isCarrierUrl(carrierUrl)) return carrierUrl;
+  const hashIdx = carrierUrl.indexOf('#');
+  return FILE_PROTOCOL + carrierUrl.slice(hashIdx + 1);
+}
+
+/**
+ * Scope guard (ratified decision 2): only rewrite file:// tabs whose path is
+ * under a configured mapping prefix — never touch unrelated local files
+ * (Downloads, system paths). True if the path matches a local OR canonical
+ * prefix of any rule (so it works before/after canonicalization).
+ */
+export function pathHasMapping(fileUrl: string, config: PathMappingConfig): boolean {
+  if (!isFileUrl(fileUrl) || config.rules.length === 0) return false;
+  const path = extractPath(fileUrl);
+  return (
+    findMatchingRule(path, config.rules, r => r.localPrefix) !== null ||
+    findMatchingRule(path, config.rules, r => r.canonicalPrefix) !== null
+  );
+}

@@ -9,7 +9,11 @@
     "bookmarks",
     "storage",
     "unlimitedStorage",
-    "alarms"
+    "alarms",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "https://tabgroupsync.github.io/*"
   ],
   "action": {
     "default_popup": "popup.html"

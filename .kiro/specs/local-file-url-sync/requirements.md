@@ -14,6 +14,13 @@ depends_on: []
 
 ## Introduction
 
+> **Revision v2 (2026-07-10):** Edge changed its bookmark-sync protocol and no
+> longer transports `file://` bookmark URLs across machines — the transport this
+> spec originally relied on. `file://` URLs are now wrapped in an **https carrier**
+> (`https://<host>/open#<path>`) so they survive sync, and decoded back to
+> `file://` on restore/click. See `design-carrier-v2.md` and **Requirement 8**.
+> All path-mapping requirements (1–3) still hold; only the stored carrier changes.
+
 Tab Group Sync currently filters out all non-http(s) URLs at sync time
 (`bookmarkManager.ts:369`), which means `file://` tabs — common among
 users who read local documentation, Dropbox-synced books, or offline
@@ -249,6 +256,35 @@ on the source machine.
    to avoid accidental tab closure on the source machine
 4. THE Extension SHALL NOT attempt to interfere with Edge Workspace
    behavior — this is an informational warning only
+
+### Requirement 8: HTTPS Carrier Encoding (Revision v2)
+
+**User Story:** As a user whose `file://` tabs must survive Edge's new sync
+protocol, I want the extension to store my local-file bookmarks as https URLs
+that Edge will sync, and transparently recover the `file://` path on any machine.
+
+#### Acceptance Criteria
+
+1. WHEN a `file://` URL is captured, THE Sync_Engine SHALL store it in the
+   bookmark as an https carrier URL of the form `https://<CARRIER_HOST>/open#<path>`,
+   where `<path>` is the canonical file path (Req 1.2 canonicalization applied first)
+2. THE carrier SHALL place the file path in the URL **fragment** (`#…`), never in
+   the query string, so the path is never transmitted to the carrier host's server
+3. WHEN a bookmark holds a carrier URL, THE Extension SHALL decode it back to a
+   `file://` URL (then apply `localize`, Req 3) before opening on restore
+4. WHEN a user directly clicks a carrier bookmark (outside the Restore flow), THE
+   Extension SHALL intercept the navigation (`webNavigation`), decode + localize the
+   URL, and open the `file://` tab — falling back to the Opener_Page on failure
+5. WHEN the extension is not installed on a machine, a clicked carrier bookmark
+   SHALL land on the static carrier page, which displays the file path and setup
+   guidance (it SHALL NOT attempt to open the file — browsers block https→file://)
+6. WHEN legacy bookmarks written under Revision v1 hold bare `file://` URLs, THE
+   Extension SHALL, on an idle alarm, re-encode them to carrier form on the machine
+   that holds them locally — idempotently (carrier URLs are left unchanged)
+7. THE carrier encode/decode SHALL be a lossless bijection:
+   `decodeCarrier(encodeCarrier(u)) === u` for any `file://` URL `u`
+8. WHEN restoring, THE Extension SHALL accept BOTH carrier URLs and bare `file://`
+   URLs (backward compatibility with v1 backups)
 
 ### Non-Functional
 
