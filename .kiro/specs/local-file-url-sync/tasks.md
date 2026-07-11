@@ -201,9 +201,14 @@
     - 9 tests: encode-at-rest (inactive/active/mapped/unmapped), decode-on-click
       (active hydrate / background stays / opener fallback / subframe ignore),
       handleActivated (hydrate active + encode others + skip unmapped). All green.
-  - [~] 7.4 CARRIER_HOST `/open` fallback page — ARTIFACT created
-    (`public/carrier-open.html`, parchment theme, reads location.hash). REMAINING:
-    publish it at `https://<CARRIER_HOST>/open` and set `CARRIER_HOST` to the real URL.
+  - [x] 7.4 CARRIER_HOST `/open` fallback page — PUBLISHED + LIVE 2026-07-11.
+    Host wired to `kundeng.github.io` path `/tabgroupsync/open/` (trailing slash
+    REQUIRED — GitHub Pages redirects `/open`→`/open/`, which broke carrier
+    recognition; fixed). Page at `docs/open/index.html`, served (HTTP 200) via
+    GitHub Pages from `feat/livetab-carrier /docs`. Re-verified all 4 CDP points
+    live against the real host. NOTE: Pages currently serves from the FEATURE
+    branch — move the Pages source to `main` after merge (and reconcile main vs
+    master, which have diverged).
   - [ ] 7.5 Settings UI: per-machine path mapping + "this machine" helper
     - Make adding THIS machine's rule obvious (the missing-Windows-rule bug).
   - [x] 7.6 CDP integration test — DONE, ALL 4 POINTS LIVE-VERIFIED 2026-07-11 in
