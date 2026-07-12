@@ -160,15 +160,16 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
   await carrierTabManager.handleActivated(activeInfo);
 });
 
+// Sibling model (design-carrier-v4): the live file:// tab is NEVER rewritten;
+// instead each file tab gets one carrier sibling that syncs. Re-assert that
+// pairing when the browser blurs / goes idle / on the periodic alarm, to catch
+// file tabs opened while the service worker was asleep.
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
   if (windowId !== chrome.windows.WINDOW_ID_NONE) return;
   if (!await ensureInitialized()) return;
-  await carrierTabManager.handleFocusChanged(windowId);
+  await carrierTabManager.reconcile();
 });
 
-// Idle detection: when THIS machine goes idle/locked, encode all its file://
-// tabs (incl. the active one) to carriers, so an unattended machine stops
-// leaking live file:// tabs that others pick up as workspace-unsupported.
 chrome.idle.setDetectionInterval(30);
 chrome.idle.onStateChanged.addListener(async (state) => {
   if (!await ensureInitialized()) return;

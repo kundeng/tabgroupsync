@@ -7,9 +7,12 @@ import {
   carrierToFileUrl,
   shouldCarrier,
   homeFromFileUrl,
+  pairKey,
   CARRIER_HOST,
   type LocalOs,
 } from './utils/pathMapper';
+
+type Cfg = Awaited<ReturnType<StorageManager['getPathMappingConfig']>>;
 
 /** This machine's OS family from the SW's navigator — for bootstrap home inference. */
 function detectOs(): LocalOs | null {
@@ -20,32 +23,34 @@ function detectOs(): LocalOs | null {
   return null;
 }
 
-type Cfg = Awaited<ReturnType<StorageManager['getPathMappingConfig']>>;
-
 /**
- * CarrierTabManager (design-carrier-v3-livetab) — keeps local-file tabs safe
- * from Edge Workspace sync, which mangles every non-http(s) URL into
- * "workspace-unsupported" on remote machines.
+ * CarrierTabManager (design-carrier-v4-sibling) — makes local-file tabs survive
+ * Edge Workspace sync WITHOUT ever rewriting the live tab (which would reload it
+ * and destroy in-memory page state).
  *
- * A `file://` tab under a synced home root (default `~/Dropbox`, zero-config) or
- * a manual mapping rule is held as an **https carrier** while AT REST (so Edge
- * syncs it as an ordinary web tab), and HYDRATED back to `file://` when the user
- * ACTIVATES it. Carriers are stored HOME-RELATIVE (`~/Dropbox/...`), so each
- * machine strips/prepends its own auto-detected home — no per-machine rules for
- * the common case. `localHome` is LEARNED from the file:// URLs the user opens
- * and cached in storage.local.
+ * Model: for each local file path the user opens, maintain a PAIR of tabs —
+ *   • local tab   = the real `file://` tab, NEVER touched → keeps all state.
+ *   • carrier tab = a sibling `https://…/open/#<abs-path>` tab that syncs.
+ * Pairing is by `pairKey` (home-relative, cross-OS). Rules:
+ *   A) a local tab with no carrier sibling → create the carrier (background).
+ *   C) activating a synced-in carrier with no local sibling → open the local
+ *      file as a NEW sibling and KEEP the carrier (so the carrier stays the one
+ *      stable synced identity → no duplicate carriers, no sync recursion).
+ * The carrier is never navigated away, so "check the pair, do nothing" holds.
  *
- * Loop-safety: our own `chrome.tabs.update` calls are tracked in `updating` and
- * ignored by the update listener; the carrier-decode intercept only fires for
- * the ACTIVE tab, so an at-rest carrier we just wrote is left alone.
+ * NOT handled in v1: auto-removal of orphaned carriers (a carrier with no local
+ * sibling is ambiguous — orphan vs. synced-in-not-yet-opened — so we never
+ * auto-close carriers; the user closes them). See the design doc.
  */
 export class CarrierTabManager {
   private storage: StorageManager;
   private logger: Logger;
-  private updating = new Set<number>();
   private localHome: string | null = null;
   private homeLoaded = false;
   private readonly localOs: LocalOs | null = detectOs();
+  private busy = new Set<number>();      // tabs we created/opened — ignore their events
+  private creating = new Set<string>();  // pairKeys mid carrier-create — dedupe
+  private opening = new Set<string>();   // pairKeys mid local-sibling-open — dedupe
 
   static readonly CARRIER_HOST = CARRIER_HOST;
 
@@ -56,7 +61,6 @@ export class CarrierTabManager {
 
   // --- home learning ------------------------------------------------------
 
-  /** Load the cached home once (from storage.local) before handling events. */
   private async ensureHome(): Promise<void> {
     if (this.homeLoaded) return;
     try {
@@ -66,7 +70,6 @@ export class CarrierTabManager {
     this.homeLoaded = true;
   }
 
-  /** Learn this machine's home prefix from any file:// URL the user opens. */
   private async learnHome(fileUrl: string): Promise<void> {
     const h = homeFromFileUrl(fileUrl);
     if (h && h !== this.localHome) {
@@ -76,46 +79,8 @@ export class CarrierTabManager {
     }
   }
 
-  // --- internal helpers ---------------------------------------------------
-
-  private async update(tabId: number, url: string): Promise<boolean> {
-    this.updating.add(tabId);
-    try {
-      await chrome.tabs.update(tabId, { url });
-      return true;
-    } catch (e) {
-      this.logger.debug('carrier:update-failed', { tabId, url: url.slice(0, 60), error: String(e) });
-      return false;
-    } finally {
-      setTimeout(() => this.updating.delete(tabId), 1500);
-    }
-  }
-
-  /** Rewrite an at-rest local-file tab to its https carrier (home-relative). */
-  private async encodeTab(tabId: number, fileUrl: string, config: Cfg): Promise<void> {
-    const carrier = fileUrlToCarrier(fileUrl, this.localHome, config);
-    if (carrier === fileUrl) return;
-    await this.update(tabId, carrier);
-    this.logger.debug('carrier:encoded', { tabId });
-  }
-
-  /** Hydrate a carrier tab back to the machine-local file:// (or opener page). */
-  private async hydrateTab(tabId: number, carrierUrl: string, config: Cfg): Promise<void> {
-    const fileUrl = carrierToFileUrl(carrierUrl, this.localHome, config, this.localOs);
-    const canOpen = fileUrl !== null && await this.hasFileAccess();
-    if (canOpen) {
-      await this.update(tabId, fileUrl as string);
-      this.logger.debug('carrier:hydrated', { tabId });
-    } else {
-      // fileUrl===null => home not learned yet (bootstrap); show the path we have.
-      const shown = fileUrl ?? carrierUrl;
-      const opener =
-        chrome.runtime.getURL('opener.html') +
-        '?target=' + encodeURIComponent(shown) +
-        '&original=' + encodeURIComponent(carrierUrl);
-      await this.update(tabId, opener);
-      this.logger.debug('carrier:hydrate-fallback-opener', { tabId, reason: fileUrl === null ? 'no-home' : 'no-file-access' });
-    }
+  private key(url: string): string | null {
+    return pairKey(url, this.localHome);
   }
 
   private async hasFileAccess(): Promise<boolean> {
@@ -126,137 +91,142 @@ export class CarrierTabManager {
     }
   }
 
-  /** True if nobody is at THIS machine (idle/locked) → no tab is really "viewed". */
-  private async isIdle(): Promise<boolean> {
+  private track(tabId: number | undefined): void {
+    if (tabId == null) return;
+    this.busy.add(tabId);
+    setTimeout(() => this.busy.delete(tabId), 3000);
+  }
+
+  // --- core: keep each local file tab paired with one carrier sibling -----
+
+  /** Ensure every synced-root file:// tab has exactly one carrier sibling. */
+  reconcile = async (): Promise<void> => {
+    await this.ensureHome();
+    const config = await this.storage.getPathMappingConfig();
+    let tabs: chrome.tabs.Tab[] = [];
+    try { tabs = await chrome.tabs.query({}); } catch { return; }
+
+    const carrierKeys = new Set<string>();
+    const locals: { tab: chrome.tabs.Tab; key: string }[] = [];
+    for (const t of tabs) {
+      if (!t.url || t.id == null) continue;
+      if (isCarrierUrl(t.url)) {
+        const k = this.key(t.url);
+        if (k) carrierKeys.add(k);
+      } else if (isFileUrl(t.url) && shouldCarrier(t.url, this.localHome, config)) {
+        const k = this.key(t.url);
+        if (k) locals.push({ tab: t, key: k });
+      }
+    }
+    for (const { tab, key } of locals) {
+      if (carrierKeys.has(key) || this.creating.has(key)) continue;
+      await this.createCarrier(tab, config);
+      carrierKeys.add(key); // don't double-create for the same key in one pass
+    }
+  };
+
+  /** Rule A: create a background carrier sibling next to a local file tab. */
+  private async createCarrier(localTab: chrome.tabs.Tab, config: Cfg): Promise<void> {
+    const carrier = fileUrlToCarrier(localTab.url as string, this.localHome, config);
+    if (carrier === localTab.url) return; // not carrier-izable
+    const key = this.key(localTab.url as string);
+    if (key == null) return;
+    this.creating.add(key);
     try {
-      const state = await new Promise<chrome.idle.IdleState>((resolve) =>
-        chrome.idle.queryState(15, resolve));
-      return state !== 'active';
-    } catch {
-      return false;
+      const t = await chrome.tabs.create({
+        url: carrier,
+        active: false,
+        windowId: localTab.windowId,
+        index: (localTab.index ?? 0) + 1,
+      });
+      this.track(t.id);
+      this.logger.debug('carrier:sibling-created', { key });
+    } catch (e) {
+      this.logger.debug('carrier:sibling-failed', { error: String(e) });
+    } finally {
+      setTimeout(() => this.creating.delete(key), 3000);
+    }
+  }
+
+  /** Rule C: activating a synced-in carrier with no local sibling → open the
+   *  local file as a NEW sibling (keep the carrier). */
+  private async openLocalSibling(carrierTab: chrome.tabs.Tab, config: Cfg): Promise<void> {
+    const key = this.key(carrierTab.url as string);
+    if (key == null || this.opening.has(key)) return;
+    let tabs: chrome.tabs.Tab[] = [];
+    try { tabs = await chrome.tabs.query({}); } catch { return; }
+    const hasLocal = tabs.some(t => t.url && isFileUrl(t.url) && this.key(t.url) === key);
+    if (hasLocal) return; // pair already complete → do nothing (no recursion)
+
+    const fileUrl = carrierToFileUrl(carrierTab.url as string, this.localHome, config, this.localOs);
+    const canOpen = fileUrl !== null && await this.hasFileAccess();
+    const url = canOpen
+      ? (fileUrl as string)
+      : chrome.runtime.getURL('opener.html')
+        + '?target=' + encodeURIComponent(fileUrl ?? (carrierTab.url as string))
+        + '&original=' + encodeURIComponent(carrierTab.url as string);
+
+    this.opening.add(key);
+    try {
+      const t = await chrome.tabs.create({
+        url,
+        active: true,
+        windowId: carrierTab.windowId,
+        index: (carrierTab.index ?? 0) + 1,
+      });
+      this.track(t.id);
+      this.logger.debug('carrier:local-sibling-opened', { key, viaOpener: !canOpen });
+    } catch (e) {
+      this.logger.debug('carrier:local-sibling-failed', { error: String(e) });
+    } finally {
+      setTimeout(() => this.opening.delete(key), 3000);
     }
   }
 
   // --- event handlers (registered top-level in background.ts) --------------
 
-  /** file:// tab opened/navigated in the background → encode to carrier. */
-  handleUpdated = async (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab): Promise<void> => {
-    if (this.updating.has(tabId)) return;
+  /** A file:// tab loaded → learn home + ensure it has a carrier sibling. */
+  handleUpdated = async (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, _tab: chrome.tabs.Tab): Promise<void> => {
+    if (this.busy.has(tabId)) return;
     const url = changeInfo.url;
     if (!url || !isFileUrl(url)) return;
     await this.ensureHome();
-    await this.learnHome(url);              // learn home from any file the user opens
-    if (tab.active && !(await this.isIdle())) return; // active & user present → keep file://
-    const config = await this.storage.getPathMappingConfig();
-    if (shouldCarrier(url, this.localHome, config)) await this.encodeTab(tabId, url, config);
+    await this.learnHome(url);
+    await this.reconcile();
   };
 
-  /** Tab activated → hydrate it if carrier; encode any now-inactive file tabs. */
+  /** Carrier tab activated (user clicked it) → open its local sibling. */
   handleActivated = async (activeInfo: chrome.tabs.TabActiveInfo): Promise<void> => {
+    if (this.busy.has(activeInfo.tabId)) return;
     await this.ensureHome();
-    const config = await this.storage.getPathMappingConfig();
-    let active: chrome.tabs.Tab | undefined;
-    try {
-      active = await chrome.tabs.get(activeInfo.tabId);
-    } catch {
-      return;
-    }
-    if (active?.url && isFileUrl(active.url)) await this.learnHome(active.url);
-    if (active?.url && isCarrierUrl(active.url) && !this.updating.has(activeInfo.tabId)) {
-      await this.hydrateTab(activeInfo.tabId, active.url, config);
-    }
-    await this.encodeFileTabs(config, { exceptTabId: activeInfo.tabId });
-  };
-
-  /** Browser lost focus → put all file tabs to rest; focus gained → hydrate active. */
-  handleFocusChanged = async (windowId: number): Promise<void> => {
-    await this.ensureHome();
-    const config = await this.storage.getPathMappingConfig();
-    if (windowId === chrome.windows.WINDOW_ID_NONE) {
-      await this.encodeFileTabs(config, { includeActive: true });
-      return;
-    }
-    let active: chrome.tabs.Tab[] = [];
-    try {
-      active = await chrome.tabs.query({ active: true, windowId });
-    } catch {
-      return;
-    }
-    const t = active[0];
-    if (t?.id != null && t.url && isCarrierUrl(t.url) && !this.updating.has(t.id)) {
-      await this.hydrateTab(t.id, t.url, config);
-    }
-  };
-
-  /** Navigation to a carrier URL: decode ONLY for the active tab (at-rest stays). */
-  handleBeforeNavigate = async (details: chrome.webNavigation.WebNavigationParentedCallbackDetails): Promise<void> => {
-    if (details.frameId !== 0 || !isCarrierUrl(details.url) || this.updating.has(details.tabId)) return;
     let tab: chrome.tabs.Tab | undefined;
-    try {
-      tab = await chrome.tabs.get(details.tabId);
-    } catch {
-      return;
+    try { tab = await chrome.tabs.get(activeInfo.tabId); } catch { return; }
+    if (tab?.url && isFileUrl(tab.url)) { await this.learnHome(tab.url); return; }
+    if (tab?.url && isCarrierUrl(tab.url)) {
+      const config = await this.storage.getPathMappingConfig();
+      await this.openLocalSibling(tab, config);
     }
-    if (!tab?.active) return; // background carriers stay carriers (sync-safe)
-    await this.ensureHome();
-    const config = await this.storage.getPathMappingConfig();
-    await this.hydrateTab(details.tabId, details.url, config);
   };
 
-  /**
-   * Machine went idle or locked → nobody is viewing anything HERE, so the
-   * "active" tab isn't really being read. Encode ALL local-file tabs (including
-   * the active one) to carriers so an unattended machine stops leaking a live
-   * file:// tab that other machines pick up as workspace-unsupported.
-   */
+  /** Carrier tab navigated while active (click a link / reload it) → open local sibling. */
+  handleBeforeNavigate = async (details: chrome.webNavigation.WebNavigationParentedCallbackDetails): Promise<void> => {
+    if (details.frameId !== 0 || this.busy.has(details.tabId) || !isCarrierUrl(details.url)) return;
+    let tab: chrome.tabs.Tab | undefined;
+    try { tab = await chrome.tabs.get(details.tabId); } catch { return; }
+    if (!tab?.active) return;
+    await this.ensureHome();
+    const config = await this.storage.getPathMappingConfig();
+    await this.openLocalSibling({ ...tab, url: details.url }, config);
+  };
+
+  /** Machine idle/locked or periodic alarm → re-assert the pairing invariant.
+   *  (Catches file tabs opened while the service worker was asleep.) */
   handleIdleState = async (state: chrome.idle.IdleState): Promise<void> => {
-    if (state === 'active') return; // user is here — leave the viewed tab as file://
-    await this.ensureHome();
-    const config = await this.storage.getPathMappingConfig();
-    await this.encodeFileTabs(config, { includeActive: true });
-    this.logger.debug('carrier:idle-encoded', { state });
+    if (state === 'active') return;
+    await this.reconcile();
   };
 
-  /**
-   * Idle-alarm sweep: force every AT-REST local-file tab to carrier. "At rest" =
-   * everything except the tab the user is actually viewing (active tab of the
-   * currently-focused window).
-   */
   sweepAtRest = async (): Promise<void> => {
-    await this.ensureHome();
-    const config = await this.storage.getPathMappingConfig();
-    let viewedTabId: number | undefined;
-    // Only exempt a "viewed" tab if the user is actually here; if idle/locked,
-    // nothing is being viewed → encode everything.
-    if (!(await this.isIdle())) {
-      try {
-        const win = await chrome.windows.getLastFocused();
-        if (win?.focused && win.id != null) {
-          const [t] = await chrome.tabs.query({ active: true, windowId: win.id });
-          viewedTabId = t?.id;
-        }
-      } catch { /* no focused window -> nothing is being viewed */ }
-    }
-    await this.encodeFileTabs(config, { includeActive: true, exceptTabId: viewedTabId });
+    await this.reconcile();
   };
-
-  private async encodeFileTabs(
-    config: Cfg,
-    opts: { includeActive?: boolean; exceptTabId?: number } = {},
-  ): Promise<void> {
-    const { includeActive = false, exceptTabId } = opts;
-    let tabs: chrome.tabs.Tab[] = [];
-    try {
-      tabs = await chrome.tabs.query({});
-    } catch {
-      return;
-    }
-    for (const t of tabs) {
-      if (t.id == null || t.id === exceptTabId || this.updating.has(t.id)) continue;
-      if (!includeActive && t.active) continue;
-      if (t.url && isFileUrl(t.url) && shouldCarrier(t.url, this.localHome, config)) {
-        await this.encodeTab(t.id, t.url, config);
-      }
-    }
-  }
 }

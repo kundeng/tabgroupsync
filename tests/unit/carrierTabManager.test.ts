@@ -4,6 +4,7 @@ import type { PathMappingConfig } from '../../src/lib/types/storage';
 
 const CARRIER = 'https://kundeng.github.io/tabgroupsync/open/#';
 
+// A manual rule so a Mac-origin carrier (/Users/foo) decodes to this Linux box (/home/bar).
 const config: PathMappingConfig = {
   machineId: 'linux',
   rules: [{ canonicalPrefix: '/Users/foo/Dropbox', localPrefix: '/home/bar/Dropbox' }],
@@ -15,185 +16,143 @@ function makeManager(cfg: PathMappingConfig = config) {
   return new CarrierTabManager(storage, logger);
 }
 
+let nextTabId = 100;
 beforeEach(() => {
+  nextTabId = 100;
   const g = globalThis as any;
   g.chrome = g.chrome || {};
   g.chrome.tabs = {
-    update: vi.fn().mockResolvedValue({}),
+    create: vi.fn().mockImplementation(() => Promise.resolve({ id: nextTabId++ })),
     get: vi.fn(),
     query: vi.fn().mockResolvedValue([]),
-    create: vi.fn().mockResolvedValue({ id: 1 }),
+    update: vi.fn().mockResolvedValue({}),
   };
   g.chrome.extension = { isAllowedFileSchemeAccess: vi.fn().mockResolvedValue(true) };
-  g.chrome.windows = {
-    WINDOW_ID_NONE: -1,
-    getLastFocused: vi.fn().mockResolvedValue({ id: 1, focused: true }),
-  };
   g.chrome.runtime = { getURL: (p: string) => `chrome-extension://ID/${p}` };
   g.chrome.storage = {
     local: { get: vi.fn().mockResolvedValue({}), set: vi.fn().mockResolvedValue(undefined) },
   };
-  g.chrome.idle = {
-    queryState: vi.fn((_i: number, cb: (s: string) => void) => cb('active')), // default: present
-    setDetectionInterval: vi.fn(),
-    onStateChanged: { addListener: vi.fn() },
-  };
+  g.chrome.idle = { queryState: vi.fn((_i: number, cb: (s: string) => void) => cb('active')) };
 });
 
-describe('CarrierTabManager.handleUpdated (encode at rest)', () => {
-  it('rewrites an INACTIVE mapped file:// tab to the canonical carrier', async () => {
+describe('reconcile — Rule A: create ONE carrier sibling per local file tab', () => {
+  it('creates a background carrier sibling next to a mapped file:// tab', async () => {
     const mgr = makeManager();
-    await mgr.handleUpdated(1, { url: 'file:///home/bar/Dropbox/book/ch1.html' } as any, { active: false } as any);
-    expect(chrome.tabs.update).toHaveBeenCalledWith(1, {
-      url: `${CARRIER}/home/bar/Dropbox/book/ch1.html`, // home-relative (zero-config)
-    });
-  });
-
-  it('leaves an ACTIVE file:// tab as-is when the user is present (not idle)', async () => {
-    const mgr = makeManager();
-    (chrome.idle.queryState as any).mockImplementation((_i: number, cb: (s: string) => void) => cb('active'));
-    await mgr.handleUpdated(1, { url: 'file:///home/bar/Dropbox/book/ch1.html' } as any, { active: true } as any);
-    expect(chrome.tabs.update).not.toHaveBeenCalled();
-  });
-
-  it('encodes an ACTIVE file:// tab when the machine is IDLE (nobody viewing)', async () => {
-    const mgr = makeManager();
-    (chrome.idle.queryState as any).mockImplementation((_i: number, cb: (s: string) => void) => cb('idle'));
-    await mgr.handleUpdated(1, { url: 'file:///home/bar/Dropbox/book/ch1.html' } as any, { active: true } as any);
-    expect(chrome.tabs.update).toHaveBeenCalledWith(1, { url: `${CARRIER}/home/bar/Dropbox/book/ch1.html` });
-  });
-
-  it('ignores file:// tabs NOT under a mapped prefix', async () => {
-    const mgr = makeManager();
-    await mgr.handleUpdated(1, { url: 'file:///home/bar/Downloads/x.pdf' } as any, { active: false } as any);
-    expect(chrome.tabs.update).not.toHaveBeenCalled();
-  });
-
-  it('ignores non-file URLs', async () => {
-    const mgr = makeManager();
-    await mgr.handleUpdated(1, { url: 'https://example.com' } as any, { active: false } as any);
-    expect(chrome.tabs.update).not.toHaveBeenCalled();
-  });
-});
-
-describe('CarrierTabManager.handleBeforeNavigate (decode on click)', () => {
-  it('hydrates an ACTIVE carrier tab to the machine-local file:// path', async () => {
-    const mgr = makeManager();
-    (chrome.tabs.get as any).mockResolvedValue({ active: true });
-    await mgr.handleBeforeNavigate({
-      frameId: 0, tabId: 5, url: `${CARRIER}/Users/foo/Dropbox/book/ch1.html`,
-    } as any);
-    expect(chrome.tabs.update).toHaveBeenCalledWith(5, {
-      url: 'file:///home/bar/Dropbox/book/ch1.html', // canonical -> localPrefix
-    });
-  });
-
-  it('leaves a BACKGROUND carrier tab as a carrier (sync-safe at rest)', async () => {
-    const mgr = makeManager();
-    (chrome.tabs.get as any).mockResolvedValue({ active: false });
-    await mgr.handleBeforeNavigate({
-      frameId: 0, tabId: 5, url: `${CARRIER}/Users/foo/Dropbox/book/ch1.html`,
-    } as any);
-    expect(chrome.tabs.update).not.toHaveBeenCalled();
-  });
-
-  it('falls back to the opener page when file access is disabled', async () => {
-    const mgr = makeManager();
-    (chrome.tabs.get as any).mockResolvedValue({ active: true });
-    (chrome.extension.isAllowedFileSchemeAccess as any).mockResolvedValue(false);
-    await mgr.handleBeforeNavigate({
-      frameId: 0, tabId: 5, url: `${CARRIER}/Users/foo/Dropbox/book/ch1.html`,
-    } as any);
-    expect(chrome.tabs.update).toHaveBeenCalledWith(5, {
-      url: expect.stringContaining('opener.html'),
-    });
-  });
-
-  it('ignores sub-frame navigations and non-carrier URLs', async () => {
-    const mgr = makeManager();
-    (chrome.tabs.get as any).mockResolvedValue({ active: true });
-    await mgr.handleBeforeNavigate({ frameId: 1, tabId: 5, url: `${CARRIER}/x` } as any);
-    await mgr.handleBeforeNavigate({ frameId: 0, tabId: 5, url: 'https://example.com' } as any);
-    expect(chrome.tabs.update).not.toHaveBeenCalled();
-  });
-});
-
-describe('CarrierTabManager.handleActivated (hydrate focus + encode the rest)', () => {
-  it('hydrates the newly-active carrier tab AND re-encodes other inactive file tabs', async () => {
-    const mgr = makeManager();
-    (chrome.tabs.get as any).mockResolvedValue({ active: true, url: `${CARRIER}/Users/foo/Dropbox/a.html` });
     (chrome.tabs.query as any).mockResolvedValue([
-      { id: 9, active: false, url: 'file:///home/bar/Dropbox/b.html' },
-      { id: 5, active: true, url: `${CARRIER}/Users/foo/Dropbox/a.html` }, // the active one — must be skipped
-      { id: 7, active: false, url: 'file:///home/bar/Downloads/skip.pdf' }, // unmapped — skip
+      { id: 1, url: 'file:///home/bar/Dropbox/a.html', index: 0, windowId: 5 },
+    ]);
+    await mgr.reconcile();
+    expect(chrome.tabs.create).toHaveBeenCalledWith({
+      url: `${CARRIER}/home/bar/Dropbox/a.html`,
+      active: false,
+      windowId: 5,
+      index: 1,
+    });
+  });
+
+  it('does NOTHING when the local tab already has a carrier sibling (pair complete)', async () => {
+    const mgr = makeManager();
+    (chrome.tabs.query as any).mockResolvedValue([
+      { id: 1, url: 'file:///home/bar/Dropbox/a.html', index: 0, windowId: 5 },
+      { id: 2, url: `${CARRIER}/home/bar/Dropbox/a.html`, index: 1, windowId: 5 },
+    ]);
+    await mgr.reconcile();
+    expect(chrome.tabs.create).not.toHaveBeenCalled();
+  });
+
+  it('never touches the live file:// tab (no tabs.update ever)', async () => {
+    const mgr = makeManager();
+    (chrome.tabs.query as any).mockResolvedValue([
+      { id: 1, url: 'file:///home/bar/Dropbox/a.html', index: 0, windowId: 5 },
+    ]);
+    await mgr.reconcile();
+    expect(chrome.tabs.update).not.toHaveBeenCalled();
+  });
+
+  it('ignores file tabs not under a synced root', async () => {
+    const mgr = makeManager();
+    (chrome.tabs.query as any).mockResolvedValue([
+      { id: 1, url: 'file:///home/bar/Downloads/x.pdf', index: 0, windowId: 5 },
+    ]);
+    await mgr.reconcile();
+    expect(chrome.tabs.create).not.toHaveBeenCalled();
+  });
+
+  it('CROSS-OS: a Mac-origin carrier pairs with a local Linux file → no duplicate carrier', async () => {
+    const mgr = makeManager();
+    (chrome.tabs.query as any).mockResolvedValue([
+      { id: 1, url: 'file:///home/bar/Dropbox/a.html', index: 0, windowId: 5 },        // local (Linux)
+      { id: 2, url: `${CARRIER}/Users/foo/Dropbox/a.html`, index: 1, windowId: 5 },    // carrier (Mac origin)
+    ]);
+    await mgr.reconcile();
+    // both normalize to ~/Dropbox/a.html → pair already exists → no new carrier
+    expect(chrome.tabs.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleActivated — Rule C: click a synced-in carrier → open a local sibling', () => {
+  it('opens the local file as a NEW sibling and keeps the carrier', async () => {
+    const mgr = makeManager();
+    const carrier = { id: 5, url: `${CARRIER}/Users/foo/Dropbox/a.html`, index: 0, windowId: 9 };
+    (chrome.tabs.get as any).mockResolvedValue(carrier);
+    (chrome.tabs.query as any).mockResolvedValue([carrier]); // no local sibling yet
+    await mgr.handleActivated({ tabId: 5 } as any);
+    expect(chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'file:///home/bar/Dropbox/a.html', // Mac path decoded to this Linux box via rule
+      active: true,
+      windowId: 9,
+      index: 1,
+    });
+  });
+
+  it('does NOTHING if a local sibling for that file already exists (no recursion)', async () => {
+    const mgr = makeManager();
+    const carrier = { id: 5, url: `${CARRIER}/Users/foo/Dropbox/a.html`, index: 0, windowId: 9 };
+    (chrome.tabs.get as any).mockResolvedValue(carrier);
+    (chrome.tabs.query as any).mockResolvedValue([
+      carrier,
+      { id: 6, url: 'file:///home/bar/Dropbox/a.html', index: 1, windowId: 9 }, // pair complete
     ]);
     await mgr.handleActivated({ tabId: 5 } as any);
-    // hydrated the active carrier tab 5 to local file://
-    expect(chrome.tabs.update).toHaveBeenCalledWith(5, { url: 'file:///home/bar/Dropbox/a.html' });
-    // encoded the other inactive mapped file tab 9 (home-relative)
-    expect(chrome.tabs.update).toHaveBeenCalledWith(9, { url: `${CARRIER}/home/bar/Dropbox/b.html` });
-    // did NOT touch the unmapped file tab 7
-    expect(chrome.tabs.update).not.toHaveBeenCalledWith(7, expect.anything());
+    expect(chrome.tabs.create).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the opener page when file access is off', async () => {
+    const mgr = makeManager();
+    const carrier = { id: 5, url: `${CARRIER}/Users/foo/Dropbox/a.html`, index: 0, windowId: 9 };
+    (chrome.tabs.get as any).mockResolvedValue(carrier);
+    (chrome.tabs.query as any).mockResolvedValue([carrier]);
+    (chrome.extension.isAllowedFileSchemeAccess as any).mockResolvedValue(false);
+    await mgr.handleActivated({ tabId: 5 } as any);
+    expect(chrome.tabs.create).toHaveBeenCalledWith(expect.objectContaining({
+      url: expect.stringContaining('opener.html'),
+      active: true,
+    }));
+  });
+
+  it('ignores activation of a plain file:// tab (learns home, creates nothing)', async () => {
+    const mgr = makeManager();
+    (chrome.tabs.get as any).mockResolvedValue({ id: 5, url: 'file:///home/bar/Dropbox/a.html' });
+    await mgr.handleActivated({ tabId: 5 } as any);
+    expect(chrome.tabs.create).not.toHaveBeenCalled();
   });
 });
 
-describe('CarrierTabManager.handleFocusChanged', () => {
-  it('on browser BLUR encodes ALL mapped file tabs, including the active one', async () => {
+describe('handleUpdated — a file tab loading triggers pairing', () => {
+  it('creates a carrier sibling when a file:// tab finishes loading', async () => {
     const mgr = makeManager();
     (chrome.tabs.query as any).mockResolvedValue([
-      { id: 1, active: true, url: 'file:///home/bar/Dropbox/a.html' },
-      { id: 2, active: false, url: 'file:///home/bar/Dropbox/b.html' },
+      { id: 1, url: 'file:///home/bar/Dropbox/a.html', index: 0, windowId: 5 },
     ]);
-    await mgr.handleFocusChanged(-1 /* WINDOW_ID_NONE */);
-    expect(chrome.tabs.update).toHaveBeenCalledWith(1, { url: `${CARRIER}/home/bar/Dropbox/a.html` });
-    expect(chrome.tabs.update).toHaveBeenCalledWith(2, { url: `${CARRIER}/home/bar/Dropbox/b.html` });
+    await mgr.handleUpdated(1, { url: 'file:///home/bar/Dropbox/a.html' } as any, {} as any);
+    expect(chrome.tabs.create).toHaveBeenCalledWith(expect.objectContaining({
+      url: `${CARRIER}/home/bar/Dropbox/a.html`, active: false,
+    }));
   });
 
-  it('on FOCUS gained, hydrates the focused window\'s active carrier tab', async () => {
+  it('ignores non-file url changes', async () => {
     const mgr = makeManager();
-    (chrome.tabs.query as any).mockResolvedValue([{ id: 7, active: true, url: `${CARRIER}/Users/foo/Dropbox/c.html` }]);
-    await mgr.handleFocusChanged(3);
-    expect(chrome.tabs.query).toHaveBeenCalledWith({ active: true, windowId: 3 });
-    expect(chrome.tabs.update).toHaveBeenCalledWith(7, { url: 'file:///home/bar/Dropbox/c.html' });
-  });
-});
-
-describe('CarrierTabManager.handleIdleState', () => {
-  it('on IDLE encodes ALL mapped file tabs including the active one', async () => {
-    const mgr = makeManager();
-    (chrome.tabs.query as any).mockResolvedValue([
-      { id: 1, active: true, url: 'file:///home/bar/Dropbox/a.html' },
-      { id: 2, active: false, url: 'file:///home/bar/Dropbox/b.html' },
-    ]);
-    await mgr.handleIdleState('idle' as any);
-    expect(chrome.tabs.update).toHaveBeenCalledWith(1, { url: `${CARRIER}/home/bar/Dropbox/a.html` });
-    expect(chrome.tabs.update).toHaveBeenCalledWith(2, { url: `${CARRIER}/home/bar/Dropbox/b.html` });
-  });
-  it('does nothing when the machine becomes ACTIVE (user is here)', async () => {
-    const mgr = makeManager();
-    (chrome.tabs.query as any).mockResolvedValue([{ id: 1, active: true, url: 'file:///home/bar/Dropbox/a.html' }]);
-    await mgr.handleIdleState('active' as any);
-    expect(chrome.tabs.update).not.toHaveBeenCalled();
-  });
-});
-
-describe('CarrierTabManager.sweepAtRest', () => {
-  it('encodes every mapped file tab EXCEPT the viewed (focused-window active) tab', async () => {
-    const mgr = makeManager();
-    (chrome.windows.getLastFocused as any).mockResolvedValue({ id: 2, focused: true });
-    (chrome.tabs.query as any).mockImplementation((q: any) => {
-      if (q && q.active && q.windowId != null) {
-        return Promise.resolve([{ id: 5, active: true, url: 'file:///home/bar/Dropbox/viewed.html' }]);
-      }
-      return Promise.resolve([
-        { id: 5, active: true, url: 'file:///home/bar/Dropbox/viewed.html' },       // the viewed tab
-        { id: 6, active: true, url: 'file:///home/bar/Dropbox/bgwin.html' },        // active in a NON-focused window
-        { id: 8, active: false, url: 'file:///home/bar/Dropbox/rest.html' },        // background
-      ]);
-    });
-    await mgr.sweepAtRest();
-    expect(chrome.tabs.update).not.toHaveBeenCalledWith(5, expect.anything());       // viewed -> untouched
-    expect(chrome.tabs.update).toHaveBeenCalledWith(6, { url: `${CARRIER}/home/bar/Dropbox/bgwin.html` });
-    expect(chrome.tabs.update).toHaveBeenCalledWith(8, { url: `${CARRIER}/home/bar/Dropbox/rest.html` });
+    await mgr.handleUpdated(1, { url: 'https://example.com' } as any, {} as any);
+    expect(chrome.tabs.create).not.toHaveBeenCalled();
   });
 });

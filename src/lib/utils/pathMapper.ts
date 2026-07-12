@@ -222,6 +222,33 @@ const OS_HOME_PREFIX: Record<LocalOs, string> = {
  * the user has opened any local file. Only sound when usernames match across
  * machines (the common case); a learned `localHome` always wins over this.
  */
+/**
+ * Normalize a file:// OR carrier URL to a home-relative KEY, so a local tab and
+ * its carrier sibling pair up even across machines/OSes. Both
+ * `file:///Users/kundeng/Dropbox/x` and `…/open/#/home/kundeng/Dropbox/x`
+ * → `~/Dropbox/x`. Returns null for non-file/non-carrier URLs. Files outside a
+ * synced home root fall back to their absolute path (still a stable key).
+ */
+export function pairKey(
+  url: string,
+  localHome: string | null,
+  roots: string[] = DEFAULT_CARRIER_ROOTS,
+): string | null {
+  let path: string | null = null;
+  if (isFileUrl(url)) {
+    path = extractPath(url);
+  } else if (isCarrierUrl(url)) {
+    const frag = url.slice(url.indexOf('#') + 1);
+    const cpath = frag.split(/[?#]/)[0];
+    if (cpath.startsWith('~')) return decodePath(cpath); // legacy ~ carrier: already relative
+    path = cpath;
+  } else {
+    return null;
+  }
+  const decoded = decodePath(path);
+  return homeRelativePath(decoded, localHome, roots) ?? decoded;
+}
+
 export function inferLocalHome(sourceHome: string, localOs: LocalOs | null): string | null {
   if (!localOs) return null;
   const prefix = OS_HOME_PREFIX[localOs];
