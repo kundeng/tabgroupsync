@@ -7,7 +7,6 @@ import {
   localize,
   areSameFile,
   encodeCarrier,
-  decodeCarrier,
   isCarrierUrl,
   pathHasMapping,
   CARRIER_HOST,
@@ -220,12 +219,7 @@ describe('carrier encode/decode', () => {
     expect(isCarrierUrl(c)).toBe(true);
   });
 
-  it('decodes a carrier back to the original file:// URL', () => {
-    const c = `https://${CARRIER_HOST}${CARRIER_PATH}#/Users/foo/Dropbox/book/ch1.html`;
-    expect(decodeCarrier(c)).toBe('file:///Users/foo/Dropbox/book/ch1.html');
-  });
-
-  it('is a lossless bijection for arbitrary file:// URLs (incl. windows, encoded, fragments-in-name)', () => {
+  it('encodes arbitrary file:// URLs (incl. windows, encoded, fragments-in-name) into carriers', () => {
     const urls = [
       'file:///home/bar/Dropbox/doc.pdf',
       'file:///C:/Users/foo/My%20Documents/a.html',
@@ -233,15 +227,15 @@ describe('carrier encode/decode', () => {
       'file:///a/b/c.html',
     ];
     for (const u of urls) {
-      expect(decodeCarrier(encodeCarrier(u))).toBe(u);
+      const c = encodeCarrier(u);
+      expect(isCarrierUrl(c)).toBe(true);
+      expect(c).toBe(`https://${CARRIER_HOST}${CARRIER_PATH}#${u.slice('file://'.length)}`);
     }
   });
 
-  it('is a no-op on non-file URLs (encode) and non-carrier URLs (decode)', () => {
+  it('encodeCarrier is a no-op on non-file URLs', () => {
     expect(encodeCarrier('https://example.com/x')).toBe('https://example.com/x');
     expect(encodeCarrier('edge://settings')).toBe('edge://settings');
-    expect(decodeCarrier('https://example.com/x')).toBe('https://example.com/x');
-    expect(decodeCarrier('file:///a/b')).toBe('file:///a/b');
   });
 
   it('isCarrierUrl only matches the carrier host + /open# prefix', () => {

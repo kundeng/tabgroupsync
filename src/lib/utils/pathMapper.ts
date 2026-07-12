@@ -152,12 +152,9 @@ export function encodeCarrier(fileUrl: string): string {
   return CARRIER_PREFIX + fileUrl.slice(FILE_PROTOCOL.length);
 }
 
-// https://HOST/open#/Users/a/b.html  ->  file:///Users/a/b.html
-export function decodeCarrier(carrierUrl: string): string {
-  if (!isCarrierUrl(carrierUrl)) return carrierUrl;
-  const hashIdx = carrierUrl.indexOf('#');
-  return FILE_PROTOCOL + carrierUrl.slice(hashIdx + 1);
-}
+// NOTE: the naive `decodeCarrier` (file://` + everything-after-#) was REMOVED —
+// it produced un-openable `file://~/…` for home-relative carriers. Decode goes
+// through `carrierToFileUrl` (home-swap + rules), never a raw prefix strip.
 
 /**
  * Scope guard (ratified decision 2): only rewrite file:// tabs whose path is

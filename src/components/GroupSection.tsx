@@ -30,6 +30,7 @@ import {
 } from '@mui/icons-material';
 import { GroupViewModel } from '../lib/types/storage';
 import { StorageManager } from '../lib/storage/storageManager';
+import { localize } from '../lib/utils/pathMapper';
 import SnapshotList from './SnapshotList';
 import MoveGroupDialog from './MoveGroupDialog';
 
@@ -120,16 +121,9 @@ export default function GroupSection({
     return (store?.machines?.[mid]?.rules || []) as Array<{canonicalPrefix: string; localPrefix: string}>;
   };
 
-  const localizeUrl = (url: string, rules: Array<{canonicalPrefix: string; localPrefix: string}>) => {
-    if (!url.startsWith('file://')) return url;
-    for (const rule of rules) {
-      const canon = rule.canonicalPrefix.replace(/\/$/, '');
-      if (url.startsWith('file://' + canon + '/') || url === 'file://' + canon) {
-        return 'file://' + rule.localPrefix.replace(/\/$/, '') + url.slice(7 + canon.length);
-      }
-    }
-    return url;
-  };
+  // Canonical → this-machine local path via the shared, tested pathMapper.
+  const localizeUrl = (url: string, rules: Array<{canonicalPrefix: string; localPrefix: string}>) =>
+    localize(url, { machineId: '', rules });
 
   const handleRestoreAction = async (group: GroupViewModel, mode: 'all' | 'missing' | 'files' | 'replace') => {
     if (!group.folder?.id) return;

@@ -28,6 +28,7 @@ import { StorageManager } from '../lib/storage/storageManager';
 import { SyncEngine } from '../lib/sync/syncEngine';
 import { BookmarkManager } from '../lib/bookmarks/bookmarkManager';
 import { Logger } from '../lib/utils/logger';
+import { localize } from '../lib/utils/pathMapper';
 import LocationDisplay from './LocationDisplay';
 
 interface SettingsProps {
@@ -691,14 +692,7 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
 
                             const created: chrome.tabs.Tab[] = [];
                             for (const bm of fileUrls) {
-                              let resolved = bm.url!;
-                              for (const rule of rules) {
-                                const canon = rule.canonicalPrefix.replace(/\/$/, '');
-                                if (resolved.startsWith('file://' + canon + '/') || resolved === 'file://' + canon) {
-                                  resolved = 'file://' + rule.localPrefix.replace(/\/$/, '') + resolved.slice(7 + canon.length);
-                                  break;
-                                }
-                              }
+                              const resolved = localize(bm.url!, { machineId: '', rules });
                               if (openUrls.has(resolved)) continue;
                               const tab = await chrome.tabs.create({ url: resolved, active: false });
                               created.push(tab);
