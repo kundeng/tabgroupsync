@@ -77,9 +77,6 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
   const [error, setError] = React.useState<string | null>(null);
   const [exportImportStatus, setExportImportStatus] = React.useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [pathMappingsExpanded, setPathMappingsExpanded] = React.useState(false);
-  const [machineId, setMachineId] = React.useState('');
-  const [mappingRules, setMappingRules] = React.useState<Array<{ canonicalPrefix: string; localPrefix: string }>>([]);
-  const [isEdge, setIsEdge] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const logger = Logger.getInstance();
 
@@ -123,52 +120,6 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
     }
   }, [logger]);
 
-  React.useEffect(() => {
-    setIsEdge(navigator.userAgent.includes('Edg/'));
-  }, []);
-
-  React.useEffect(() => {
-    if (open) {
-      chrome.storage.local.get('machineId').then((data: Record<string, unknown>) => {
-        if (data.machineId) setMachineId(data.machineId as string);
-      });
-      chrome.storage.sync.get('state:pathMappings').then((data: Record<string, unknown>) => {
-
-        const store = data['state:pathMappings'] as { machines: Record<string, { rules: Array<{ canonicalPrefix: string; localPrefix: string }> }> } | undefined;
-        if (store) {
-          chrome.storage.local.get('machineId').then((local: Record<string, unknown>) => {
-            const mid = local.machineId as string;
-
-            if (mid && store.machines[mid]?.rules?.length > 0) {
-              setMappingRules(store.machines[mid].rules);
-            }
-          });
-        }
-      });
-    }
-  }, [open]);
-
-  const savePathMappings = React.useCallback(async (id: string, rules: Array<{ canonicalPrefix: string; localPrefix: string }>) => {
-    if (!id.trim()) return;
-    await chrome.storage.local.set({ machineId: id.trim() });
-    const data = await chrome.storage.sync.get('state:pathMappings') as Record<string, unknown>;
-    const store = (data['state:pathMappings'] || { machines: {} }) as { machines: Record<string, unknown> };
-    store.machines[id.trim()] = {
-      machineId: id.trim(),
-      rules: rules.filter(r => r.canonicalPrefix.trim() && r.localPrefix.trim())
-    };
-    await chrome.storage.sync.set({ 'state:pathMappings': store });
-
-  }, []);
-
-  // Auto-save path mappings on change (debounced)
-  React.useEffect(() => {
-    if (!pathMappingsExpanded || !machineId.trim()) return;
-    const timer = setTimeout(() => {
-      savePathMappings(machineId, mappingRules);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [machineId, mappingRules, pathMappingsExpanded, savePathMappings]);
 
   React.useEffect(() => {
     loadSettings();
@@ -556,94 +507,15 @@ export default function Settings({ storage, syncEngine, bookmarkManager }: Setti
                 sx={{ mb: 1.5, color: 'text.secondary', cursor: 'pointer', userSelect: 'none' }}
                 onClick={() => setPathMappingsExpanded(!pathMappingsExpanded)}
               >
-                {pathMappingsExpanded ? '▾' : '▸'} Path Mappings (file:// sync)
+                {pathMappingsExpanded ? '▾' : '▸'} Local files (file://)
               </Typography>
               {pathMappingsExpanded && (
                 <Box sx={{ ml: 1 }}>
-                  <Box sx={{ mb: 1.5 }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                      Machine ID
-                    </Typography>
-                    <input
-                      type="text"
-                      value={machineId}
-                      onChange={e => setMachineId(e.target.value)}
-                      placeholder="e.g., linux-home, macbook-work"
-                      style={{
-                        width: '100%', padding: '6px 8px', fontSize: '13px',
-                        border: '1px solid #dadce0', borderRadius: '4px',
-                        fontFamily: 'inherit', background: 'transparent', color: 'inherit'
-                      }}
-                    />
-                  </Box>
-                  {mappingRules.map((rule, i) => (
-                    <Box key={i} sx={{ display: 'flex', gap: 0.5, mb: 0.75, alignItems: 'center' }}>
-                      <input
-                        type="text"
-                        value={rule.canonicalPrefix}
-                        onChange={e => {
-                          const updated = [...mappingRules];
-                          updated[i] = { ...updated[i], canonicalPrefix: e.target.value };
-                          setMappingRules(updated);
-                        }}
-                        placeholder="Canonical prefix"
-                        style={{
-                          flex: 1, padding: '4px 6px', fontSize: '12px',
-                          border: '1px solid #dadce0', borderRadius: '4px',
-                          fontFamily: 'monospace', background: 'transparent', color: 'inherit'
-                        }}
-                      />
-                      <Typography variant="caption" sx={{ color: 'text.secondary', px: 0.25 }}>
-                        {'→'}
-                      </Typography>
-                      <input
-                        type="text"
-                        value={rule.localPrefix}
-                        onChange={e => {
-                          const updated = [...mappingRules];
-                          updated[i] = { ...updated[i], localPrefix: e.target.value };
-                          setMappingRules(updated);
-                        }}
-                        placeholder="This machine's prefix"
-                        style={{
-                          flex: 1, padding: '4px 6px', fontSize: '12px',
-                          border: '1px solid #dadce0', borderRadius: '4px',
-                          fontFamily: 'monospace', background: 'transparent', color: 'inherit'
-                        }}
-                      />
-                      <Button
-                        size="small"
-                        sx={{ minWidth: 24, p: 0, fontSize: '14px' }}
-                        onClick={() => {
-                          const updated = mappingRules.filter((_, j) => j !== i);
-                          setMappingRules(updated);
-                          savePathMappings(machineId, updated);
-                        }}
-                      >
-                        {'✕'}
-                      </Button>
-                    </Box>
-                  ))}
-                  <Button
-                    size="small"
-                    variant="text"
-                    onClick={() => setMappingRules([...mappingRules, { canonicalPrefix: '', localPrefix: '' }])}
-                  >
-                    + Add mapping
-                  </Button>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                    Map path prefixes so file:// bookmarks open correctly across machines.
-                    The canonical prefix is what gets stored in bookmarks.
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                    file:// bookmarks now map across machines automatically (home paths
+                    like /Users/you ⇄ /home/you are swapped on open) — no per-machine
+                    rules needed.
                   </Typography>
-
-                  {isEdge && mappingRules.length > 0 && (
-                    <Alert severity="warning" sx={{ mt: 1.5, fontSize: '12px' }}>
-                      <strong>Edge Workspace warning:</strong> Edge shows file:// tabs as
-                      "workspace unsupported" on remote machines. Closing these phantom
-                      tabs will close the real tab on the source machine. Consider removing
-                      file:// tab groups from Edge Workspaces.
-                    </Alert>
-                  )}
 
                   <Box sx={{ mt: 1.5 }}>
                     <Button

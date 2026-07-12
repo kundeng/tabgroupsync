@@ -43,8 +43,20 @@ in storage).
 - Snapshots, core bookmark tab-group sync.
 
 ## Checklist
-- [ ] `localizeFileUrl()` in pathMapper + refactor `carrierToFileUrl` to use it
-- [ ] unit tests (rule-wins, home-swap, OS-inference, raw fallback)
-- [ ] wire into GroupSection / SearchBar / Settings / background restore
-- [ ] retire path-mapping Settings UI (keep fallback logic)
-- [ ] build + full suite green
+- [x] `localizeFileUrl()` in pathMapper + refactor `carrierToFileUrl` to use it
+- [x] `osFromUserAgent()` shared by SW + popup
+- [x] unit tests (rule-wins, home-swap cross-OS + cross-user, OS-inference, raw fallback)
+- [x] wire into GroupSection / SearchBar / Settings bulk-open / 3 background restore handlers
+- [x] retire path-mapping Settings UI — removed the rules editor + Machine ID input +
+      state/effects; KEPT the "Open all file:// tabs" action + FileAccessBanner + the
+      `localize()`/`rules` fallback (bulk-open still reads rules from storage). Section
+      renamed "Path Mappings" → "Local files (file://)" with a note that mapping is now
+      automatic.
+- [x] build + full suite green (410 pass)
+
+## Not done (deliberately)
+- Existing bookmarks are NOT migrated — they were stored via manual `canonicalize`
+  (raw path if zero-config). Home-swap on restore handles raw absolute paths fine, so
+  no migration needed. The `canonicalize`-on-SAVE path (bookmarkManager) is unchanged;
+  could later be simplified to store raw absolute + rely on restore home-swap, but left
+  alone to avoid churn.
