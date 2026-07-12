@@ -89,9 +89,17 @@ allows it — that's why the bed runs on bayes-pop, not f0.) See memory
 - [x] Unit tests for reconcile/pairing/dedupe/recursion (11 tests).
 - [x] Live on the test bed (9223): file tab stays `file://` (state preserved),
       exactly one carrier sibling, reconcile again = no duplicate. ✅
-- [ ] STILL TO VERIFY LIVE: carrier sibling syncs to the peer device + Rule C
-      (activate synced-in carrier on the peer → opens a local sibling). Transport
-      + decode are proven separately (earlier carrier-sync tests + unit tests); a
-      clean end-to-end pass on the bed is pending (last run closed the tab too fast).
+- [x] Rule C verified LIVE on the bed (9223): activating a synced-in carrier with
+      no local sibling opened a `file://` sibling AND kept the carrier. ✅
+- [~] Cross-device carrier sync on the bed (9223→9222) did **not** propagate this
+      run (0 hits in 9222's Sync Data after 90s). Likely cause: the bed's two
+      instances share only the *account*, not an open **Workspace** — and plain
+      "open tabs" (sessions) sync between a same-machine copy-device and the
+      default doesn't propagate like Workspace sync does. Edge Workspaces can't be
+      opened via CDP, so the bed can't reproduce the Workspace-sync leg. That leg
+      was already proven separately on real devices (bayes-pop → bayes-f0: carrier
+      with `#fragment` intact in the peer's Sync Data). **Bed is great for driving
+      both ends' LOGIC; the Workspace-sync propagation still needs a real shared
+      Workspace to observe.**
 - [ ] FOLLOW-UP: orphan-carrier removal (safe heuristic to distinguish an orphan
       from a synced-in-not-yet-opened carrier). Deferred; carriers persist for now.
