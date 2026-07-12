@@ -1,7 +1,17 @@
 # Design v3: Live-Tab HTTPS Carrier (Workspace-Safe file:// Sync)
 
-**Status:** DRAFT for review — supersedes v1 (bookmark filter) and v2 (bookmark
-carrier). 2026-07-11.
+> ⛔ **SUPERSEDED by v4 (`design-carrier-v4-sibling.md`), 2026-07-11.** v3's core
+> move — REWRITING a live `file://` tab to a carrier at rest and back on focus —
+> is a cross-origin navigation, i.e. a full **page reload**, which destroys the
+> in-memory state of stateful local pages. That's inherent, not fixable, so the
+> manager was rewritten to the **sibling-tab** model (never touch the live tab;
+> create a carrier sibling that syncs). KEEP reading v3 only for the still-valid
+> parts it pioneered: the absolute-carrier encoding + decode-time home-swap +
+> bootstrap OS-inference (all live in `pathMapper` and carried into v4). Do NOT
+> reintroduce the in-place rewrite.
+
+**Status:** SUPERSEDED (was: DRAFT). Superseded v1 (bookmark filter) and v2
+(bookmark carrier). 2026-07-11.
 
 ## Why v3 exists (corrected premise)
 
