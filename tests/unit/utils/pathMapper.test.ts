@@ -16,6 +16,7 @@ import {
   fileUrlToCarrier,
   carrierToFileUrl,
   inferLocalHome,
+  localizeFileUrl,
   shouldCarrier,
 } from '../../../src/lib/utils/pathMapper';
 import type { PathMappingConfig } from '../../../src/lib/types/storage';
@@ -326,6 +327,30 @@ describe('home-relative round-trip (cross-OS)', () => {
     const macFile = 'file:///Users/kundeng/Dropbox/book/ch1.html';
     const carrier = fileUrlToCarrier(macFile, null, emptyConfig);
     expect(carrierToFileUrl(carrier, '/home/kundeng', emptyConfig)).toBe('file:///home/kundeng/Dropbox/book/ch1.html');
+  });
+});
+
+describe('localizeFileUrl — portable file:// restore (zero-config home-swap)', () => {
+  it('manual rule wins when one matches', () => {
+    const cfg: PathMappingConfig = { machineId: 'm', rules: [{ canonicalPrefix: '/data/x', localPrefix: '/mnt/x' }] };
+    expect(localizeFileUrl('file:///data/x/a.html', null, cfg)).toBe('file:///mnt/x/a.html');
+  });
+  it('home-swaps a cross-OS path with learned home (no rules)', () => {
+    // a bookmark saved on a Mac, restored on this Linux box
+    expect(localizeFileUrl('file:///Users/kundeng/Dropbox/a.html', '/home/kundeng', emptyConfig))
+      .toBe('file:///home/kundeng/Dropbox/a.html');
+  });
+  it('home-swaps across DIFFERENT usernames', () => {
+    expect(localizeFileUrl('file:///Users/alice/Dropbox/a.html', '/home/bob', emptyConfig))
+      .toBe('file:///home/bob/Dropbox/a.html');
+  });
+  it('infers this machine home from OS + source username when home unknown (bootstrap)', () => {
+    expect(localizeFileUrl('file:///Users/kundeng/Dropbox/a.html', null, emptyConfig, 'linux'))
+      .toBe('file:///home/kundeng/Dropbox/a.html');
+  });
+  it('returns as-is when nothing applies (same layout / unknown home)', () => {
+    expect(localizeFileUrl('file:///home/kundeng/Dropbox/a.html', null, emptyConfig)).toBe('file:///home/kundeng/Dropbox/a.html');
+    expect(localizeFileUrl('https://example.com', '/home/kundeng', emptyConfig)).toBe('https://example.com');
   });
 });
 

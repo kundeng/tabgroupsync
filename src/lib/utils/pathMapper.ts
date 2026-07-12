@@ -206,6 +206,15 @@ export function homeFromFileUrl(fileUrl: string): string | null {
 }
 
 export type LocalOs = 'mac' | 'linux' | 'win';
+
+/** This machine's OS family from a userAgent string (pure; caller passes navigator.userAgent). */
+export function osFromUserAgent(ua: string): LocalOs | null {
+  if (/Macintosh|Mac OS X/.test(ua)) return 'mac';
+  if (/Windows/.test(ua)) return 'win';
+  if (/Linux|X11|CrOS/.test(ua)) return 'linux';
+  return null;
+}
+
 const OS_HOME_PREFIX: Record<LocalOs, string> = {
   mac: '/Users/',
   linux: '/home/',
@@ -335,22 +344,37 @@ export function carrierToFileUrl(
     if (!localHome) return null;
     return FILE_PROTOCOL + localHome + cpath.slice(1) + suffix;
   }
-  // Absolute carrier. Explicit manual mapping rules are user config — they win
-  // when one matches.
-  const raw = FILE_PROTOCOL + cpath + suffix;
-  const ruled = localize(raw, config);
-  if (ruled !== raw) return ruled;
-  // Zero-config: swap the SOURCE machine's home prefix for THIS machine's home —
-  // handles /Users/<u> ⇄ /home/<u> ⇄ /C:/Users/<u> and differing usernames.
-  // Prefer the LEARNED localHome; if not learned yet (bootstrap), infer it from
-  // this machine's OS + the source username. Otherwise return the raw absolute
-  // path (still a valid file:// — opens on a same-layout peer).
-  const srcHome = detectHome(cpath);
+  // Absolute carrier → reconstruct the file:// and localize it to this machine.
+  return localizeFileUrl(FILE_PROTOCOL + cpath + suffix, localHome, config, localOs);
+}
+
+/**
+ * Map ANY file:// URL to THIS machine's local path. Shared by carrier decode
+ * (absolute branch) AND bookmark restore, so saved `file://` bookmarks are
+ * portable ZERO-CONFIG. Order of precedence:
+ *   1. explicit manual mapping rule (user config wins);
+ *   2. home-swap the detected source-home prefix → this machine's `localHome`
+ *      (/home/<u> ⇄ /Users/<u> ⇄ /C:/Users/<u>, incl. differing usernames);
+ *   3. if home not learned yet, infer it from this machine's OS + source username;
+ *   4. else return as-is (still valid on a same-layout peer).
+ */
+export function localizeFileUrl(
+  fileUrl: string,
+  localHome: string | null,
+  config: PathMappingConfig,
+  localOs: LocalOs | null = null,
+): string {
+  if (!isFileUrl(fileUrl)) return fileUrl;
+  const ruled = localize(fileUrl, config);
+  if (ruled !== fileUrl) return ruled;                 // a manual rule matched
+  const path = extractPath(fileUrl);
+  const suffix = fileUrl.slice(FILE_PROTOCOL.length + path.length);
+  const srcHome = detectHome(path);
   if (srcHome) {
     const target = localHome || inferLocalHome(srcHome, localOs);
     if (target && target !== srcHome) {
-      return FILE_PROTOCOL + target + cpath.slice(srcHome.length) + suffix;
+      return FILE_PROTOCOL + target + path.slice(srcHome.length) + suffix;
     }
   }
-  return raw;
+  return fileUrl;
 }

@@ -14,7 +14,7 @@ import {
   OpenInNew as OpenIcon,
 } from '@mui/icons-material';
 import uFuzzy from '@leeoniya/ufuzzy';
-import { localize } from '../lib/utils/pathMapper';
+import { localizeFileUrl, osFromUserAgent } from '../lib/utils/pathMapper';
 
 interface SearchResult {
   url: string;
@@ -140,13 +140,15 @@ export default function SearchBar() {
     } else {
       const [syncData, localData] = await Promise.all([
         chrome.storage.sync.get('state:pathMappings'),
-        chrome.storage.local.get('machineId')
+        chrome.storage.local.get(['machineId', 'localHome'])
       ]);
       const store = syncData['state:pathMappings'] as any;
       const mid = localData.machineId as string;
       const rules = (store?.machines?.[mid]?.rules || []) as Array<{canonicalPrefix: string; localPrefix: string}>;
 
-      const resolved = item.isFile ? localize(item.url, { machineId: '', rules }) : item.url;
+      const resolved = item.isFile
+        ? localizeFileUrl(item.url, (localData.localHome as string) || null, { machineId: '', rules }, osFromUserAgent(navigator.userAgent))
+        : item.url;
       await chrome.tabs.create({ url: resolved, active: true });
     }
   };

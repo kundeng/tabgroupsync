@@ -8,7 +8,10 @@ import { Logger } from './lib/utils/logger';
 import { SyncEngine } from './lib/sync/syncEngine';
 import { SnapshotManager } from './lib/bookmarks/snapshotManager';
 import { scanPrefixCruft, executePrefixCruftCleanup } from './lib/bookmarks/cleanupPrefixCruft';
-import { isFileUrl, localize, CARRIER_HOST, CARRIER_PATH } from './lib/utils/pathMapper';
+import { isFileUrl, localizeFileUrl, osFromUserAgent, CARRIER_HOST, CARRIER_PATH } from './lib/utils/pathMapper';
+
+// This machine's OS family (for zero-config home-swap when restoring file:// bookmarks).
+const LOCAL_OS = osFromUserAgent((typeof navigator !== 'undefined' && navigator.userAgent) || '');
 import { CarrierTabManager } from './lib/carrierTabManager';
 
 // Initialize logger
@@ -654,11 +657,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return;
         }
 
-        // Create tabs for each URL, applying path mapping for file:// URLs
+        // Create tabs for each URL, mapping file:// URLs to this machine (rules + home-swap)
         const mappingConfig = await storage.getPathMappingConfig();
+        const { localHome } = await chrome.storage.local.get('localHome');
         const createdTabs: chrome.tabs.Tab[] = [];
         for (const url of urls) {
-          const resolvedUrl = isFileUrl(url) ? localize(url, mappingConfig) : url;
+          const resolvedUrl = localizeFileUrl(url, (localHome as string) ?? null, mappingConfig, LOCAL_OS);
           try {
             const tab = await chrome.tabs.create({ url: resolvedUrl, active: false });
             createdTabs.push(tab);
@@ -709,6 +713,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       try {
         const mappingConfig = await storage.getPathMappingConfig();
+        const { localHome } = await chrome.storage.local.get('localHome');
         const settings = await storage.getSettings();
         if (!settings.containerFolderId) {
           sendResponse({ error: 'No container folder configured' });
@@ -746,7 +751,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           const createdTabs: chrome.tabs.Tab[] = [];
           for (const bm of fileUrls) {
-            const resolvedUrl = localize(bm.url!, mappingConfig);
+            const resolvedUrl = localizeFileUrl(bm.url!, (localHome as string) ?? null, mappingConfig, LOCAL_OS);
             if (existingTabUrls.has(resolvedUrl)) continue;
             try {
               const tab = await chrome.tabs.create({ url: resolvedUrl, active: false });
@@ -794,6 +799,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         const mappingConfig = await storage.getPathMappingConfig();
+        const { localHome } = await chrome.storage.local.get('localHome');
         const bookmarks = await chrome.bookmarks.getChildren(folderId);
         const fileUrls = bookmarks.filter(b => b.url && isFileUrl(b.url));
 
@@ -813,7 +819,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         const createdTabs: chrome.tabs.Tab[] = [];
         for (const bm of fileUrls) {
-          const resolvedUrl = localize(bm.url!, mappingConfig);
+          const resolvedUrl = localizeFileUrl(bm.url!, (localHome as string) ?? null, mappingConfig, LOCAL_OS);
           if (existingTabUrls.has(resolvedUrl)) continue;
           try {
             const tab = await chrome.tabs.create({ url: resolvedUrl, active: false });

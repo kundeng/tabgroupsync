@@ -30,7 +30,7 @@ import {
 } from '@mui/icons-material';
 import { GroupViewModel } from '../lib/types/storage';
 import { StorageManager } from '../lib/storage/storageManager';
-import { localize } from '../lib/utils/pathMapper';
+import { localizeFileUrl, osFromUserAgent } from '../lib/utils/pathMapper';
 import SnapshotList from './SnapshotList';
 import MoveGroupDialog from './MoveGroupDialog';
 
@@ -111,30 +111,36 @@ export default function GroupSection({
     return `Last seen ${days} days ago`;
   };
 
-  const getMappingRules = async () => {
+  // Fetch everything needed to map a saved bookmark URL to THIS machine's local
+  // path: manual rules (fallback) + learned home + OS (for zero-config home-swap).
+  const getMapping = async () => {
     const [syncData, localData] = await Promise.all([
       chrome.storage.sync.get('state:pathMappings'),
-      chrome.storage.local.get('machineId')
+      chrome.storage.local.get(['machineId', 'localHome'])
     ]);
     const store = syncData['state:pathMappings'] as any;
     const mid = localData.machineId as string;
-    return (store?.machines?.[mid]?.rules || []) as Array<{canonicalPrefix: string; localPrefix: string}>;
+    return {
+      rules: (store?.machines?.[mid]?.rules || []) as Array<{canonicalPrefix: string; localPrefix: string}>,
+      localHome: (localData.localHome as string) || null,
+      localOs: osFromUserAgent(navigator.userAgent),
+    };
   };
 
-  // Canonical → this-machine local path via the shared, tested pathMapper.
-  const localizeUrl = (url: string, rules: Array<{canonicalPrefix: string; localPrefix: string}>) =>
-    localize(url, { machineId: '', rules });
+  // Saved bookmark URL → this-machine local path (rules, then zero-config home-swap).
+  const localizeUrl = (url: string, m: Awaited<ReturnType<typeof getMapping>>) =>
+    localizeFileUrl(url, m.localHome, { machineId: '', rules: m.rules }, m.localOs);
 
   const handleRestoreAction = async (group: GroupViewModel, mode: 'all' | 'missing' | 'files' | 'replace') => {
     if (!group.folder?.id) return;
     setMenuAnchor(null);
     setRestoringFiles(prev => ({ ...prev, [group.id]: true }));
     try {
-      const rules = await getMappingRules();
+      const mapping = await getMapping();
       const bookmarks = await chrome.bookmarks.getChildren(group.folder.id);
       const bmUrls = bookmarks.filter(b => b.url).map(b => ({
         original: b.url!,
-        resolved: localizeUrl(b.url!, rules)
+        resolved: localizeUrl(b.url!, mapping)
       }));
 
       if (mode === 'files') {

@@ -8,6 +8,7 @@ import {
   shouldCarrier,
   homeFromFileUrl,
   pairKey,
+  osFromUserAgent,
   CARRIER_HOST,
   type LocalOs,
 } from './utils/pathMapper';
@@ -16,11 +17,7 @@ type Cfg = Awaited<ReturnType<StorageManager['getPathMappingConfig']>>;
 
 /** This machine's OS family from the SW's navigator — for bootstrap home inference. */
 function detectOs(): LocalOs | null {
-  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
-  if (/Macintosh|Mac OS X/.test(ua)) return 'mac';
-  if (/Windows/.test(ua)) return 'win';
-  if (/Linux|X11|CrOS/.test(ua)) return 'linux';
-  return null;
+  return osFromUserAgent((typeof navigator !== 'undefined' && navigator.userAgent) || '');
 }
 
 /**
